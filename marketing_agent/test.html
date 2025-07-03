@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>API 테스트</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .response {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f1f3f5;
+      border-left: 5px solid #007bff;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .error {
+      color: #dc3545;
+      background-color: #f8d7da;
+      border-left-color: #dc3545;
+    }
+    .template-card {
+      margin-bottom: 15px;
+      padding: 15px;
+      background: #ffffff;
+      border: 2px solid #e9ecef;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .template-title {
+      font-weight: bold;
+      color: #495057;
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+    .template-content {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.4;
+      color: #212529;
+      border-left: 4px solid #007bff;
+    }
+    .template-meta {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #6c757d;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>솔로프리너 마케팅 상담 챗봇</h1>
+    <label for="question">질문 입력</label>
+    <textarea id="question" placeholder="예: 생일 축하 메시지 템플릿 추천해줘"></textarea>
+    <button onclick="sendRequest()">API 호출</button>
+    <div id="response" class="response" style="display:none;"></div>
+  </div>
+
+  <script>
+    async function sendRequest() {
+      const question = document.getElementById('question').value;
+      const responseDiv = document.getElementById('response');
+      
+      if (!question.trim()) {
+        alert('질문을 입력해주세요!');
+        return;
+      }
+
+      responseDiv.style.display = 'block';
+      responseDiv.className = 'response';
+      responseDiv.innerHTML = '⏳ 로딩 중...';
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/agent/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            user_id: 2,
+            question: question,
+            conversation_id: 2
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("✅ 받은 응답:", data);
+        
+        let resultHtml = `<strong>💬 답변:</strong><br>${data.answer}<br><br>`;
+        
+        // 🔧 템플릿이 있는 경우 렌더링
+        if (data.templates && Array.isArray(data.templates) && data.templates.length > 0) {
+          resultHtml += "<strong>📑 추천 템플릿:</strong><br><br>";
+          
+          data.templates.forEach((template, index) => {
+            resultHtml += `
+              <div class="template-card">
+                <div class="template-title">📝 ${template.title || '제목 없음'}</div>
+                <div class="template-content">${template.content || '내용 없음'}</div>
+                <div class="template-meta">
+                  유형: ${template.template_type || '미분류'} | 
+                  채널: ${template.channel_type || '전체'}
+                </div>
+              </div>
+            `;
+          });
+          resultHtml += "<br>";
+        }
+        
+        // 참고 문서가 있는 경우 추가
+        if (data.sources && data.sources.trim()) {
+          resultHtml += `<strong>📚 참고 문서:</strong><br>${data.sources}`;
+        }
+        
+        // 디버그 정보 추가
+        if (data.debug_info) {
+          resultHtml += `<br><small><strong>🔍 디버그:</strong> ${JSON.stringify(data.debug_info, null, 2)}</small>`;
+        }
+
+        responseDiv.className = 'response';
+        responseDiv.innerHTML = resultHtml;
+        
+      } catch (error) {
+        responseDiv.className = 'response error';
+        responseDiv.innerHTML = `❌ 오류 발생: ${error.message}`;
+      }
+    }
+
+    document.getElementById('question').addEventListener('keydown', function (e) {
+      if (e.ctrlKey && e.key === 'Enter') sendRequest();
+    });
+  </script>
+</body>
+</html>
