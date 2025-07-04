@@ -14,3 +14,8 @@ def decrypt_token(token_enc: str) -> str:
     if token_enc is None:
         return None
     return fernet.decrypt(token_enc.encode()).decode()
+
+
+# 사용 예시:
+# decrypted_access_token = decrypt_token(user.access_token)
+# decrypted_refresh_token = decrypt_token(user.refresh_token)
