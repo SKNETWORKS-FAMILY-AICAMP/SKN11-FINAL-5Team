@@ -1,18 +1,19 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Conversation
 from app.schemas import ChatRequest, ChatResponse, ConversationCreate, UserCreate, SocialLoginRequest
 from app.mental_agent_graph import build_mental_graph
-from app.crud import create_message, create_user, get_user_by_social, create_user_social
+from app.crud import create_message,  get_user_by_social, create_user_social
 import requests
 import os
 
 app = FastAPI()
 router = APIRouter()
 
-from dotenv import load_dotenv
-load_dotenv()
+
 
 def get_db():
     db = SessionLocal()
@@ -59,18 +60,8 @@ def create_conversation(req: ConversationCreate, db: Session = Depends(get_db)):
     db.refresh(conv)
     return {"conversation_id": conv.conversation_id}
 
-@app.post("/signup")
-def signup(req: UserCreate, db: Session = Depends(get_db)):
-    user = create_user(
-        db,
-        email=req.email,
-        password=req.password,
-        nickname=req.nickname,
-        business_type=req.business_type
-    )
-    return {"user_id": user.user_id}
 
-# 1. 구글 소셜 로그인
+# 구글 소셜 로그인
 @router.api_route("/login/oauth2/code/google", methods=["GET", "POST"])
 def google_login(request: Request, code: str, db: Session = Depends(get_db)):
     token_url = "https://oauth2.googleapis.com/token"
@@ -84,11 +75,13 @@ def google_login(request: Request, code: str, db: Session = Depends(get_db)):
     resp = requests.post(token_url, data=data)
     if not resp.ok:
         raise HTTPException(400, "구글 토큰 요청 실패")
-    token = resp.json()["access_token"]
+    token_info = resp.json()
+    access_token = token_info["access_token"]
+    refresh_token = token_info.get("refresh_token")  # 최초 로그인/동의시에만 내려올 수 있음
 
     userinfo = requests.get(
         "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {access_token}"}
     ).json()
     provider = "google"
     social_id = userinfo["id"]
@@ -97,11 +90,26 @@ def google_login(request: Request, code: str, db: Session = Depends(get_db)):
 
     user = get_user_by_social(db, provider, social_id)
     if not user:
-        user = create_user_social(db, provider, social_id, email, nickname, access_token=token)
-    return {"user_id": user.user_id, "provider": provider, "email": user.email}
+        user = create_user_social(
+            db, provider, social_id, email, nickname,
+            access_token=access_token, refresh_token=refresh_token
+        )
+    else:
+        # 기존 유저면 access_token을 무조건 업데이트,
+        # refresh_token은 새 값 있으면 갱신 (최초 동의시에만 내려올 수 있음)
+        user.access_token = access_token
+        if refresh_token:
+            user.refresh_token = refresh_token
+        db.commit()
+
+    return {
+        "user_id": user.user_id,
+        "provider": provider,
+        "email": user.email
+    }
 
 
-# 2. 카카오 소셜 로그인
+# 카카오 소셜 로그인
 @router.api_route("/login/oauth2/code/kakao", methods=["GET", "POST"])
 def kakao_login(code: str, db: Session = Depends(get_db)):
     token_url = "https://kauth.kakao.com/oauth/token"
@@ -114,11 +122,13 @@ def kakao_login(code: str, db: Session = Depends(get_db)):
     resp = requests.post(token_url, data=data)
     if not resp.ok:
         raise HTTPException(400, "카카오 토큰 요청 실패")
-    token = resp.json()["access_token"] 
+    token_json = resp.json()
+    access_token = token_json["access_token"]
+    refresh_token = token_json.get("refresh_token", None)  # refresh_token이 항상 오지는 않으니 .get() 사용
 
     userinfo = requests.get(
         "https://kapi.kakao.com/v2/user/me",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {access_token}"}
     ).json()
     provider = "kakao"
     social_id = str(userinfo["id"])
@@ -128,11 +138,15 @@ def kakao_login(code: str, db: Session = Depends(get_db)):
 
     user = get_user_by_social(db, provider, social_id)
     if not user:
-        user = create_user_social(db, provider, social_id, email, nickname, access_token=token)
+        user = create_user_social(
+            db, provider, social_id, email, nickname,
+            access_token=access_token,
+            refresh_token=refresh_token
+        )
     return {"user_id": user.user_id, "provider": provider, "email": user.email}
 
 
-# 3. 네이버 소셜 로그인
+# 네이버 소셜 로그인
 @router.api_route("/login/oauth2/code/naver", methods=["GET", "POST"])
 def naver_login(code: str, state: str, db: Session = Depends(get_db)):
     token_url = "https://nid.naver.com/oauth2.0/token"
@@ -147,11 +161,13 @@ def naver_login(code: str, state: str, db: Session = Depends(get_db)):
     resp = requests.post(token_url, data=data)
     if not resp.ok:
         raise HTTPException(400, "네이버 토큰 요청 실패")
-    token = resp.json()["access_token"]
+    token_json = resp.json()
+    access_token = token_json["access_token"]
+    refresh_token = token_json.get("refresh_token", None)
 
     userinfo = requests.get(
         "https://openapi.naver.com/v1/nid/me",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {access_token}"}
     ).json()["response"]
     provider = "naver"
     social_id = userinfo["id"]
@@ -160,7 +176,12 @@ def naver_login(code: str, state: str, db: Session = Depends(get_db)):
 
     user = get_user_by_social(db, provider, social_id)
     if not user:
-        user = create_user_social(db, provider, social_id, email, nickname, access_token=token)
+        user = create_user_social(
+            db, provider, social_id, email, nickname,
+            access_token=access_token,
+            refresh_token=refresh_token
+        )
     return {"user_id": user.user_id, "provider": provider, "email": user.email}
+
 
 app.include_router(router)

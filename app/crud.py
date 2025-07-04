@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from app.models import User, Conversation, Message, PHQ9Result
 from datetime import datetime
+from app.utils import encrypt_token
+
 
 def create_message(db: Session, conversation_id: int, sender_type: str, agent_type: str, content: str):
     msg = Message(
@@ -49,31 +51,23 @@ def save_or_update_phq9_result(db: Session, user_id: int, score: int, level: str
 def get_latest_phq9_by_user(db: Session, user_id: int):
     return db.query(PHQ9Result).filter_by(user_id=user_id).first()
 
-def create_user(db: Session, email: str, password: str, nickname: str = "", business_type: str = ""):
-    user = User(
-        email=email,
-        password=password,
-        nickname=nickname,
-        business_type=business_type,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 def get_user_by_social(db: Session, provider: str, social_id: str):
     return db.query(User).filter(User.provider == provider, User.social_id == social_id).first()
 
-def create_user_social(db: Session, provider: str, social_id: str, email: str, nickname: str = "", access_token=None):
+def create_user_social(db: Session, provider: str, social_id: str, email: str, nickname: str = "", access_token=None, refresh_token=None):
+    encrypted_access_token = encrypt_token(access_token)
+    encrypted_refresh_token = encrypt_token(refresh_token)
     user = User(
-        email=email,
-        password=None,  
+        email=email, 
         nickname=nickname,
         provider=provider,
         social_id=social_id,
-        access_token=access_token
+        access_token=encrypted_access_token,
+        refresh_token=encrypted_refresh_token
     )
     db.add(user)
     db.commit()
     db.refresh(user) 
     return user
+

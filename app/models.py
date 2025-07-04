@@ -10,7 +10,7 @@ class User(Base):
     __tablename__ = "user"
     user_id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False)
-    password = Column(String(255), nullable=True)  
+    # password = Column(String(255), nullable=True)  
     nickname = Column(String(100))
     business_type = Column(String(100))
     provider = Column(String(32), default="local")
@@ -18,6 +18,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.now)
     admin = Column(Boolean, default=False)
     access_token = Column(String(1024), nullable=True)
+    refresh_token = Column(String(2048), nullable=True)
     conversations = relationship("Conversation", back_populates="user")
     phq9_result = relationship("PHQ9Result", back_populates="user", uselist=False)
 
