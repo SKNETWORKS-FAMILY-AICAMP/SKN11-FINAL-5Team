@@ -1,64 +1,60 @@
+"""
+Customer Service Agent - 공통 모듈 사용 버전
+기존 설정 파일들을 shared_modules로 대체
+"""
 
 import sys
 import os
-import logging
-from typing import List, Dict, Any
-from fastapi import FastAPI, Body, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from langchain_core.messages import HumanMessage,AIMessage
-from typing import Dict, Any
+
 from fastapi.responses import HTMLResponse
-# 로거 설정
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from shared_modules.queries import get_business_type, get_template, insert_message
+from shared_modules import (
+    get_config,
+    get_llm,
+    get_vectorstore,
+    get_retriever,
+    get_db_session
 )
 
-# 프로젝트 루트 경로 추가
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-if project_root not in sys.path:
-    sys.path.append(project_root)
+from fastapi import Body, FastAPI, HTTPException
+from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from customer_agent.agent_runner import run_customer_service_with_rag
 
-from MYSQL.queries import get_business_type, insert_message, get_messages_by_conversation, get_template_by_id
-from customer_agent.graph import customer_workflow, CustomerAgentState  # LangGraph 임포트
+from langchain_core.messages import HumanMessage,AIMessage
+from customer_agent.graph import customer_workflow, CustomerAgentState 
 
-app = FastAPI()
+# 로깅 설정
+from shared_modules.logging_utils import setup_logging
+logger = setup_logging("customer_service", log_file="../logs/customer_service.log")
+
+# 설정 로드
+config = get_config()
+
+# FastAPI 초기화
+app = FastAPI(title="Customer Service Agent")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-# 요청 모델
+# 요청/응답 모델
 class AgentQueryRequest(BaseModel):
-    user_id: int
-    conversation_id: int
     question: str
-    history: List[Dict[str, Any]] = []  # 반드시 추가!
+    customer_id: str = None
+    conversation_id: int = None
 
-
-def load_initial_history(conversation_id: int, recent_turns: int = 5) -> list:
-    db_messages = get_messages_by_conversation(conversation_id, recent_turns)
-    langchain_messages = []
-    for msg in db_messages:
-        if msg["sender_type"] == "user":
-            langchain_messages.append(HumanMessage(content=msg["content"]))
-        elif msg["sender_type"] == "agent":
-            langchain_messages.append(AIMessage(content=msg["content"]))
-    return langchain_messages
-
-
-# 헬스 체크 엔드포인트
-@app.get("/health")
-async def health_check():
-    return {"status": "ok", "agent": "customer_agent"}
-
+class CustomerQueryResponse(BaseModel):
+    answer: str
+    intent: str = None
+    confidence: float = None
+    sources: str = None
 
 # main.py
 @app.post("/agent/query")
@@ -129,25 +125,42 @@ async def query_agent(request: AgentQueryRequest = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-
 @app.get("/preview/{template_id}", response_class=HTMLResponse)
 def preview_template(template_id: int):
-    template = get_template_by_id(template_id)
+    template = get_template(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     if template["content_type"] != "html":
         raise HTTPException(status_code=400, detail="Not an HTML template")
     return HTMLResponse(content=template["content"])
 
+@app.get("/health")
+def health_check():
+    """서비스 상태 확인"""
+    return {
+        "status": "healthy",
+        "agent": "customer_service",
+        "config_validation": config.validate_config(),
+        "services": {
+            "database": "connected" if get_db_session() else "disconnected",
+            "llm": "available" if get_llm() else "unavailable",
+            "vectorstore": "available" if get_vectorstore() else "unavailable"
+        }
+    }
+
+@app.get("/status")
+def get_status():
+    """상세 상태 정보"""
+    from shared_modules import get_llm_manager, get_vector_manager, get_db_manager
+    
+    return {
+        "llm_status": get_llm_manager().get_status(),
+        "vector_status": get_vector_manager().get_status(),
+        "db_status": get_db_manager().get_engine_info()
+    }
+
+# 메인 실행
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "customer_agent.main:app",
-        host="0.0.0.0",
-        port=8000,
-        log_level="info",
-        reload=True,
-        reload_dirs=["."]
-    )
+    logger.info("Customer Service Agent 시작")
+    uvicorn.run(app, host=config.HOST, port=8001)

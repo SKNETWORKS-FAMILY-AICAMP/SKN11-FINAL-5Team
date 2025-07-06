@@ -1,7 +1,10 @@
 """
-공통 유틸리티 함수들
+자동화 작업 공통 유틸리티 함수들 v2
+공통 모듈의 utils를 활용하여 유틸리티 제공
 """
 
+import sys
+import os
 import re
 import json
 import hashlib
@@ -11,17 +14,28 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Union
 import logging
 
+# 공통 모듈 경로 추가
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../shared_modules"))
+
+# 공통 모듈에서 유틸리티 함수들 가져오기
+from utils import (
+    validate_email,
+    truncate_text,
+    get_current_timestamp,
+    ensure_directory_exists,
+    create_success_response,
+    create_error_response
+)
+
 logger = logging.getLogger(__name__)
 
-
-class ValidationUtils:
-    """데이터 검증 유틸리티"""
+class AutomationValidationUtils:
+    """자동화 작업을 위한 데이터 검증 유틸리티"""
     
     @staticmethod
     def is_valid_email(email: str) -> bool:
-        """이메일 주소 형식 검증"""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
+        """이메일 주소 형식 검증 (공통 모듈 활용)"""
+        return validate_email(email)
     
     @staticmethod
     def is_valid_phone(phone: str, country_code: str = "KR") -> bool:
@@ -33,12 +47,14 @@ class ValidationUtils:
                 r'^010-\d{4}-\d{4}$',
                 r'^0\d{1,2}-\d{3,4}-\d{4}$',
                 r'^\+82-10-\d{4}-\d{4}$',
-                r'^\+82-\d{1,2}-\d{3,4}-\d{4}$'
+                r'^\+82-\d{1,2}-\d{3,4}-\d{4}$',
+                r'^010\d{8}$',  # 하이픈 없는 형태
+                r'^\+8210\d{8}$'
             ]
             return any(re.match(pattern, phone) for pattern in patterns)
         
         # 국제 전화번호 기본 패턴
-        pattern = r'^\+\d{1,3}-\d{1,14}$'
+        pattern = r'^\+\d{1,3}-?\d{1,14}$'
         return re.match(pattern, phone) is not None
     
     @staticmethod
@@ -48,8 +64,24 @@ class ValidationUtils:
         return re.match(pattern, url) is not None
     
     @staticmethod
-    def sanitize_input(text: str, max_length: Optional[int] = None) -> str:
-        """입력 텍스트 정리"""
+    def is_valid_slack_channel(channel: str) -> bool:
+        """Slack 채널명 형식 검증"""
+        # Slack 채널은 #으로 시작하거나 @로 시작 (DM)
+        pattern = r'^[#@][a-zA-Z0-9_-]+$'
+        return re.match(pattern, channel) is not None
+    
+    @staticmethod
+    def is_valid_teams_webhook(webhook_url: str) -> bool:
+        """Teams 웹훅 URL 형식 검증"""
+        # Microsoft Teams 웹훅 URL 패턴
+        return (webhook_url.startswith('https://') and 
+                'office.com' in webhook_url and 
+                'webhookb2' in webhook_url)
+    
+    @staticmethod
+    def sanitize_input(text: str, max_length: Optional[int] = None, 
+                      remove_html: bool = True) -> str:
+        """입력 텍스트 정리 (공통 모듈 기반 확장)"""
         if not text:
             return ""
         
@@ -57,35 +89,125 @@ class ValidationUtils:
         text = text.strip()
         
         # HTML 태그 제거 (기본적인 XSS 방지)
-        text = re.sub(r'<[^>]+>', '', text)
+        if remove_html:
+            text = re.sub(r'<[^>]+>', '', text)
         
-        # 길이 제한
-        if max_length and len(text) > max_length:
-            text = text[:max_length]
+        # 특수 문자 정리 (이메일/메시지 내용용)
+        text = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', text)
+        
+        # 길이 제한 (공통 모듈 함수 활용)
+        if max_length:
+            text = truncate_text(text, max_length)
         
         return text
-
-
-class DateTimeUtils:
-    """날짜/시간 처리 유틸리티"""
     
     @staticmethod
-    def parse_datetime(date_string: str, formats: List[str] = None) -> Optional[datetime]:
+    def validate_automation_data(task_type: str, task_data: Dict[str, Any]) -> Dict[str, Any]:
+        """자동화 작업 데이터 검증"""
+        errors = []
+        warnings = []
+        
+        if task_type == "send_email":
+            # 이메일 발송 데이터 검증
+            if not task_data.get("to_emails"):
+                errors.append("수신자 이메일이 필요합니다")
+            else:
+                invalid_emails = [
+                    email for email in task_data["to_emails"] 
+                    if not AutomationValidationUtils.is_valid_email(email)
+                ]
+                if invalid_emails:
+                    errors.append(f"유효하지 않은 이메일 주소: {', '.join(invalid_emails)}")
+            
+            if not task_data.get("subject"):
+                errors.append("이메일 제목이 필요합니다")
+            
+            if not task_data.get("body"):
+                errors.append("이메일 내용이 필요합니다")
+                
+        elif task_type == "send_message":
+            # 메시지 발송 데이터 검증
+            if not task_data.get("platform"):
+                errors.append("메시지 플랫폼이 필요합니다")
+            
+            if not task_data.get("content"):
+                errors.append("메시지 내용이 필요합니다")
+            
+            platform = task_data.get("platform", "").lower()
+            if platform == "slack":
+                if not task_data.get("channel"):
+                    errors.append("Slack 채널이 필요합니다")
+                elif not AutomationValidationUtils.is_valid_slack_channel(task_data["channel"]):
+                    warnings.append("Slack 채널명 형식을 확인해주세요")
+                    
+            elif platform == "teams":
+                if not task_data.get("webhook_url"):
+                    errors.append("Teams 웹훅 URL이 필요합니다")
+                elif not AutomationValidationUtils.is_valid_teams_webhook(task_data["webhook_url"]):
+                    warnings.append("Teams 웹훅 URL 형식을 확인해주세요")
+                    
+        elif task_type == "schedule_calendar":
+            # 캘린더 일정 데이터 검증
+            if not task_data.get("title"):
+                errors.append("일정 제목이 필요합니다")
+            
+            if not task_data.get("start_time"):
+                errors.append("시작 시간이 필요합니다")
+            else:
+                # 시간 형식 검증
+                start_time = task_data["start_time"]
+                if isinstance(start_time, str):
+                    try:
+                        AutomationDateTimeUtils.parse_datetime(start_time)
+                    except:
+                        errors.append("시작 시간 형식이 올바르지 않습니다")
+        
+        elif task_type == "publish_sns":
+            # SNS 게시 데이터 검증
+            if not task_data.get("platform"):
+                errors.append("SNS 플랫폼이 필요합니다")
+            
+            if not task_data.get("content"):
+                errors.append("게시 내용이 필요합니다")
+            
+            # 플랫폼별 글자 수 제한 확인
+            platform = task_data.get("platform", "").lower()
+            content = task_data.get("content", "")
+            
+            if platform == "twitter" and len(content) > 280:
+                warnings.append("Twitter 게시글은 280자를 초과할 수 없습니다")
+            elif platform == "instagram" and len(content) > 2200:
+                warnings.append("Instagram 게시글은 2200자를 초과하지 않는 것이 좋습니다")
+        
+        return {
+            "is_valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings
+        }
+
+
+class AutomationDateTimeUtils:
+    """자동화 작업을 위한 날짜/시간 처리 유틸리티"""
+    
+    @staticmethod
+    def parse_datetime(date_string: str) -> Optional[datetime]:
         """다양한 형식의 날짜 문자열을 datetime으로 변환"""
-        if not formats:
-            formats = [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%dT%H:%M",
-                "%Y-%m-%d",
-                "%m/%d/%Y %H:%M:%S",
-                "%m/%d/%Y %H:%M",
-                "%m/%d/%Y",
-                "%d/%m/%Y %H:%M:%S",
-                "%d/%m/%Y %H:%M",
-                "%d/%m/%Y"
-            ]
+        formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%d",
+            "%m/%d/%Y %H:%M:%S",
+            "%m/%d/%Y %H:%M",
+            "%m/%d/%Y",
+            "%d/%m/%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y",
+            "%Y년 %m월 %d일 %H시 %M분",
+            "%Y년 %m월 %d일"
+        ]
         
         for fmt in formats:
             try:
@@ -97,86 +219,63 @@ class DateTimeUtils:
         return None
     
     @staticmethod
-    def format_datetime(dt: datetime, format_type: str = "iso") -> str:
-        """datetime을 지정된 형식으로 포맷"""
-        if format_type == "iso":
-            return dt.isoformat()
-        elif format_type == "korean":
-            return dt.strftime("%Y년 %m월 %d일 %H시 %M분")
-        elif format_type == "short":
-            return dt.strftime("%Y-%m-%d %H:%M")
-        elif format_type == "date_only":
-            return dt.strftime("%Y-%m-%d")
-        elif format_type == "time_only":
-            return dt.strftime("%H:%M:%S")
-        else:
-            return dt.strftime(format_type)
+    def format_datetime_korean(dt: datetime) -> str:
+        """한국어 형식으로 날짜시간 포맷"""
+        return dt.strftime("%Y년 %m월 %d일 %H시 %M분")
     
     @staticmethod
-    def add_time_delta(dt: datetime, **kwargs) -> datetime:
-        """datetime에 시간 추가"""
-        return dt + timedelta(**kwargs)
+    def format_datetime_iso(dt: datetime) -> str:
+        """ISO 형식으로 날짜시간 포맷"""
+        return dt.isoformat()
     
     @staticmethod
-    def get_timezone_offset(timezone: str = "Asia/Seoul") -> int:
-        """타임존 오프셋 반환 (시간 단위)"""
-        try:
-            import pytz
-            tz = pytz.timezone(timezone)
-            now = datetime.now()
-            offset = tz.utcoffset(now)
-            return int(offset.total_seconds() / 3600)
-        except ImportError:
-            logger.warning("pytz 라이브러리가 설치되지 않았습니다")
-            return 9  # 기본값: KST (+9)
-        except Exception as e:
-            logger.error(f"타임존 오프셋 계산 실패: {e}")
-            return 9
-
-
-class SecurityUtils:
-    """보안 관련 유틸리티"""
-    
-    @staticmethod
-    def generate_token(length: int = 32) -> str:
-        """안전한 랜덤 토큰 생성"""
-        return secrets.token_urlsafe(length)
-    
-    @staticmethod
-    def generate_api_key(prefix: str = "", length: int = 32) -> str:
-        """API 키 생성"""
-        token = secrets.token_hex(length)
-        return f"{prefix}_{token}" if prefix else token
-    
-    @staticmethod
-    def hash_password(password: str, salt: Optional[str] = None) -> Dict[str, str]:
-        """패스워드 해싱"""
-        if not salt:
-            salt = secrets.token_hex(16)
+    def is_business_hour(dt: datetime, start_hour: int = 9, end_hour: int = 18) -> bool:
+        """업무 시간 여부 확인"""
+        weekday = dt.weekday()  # 0=월요일, 6=일요일
+        hour = dt.hour
         
-        # PBKDF2를 사용한 해싱
-        import hashlib
-        hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
-        
-        return {
-            "hash": hashed.hex(),
-            "salt": salt
-        }
-    
-    @staticmethod
-    def verify_password(password: str, hash_data: Dict[str, str]) -> bool:
-        """패스워드 검증"""
-        try:
-            salt = hash_data["salt"]
-            stored_hash = hash_data["hash"]
-            
-            import hashlib
-            computed_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
-            
-            return computed_hash.hex() == stored_hash
-        except Exception as e:
-            logger.error(f"패스워드 검증 실패: {e}")
+        # 주말 제외
+        if weekday >= 5:  # 토요일, 일요일
             return False
+        
+        # 업무 시간 확인
+        return start_hour <= hour < end_hour
+    
+    @staticmethod
+    def get_next_business_day(dt: datetime = None) -> datetime:
+        """다음 영업일 반환"""
+        if dt is None:
+            dt = datetime.now()
+        
+        # 다음 날부터 시작
+        next_day = dt + timedelta(days=1)
+        
+        # 주말이 아닐 때까지 반복
+        while next_day.weekday() >= 5:  # 토요일, 일요일
+            next_day += timedelta(days=1)
+        
+        # 업무 시간으로 설정 (오전 9시)
+        return next_day.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    @staticmethod
+    def calculate_delay_until(target_time: datetime) -> float:
+        """지정된 시간까지의 지연 시간 계산 (초 단위)"""
+        now = datetime.now()
+        if target_time <= now:
+            return 0
+        
+        delta = target_time - now
+        return delta.total_seconds()
+
+
+class AutomationSecurityUtils:
+    """자동화 작업을 위한 보안 유틸리티"""
+    
+    @staticmethod
+    def generate_task_token(task_id: int, user_id: int) -> str:
+        """작업용 토큰 생성"""
+        data = f"{task_id}:{user_id}:{get_current_timestamp()}"
+        return hashlib.sha256(data.encode()).hexdigest()[:16]
     
     @staticmethod
     def mask_sensitive_data(data: str, mask_char: str = "*", visible_chars: int = 4) -> str:
@@ -184,16 +283,37 @@ class SecurityUtils:
         if len(data) <= visible_chars:
             return mask_char * len(data)
         
+        if "@" in data:  # 이메일인 경우
+            username, domain = data.split("@", 1)
+            masked_username = username[:2] + mask_char * (len(username) - 2)
+            return f"{masked_username}@{domain}"
+        
         visible_part = data[:visible_chars]
         masked_part = mask_char * (len(data) - visible_chars)
         return visible_part + masked_part
-
-
-class DataUtils:
-    """데이터 처리 유틸리티"""
     
     @staticmethod
-    def safe_json_loads(json_string: str, default: Any = None) -> Any:
+    def validate_webhook_signature(payload: str, signature: str, secret: str) -> bool:
+        """웹훅 서명 검증"""
+        try:
+            import hmac
+            expected_signature = hmac.new(
+                secret.encode(),
+                payload.encode(),
+                hashlib.sha256
+            ).hexdigest()
+            
+            return hmac.compare_digest(signature, expected_signature)
+        except Exception as e:
+            logger.error(f"웹훅 서명 검증 실패: {e}")
+            return False
+
+
+class AutomationDataUtils:
+    """자동화 작업을 위한 데이터 처리 유틸리티"""
+    
+    @staticmethod
+    def safe_json_parse(json_string: str, default: Any = None) -> Any:
         """안전한 JSON 파싱"""
         try:
             return json.loads(json_string)
@@ -201,259 +321,140 @@ class DataUtils:
             return default
     
     @staticmethod
-    def safe_json_dumps(data: Any, default: str = "{}") -> str:
-        """안전한 JSON 직렬화"""
+    def format_message_template(template: str, variables: Dict[str, Any]) -> str:
+        """메시지 템플릿 포맷팅"""
         try:
-            return json.dumps(data, ensure_ascii=False, default=str)
-        except (TypeError, ValueError):
-            return default
+            return template.format(**variables)
+        except KeyError as e:
+            logger.warning(f"템플릿 변수 누락: {e}")
+            return template
+        except Exception as e:
+            logger.error(f"템플릿 포맷팅 실패: {e}")
+            return template
     
     @staticmethod
-    def deep_merge_dict(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
-        """딕셔너리 깊은 병합"""
-        result = dict1.copy()
+    def extract_mentions(text: str, platform: str = "slack") -> List[str]:
+        """텍스트에서 멘션 추출"""
+        mentions = []
         
-        for key, value in dict2.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = DataUtils.deep_merge_dict(result[key], value)
-            else:
-                result[key] = value
-        
-        return result
-    
-    @staticmethod
-    def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
-        """중첩된 딕셔너리 평탄화"""
-        items = []
-        for k, v in d.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if isinstance(v, dict):
-                items.extend(DataUtils.flatten_dict(v, new_key, sep=sep).items())
-            else:
-                items.append((new_key, v))
-        return dict(items)
-    
-    @staticmethod
-    def get_nested_value(data: Dict[str, Any], key_path: str, default: Any = None, sep: str = '.') -> Any:
-        """중첩된 딕셔너리에서 값 가져오기"""
-        keys = key_path.split(sep)
-        current = data
-        
-        try:
-            for key in keys:
-                current = current[key]
-            return current
-        except (KeyError, TypeError):
-            return default
-    
-    @staticmethod
-    def set_nested_value(data: Dict[str, Any], key_path: str, value: Any, sep: str = '.') -> Dict[str, Any]:
-        """중첩된 딕셔너리에 값 설정"""
-        keys = key_path.split(sep)
-        current = data
-        
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
-        
-        current[keys[-1]] = value
-        return data
-    
-    @staticmethod
-    def remove_none_values(data: Union[Dict, List], recursive: bool = True) -> Union[Dict, List]:
-        """None 값 제거"""
-        if isinstance(data, dict):
-            result = {}
-            for k, v in data.items():
-                if v is not None:
-                    if recursive and isinstance(v, (dict, list)):
-                        result[k] = DataUtils.remove_none_values(v, recursive)
-                    else:
-                        result[k] = v
-            return result
-        elif isinstance(data, list):
-            result = []
-            for item in data:
-                if item is not None:
-                    if recursive and isinstance(item, (dict, list)):
-                        result.append(DataUtils.remove_none_values(item, recursive))
-                    else:
-                        result.append(item)
-            return result
+        if platform.lower() == "slack":
+            # Slack 멘션 패턴: @username, <@U1234567>
+            patterns = [
+                r'@([a-zA-Z0-9._-]+)',
+                r'<@([UW][A-Z0-9]+)>'
+            ]
+        elif platform.lower() == "teams":
+            # Teams 멘션 패턴: @username
+            patterns = [r'@([a-zA-Z0-9._-]+)']
         else:
-            return data
-
-
-class URLUtils:
-    """URL 처리 유틸리티"""
+            # 일반적인 멘션 패턴
+            patterns = [r'@([a-zA-Z0-9._-]+)']
+        
+        for pattern in patterns:
+            mentions.extend(re.findall(pattern, text))
+        
+        return list(set(mentions))  # 중복 제거
     
     @staticmethod
-    def build_url(base_url: str, path: str = "", params: Optional[Dict[str, Any]] = None) -> str:
-        """URL 구성"""
-        # 기본 URL 정리
-        base_url = base_url.rstrip('/')
+    def clean_html_content(html_content: str) -> str:
+        """HTML 내용에서 텍스트만 추출"""
+        # HTML 태그 제거
+        clean_text = re.sub(r'<[^>]+>', '', html_content)
         
-        # 경로 추가
-        if path:
-            path = path.lstrip('/')
-            url = f"{base_url}/{path}"
-        else:
-            url = base_url
+        # HTML 엔티티 디코딩
+        html_entities = {
+            '&amp;': '&',
+            '&lt;': '<',
+            '&gt;': '>',
+            '&quot;': '"',
+            '&#x27;': "'",
+            '&#x2F;': '/',
+            '&nbsp;': ' '
+        }
         
-        # 쿼리 파라미터 추가
-        if params:
-            # None 값 제거
-            filtered_params = {k: v for k, v in params.items() if v is not None}
-            if filtered_params:
-                query_string = urllib.parse.urlencode(filtered_params)
-                url = f"{url}?{query_string}"
+        for entity, char in html_entities.items():
+            clean_text = clean_text.replace(entity, char)
         
-        return url
+        return clean_text.strip()
     
     @staticmethod
-    def parse_url(url: str) -> Dict[str, Any]:
-        """URL 파싱"""
-        parsed = urllib.parse.urlparse(url)
+    def build_webhook_payload(event_type: str, data: Dict[str, Any], 
+                            timestamp: Optional[datetime] = None) -> Dict[str, Any]:
+        """웹훅 페이로드 구성"""
+        if timestamp is None:
+            timestamp = datetime.now()
         
         return {
-            "scheme": parsed.scheme,
-            "netloc": parsed.netloc,
-            "hostname": parsed.hostname,
-            "port": parsed.port,
-            "path": parsed.path,
-            "params": parsed.params,
-            "query": parsed.query,
-            "fragment": parsed.fragment,
-            "query_dict": dict(urllib.parse.parse_qsl(parsed.query))
+            "event_type": event_type,
+            "timestamp": timestamp.isoformat(),
+            "data": data,
+            "version": "1.0"
         }
-    
-    @staticmethod
-    def encode_url_component(component: str) -> str:
-        """URL 컴포넌트 인코딩"""
-        return urllib.parse.quote(component, safe='')
-    
-    @staticmethod
-    def decode_url_component(component: str) -> str:
-        """URL 컴포넌트 디코딩"""
-        return urllib.parse.unquote(component)
 
 
-class RetryUtils:
-    """재시도 유틸리티"""
+class AutomationResponseUtils:
+    """자동화 작업을 위한 응답 처리 유틸리티"""
     
     @staticmethod
-    async def retry_async(func, *args, max_retries: int = 3, delay: float = 1.0, 
-                         backoff: float = 2.0, exceptions: tuple = (Exception,), **kwargs):
-        """비동기 함수 재시도"""
-        import asyncio
+    def create_task_response(task_id: int, status: str, message: str, 
+                           data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """작업 응답 생성 (공통 모듈 기반)"""
+        response_data = {
+            "task_id": task_id,
+            "status": status,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
         
-        last_exception = None
+        if data:
+            response_data.update(data)
         
-        for attempt in range(max_retries + 1):
-            try:
-                return await func(*args, **kwargs)
-            except exceptions as e:
-                last_exception = e
-                if attempt == max_retries:
-                    break
-                
-                wait_time = delay * (backoff ** attempt)
-                logger.warning(f"함수 실행 실패 (시도 {attempt + 1}/{max_retries + 1}): {e}. {wait_time}초 후 재시도...")
-                await asyncio.sleep(wait_time)
-        
-        raise last_exception
+        if status in ["success", "completed"]:
+            return create_success_response(data=response_data, message=message)
+        else:
+            return create_error_response(message, f"TASK_{status.upper()}")
     
     @staticmethod
-    def retry_sync(func, *args, max_retries: int = 3, delay: float = 1.0,
-                  backoff: float = 2.0, exceptions: tuple = (Exception,), **kwargs):
-        """동기 함수 재시도"""
-        import time
+    def create_notification_response(notification_type: str, success: bool, 
+                                   message: str, recipient: str = None) -> Dict[str, Any]:
+        """알림 응답 생성"""
+        response_data = {
+            "notification_type": notification_type,
+            "success": success,
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
         
-        last_exception = None
+        if recipient:
+            response_data["recipient"] = AutomationSecurityUtils.mask_sensitive_data(recipient)
         
-        for attempt in range(max_retries + 1):
-            try:
-                return func(*args, **kwargs)
-            except exceptions as e:
-                last_exception = e
-                if attempt == max_retries:
-                    break
-                
-                wait_time = delay * (backoff ** attempt)
-                logger.warning(f"함수 실행 실패 (시도 {attempt + 1}/{max_retries + 1}): {e}. {wait_time}초 후 재시도...")
-                time.sleep(wait_time)
-        
-        raise last_exception
-
-
-class LogUtils:
-    """로깅 유틸리티"""
-    
-    @staticmethod
-    def setup_logger(name: str, level: str = "INFO", format_string: Optional[str] = None) -> logging.Logger:
-        """로거 설정"""
-        logger = logging.getLogger(name)
-        
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            
-            if not format_string:
-                format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            
-            formatter = logging.Formatter(format_string)
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        
-        logger.setLevel(getattr(logging, level.upper()))
-        return logger
-    
-    @staticmethod
-    def mask_sensitive_logs(data: Dict[str, Any], sensitive_keys: List[str] = None) -> Dict[str, Any]:
-        """로그에서 민감한 정보 마스킹"""
-        if not sensitive_keys:
-            sensitive_keys = [
-                "password", "token", "secret", "key", "auth", "credential",
-                "api_key", "access_token", "refresh_token", "private_key"
-            ]
-        
-        result = {}
-        for key, value in data.items():
-            key_lower = key.lower()
-            if any(sensitive_key in key_lower for sensitive_key in sensitive_keys):
-                result[key] = SecurityUtils.mask_sensitive_data(str(value))
-            elif isinstance(value, dict):
-                result[key] = LogUtils.mask_sensitive_logs(value, sensitive_keys)
-            else:
-                result[key] = value
-        
-        return result
+        if success:
+            return create_success_response(data=response_data, message=message)
+        else:
+            return create_error_response(message, f"NOTIFICATION_{notification_type.upper()}_FAILED")
 
 
 # 편의 함수들
-def generate_uuid() -> str:
-    """UUID 생성"""
-    import uuid
-    return str(uuid.uuid4())
+def validate_task_data(task_type: str, task_data: Dict[str, Any]) -> Dict[str, Any]:
+    """작업 데이터 검증 (편의 함수)"""
+    return AutomationValidationUtils.validate_automation_data(task_type, task_data)
 
-def get_current_timestamp() -> int:
-    """현재 타임스탬프 반환"""
-    return int(datetime.now().timestamp())
+def format_korean_datetime(dt: datetime) -> str:
+    """한국어 날짜시간 포맷 (편의 함수)"""
+    return AutomationDateTimeUtils.format_datetime_korean(dt)
 
-def format_file_size(size_bytes: int) -> str:
-    """파일 크기를 읽기 쉬운 형태로 포맷"""
-    if size_bytes == 0:
-        return "0 B"
-    
-    size_names = ["B", "KB", "MB", "GB", "TB"]
-    import math
-    i = int(math.floor(math.log(size_bytes, 1024)))
-    p = math.pow(1024, i)
-    s = round(size_bytes / p, 2)
-    return f"{s} {size_names[i]}"
+def mask_email(email: str) -> str:
+    """이메일 마스킹 (편의 함수)"""
+    return AutomationSecurityUtils.mask_sensitive_data(email)
 
-def truncate_string(text: str, max_length: int, suffix: str = "...") -> str:
-    """문자열 자르기"""
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - len(suffix)] + suffix
+def safe_template_format(template: str, **kwargs) -> str:
+    """안전한 템플릿 포맷팅 (편의 함수)"""
+    return AutomationDataUtils.format_message_template(template, kwargs)
+
+# 기존 코드와의 호환성을 위한 별칭들
+ValidationUtils = AutomationValidationUtils
+DateTimeUtils = AutomationDateTimeUtils
+SecurityUtils = AutomationSecurityUtils
+DataUtils = AutomationDataUtils
+RetryUtils = AutomationDataUtils  # 필요시 별도 구현
+LogUtils = AutomationDataUtils    # 필요시 별도 구현

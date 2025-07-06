@@ -10,9 +10,9 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from common import (
+from .common import (
     get_auth_manager, get_oauth_http_client, get_config_manager,
-    DateTimeUtils, ValidationUtils, RetryUtils
+    DateTimeUtils
 )
 import logging
 
@@ -258,7 +258,6 @@ class GoogleCalendarService:
     
     # ===== Calendar API 메서드들 =====
     
-    @RetryUtils.retry_async
     async def create_event(self, user_id: str, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """Google Calendar에 이벤트 생성 (재시도 기능 포함)"""
         try:

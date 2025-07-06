@@ -1,30 +1,36 @@
+"""
+Customer Service Agent Runner - 공통 모듈 사용 버전
+"""
+
+import sys
+import os
+import logging
+import pathlib
+
+# 공통 모듈 사용
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+from shared_modules import (
+    get_llm,
+    get_vectorstore
+)
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains.retrieval import create_retrieval_chain
 from langchain_core.output_parsers import StrOutputParser
-import os
-import sys
-import logging
-import pathlib  # 추가: 경로 처리를 위해 필요
 
-# 로거 설정
-logger = logging.getLogger(__name__)
+# 로깅 설정
+from shared_modules.logging_utils import setup_logging
+logger = setup_logging("customer_agent_runner")
 
-# 경로 설정: 현재 파일 위치 → 프로젝트 루트
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-if project_root not in sys.path:
-    sys.path.append(project_root)
+# 현재 파일 디렉토리
+BASE_DIR = pathlib.Path(__file__).parent.resolve()
 
-# 절대경로로 임포트
-
-from config.env_config import llm, vectorstore
+# 기존 임포트들
 from customer_agent.prompts_config import PROMPT_META
-from MYSQL.queries import get_templates_by_type 
-
-# 경로 처리를 위한 베이스 디렉토리 설정
-BASE_DIR = pathlib.Path(__file__).parent.resolve()  # 추가
+from shared_modules.queries import get_templates_by_type
 
 # 관련 토픽 추론
 TOPIC_CLASSIFY_SYSTEM_PROMPT = """
@@ -66,25 +72,29 @@ TEMPLATE_TYPE_EXTRACT_PROMPT = """
 질문: {input}
 """
 
-
 def classify_topics(user_input: str) -> list:
-    # 수정: 변수화된 템플릿 사용
+    """토픽 분류"""
     classify_prompt = ChatPromptTemplate.from_messages([
         ("system", TOPIC_CLASSIFY_SYSTEM_PROMPT),
-        ("human", "사용자 질문: {input}")  # 고정 문자열 → 변수
+        ("human", "사용자 질문: {input}")
     ])
+    
+    # 공통 모듈의 LLM 사용
+    llm = get_llm()
+    if not llm:
+        logger.error("LLM을 사용할 수 없습니다")
+        return []
     
     chain = classify_prompt | llm | StrOutputParser()
     result = chain.invoke({"input": user_input}).strip()
     
-    # 수정: 단일 토픽 반환 (시스템 지침에 따라)
     return [result.strip()] if result.strip() in PROMPT_META else []
 
-# 에이전트 프롬프트 구성 함수
 def build_agent_prompt(topics: list, persona: str):  
+    """에이전트 프롬프트 구성"""
     merged_prompts = []
     for topic in topics:
-        file_name = PROMPT_META[topic]["file"]  # 파일명만 사용
+        file_name = PROMPT_META[topic]["file"]
         prompt_text = load_prompt_text(file_name)
         merged_prompts.append(f"# {topic}\n{prompt_text}")
     
@@ -97,7 +107,6 @@ def build_agent_prompt(topics: list, persona: str):
 
     system_template += " 제공된 문서가 비어있거나, 질문과 전혀 관련 없는 내용일 경우, 문서를 무시하고 너의 일반적인 지식을 기반으로 답변해줘."
 
-    # 수정: 동적 변수 사용 (input, context)
     human_template = f"""
     {chr(10).join(merged_prompts)}
     
@@ -110,18 +119,16 @@ def build_agent_prompt(topics: list, persona: str):
     
     return ChatPromptTemplate.from_messages([
         ("system", system_template),
-        MessagesPlaceholder(variable_name="history"), # 추가
+        MessagesPlaceholder(variable_name="history"),
         ("human", human_template)
     ])
 
-
 def load_prompt_text(file_name: str) -> str:
-    # 수정: pathlib를 사용한 강화된 경로 처리
+    """프롬프트 파일 로드"""
     prompt_dir = BASE_DIR / "prompt"
     full_path = prompt_dir / file_name
     
     try:
-        # 수정: pathlib로 파일 읽기
         return full_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         logger.error(f"Prompt file not found: {full_path}")
@@ -131,6 +138,11 @@ def load_prompt_text(file_name: str) -> str:
         return ""
 
 def extract_template_type(user_input: str) -> str:
+    """템플릿 타입 추출"""
+    llm = get_llm()
+    if not llm:
+        return "해당사항 없음"
+    
     prompt = ChatPromptTemplate.from_messages([
         ("system", TEMPLATE_TYPE_EXTRACT_PROMPT),
         ("human", "{input}")
@@ -139,11 +151,13 @@ def extract_template_type(user_input: str) -> str:
     return chain.invoke({"input": user_input}).strip()
 
 def filter_templates_by_query(templates, query):
+    """쿼리에 따른 템플릿 필터링"""
     query_lower = query.lower()
     filtered = []
     for t in templates:
         title = t.get('title', '')
         title_lower = title.lower()
+        
         # VIP/단골 그룹
         if ('vip' in query_lower or '단골' in query_lower) and ('vip' in title_lower or '단골' in title_lower):
             filtered.append(t)
@@ -158,8 +172,8 @@ def filter_templates_by_query(templates, query):
             filtered.append(t)
     return filtered
 
-
 def run_rag_chain(user_input, topics, persona, chat_history):
+    """RAG 체인 실행"""
     prompt = build_agent_prompt(topics, persona)
     base_filter = {"category": "customer_management"}
 
@@ -171,69 +185,95 @@ def run_rag_chain(user_input, topics, persona, chat_history):
     else:
         search_kwargs = {"k": 5, "filter": base_filter}
 
-    retriever = vectorstore.as_retriever(
-        search_kwargs=search_kwargs
-    )
-    document_chain = create_stuff_documents_chain(
-        llm=llm,
-        prompt=prompt
-    )
+    # 공통 모듈의 벡터스토어 사용
+    vectorstore = get_vectorstore("global-documents")
+    if not vectorstore:
+        logger.error("벡터스토어를 사용할 수 없습니다")
+        return "죄송합니다. 현재 서비스에 접속할 수 없습니다.", ""
+
+    retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
+    
+    # 공통 모듈의 LLM 사용
+    llm = get_llm()
+    if not llm:
+        logger.error("LLM을 사용할 수 없습니다")
+        return "죄송합니다. 현재 AI 서비스에 접속할 수 없습니다.", ""
+
+    document_chain = create_stuff_documents_chain(llm=llm, prompt=prompt)
     retrieval_chain = create_retrieval_chain(
         retriever=retriever,
         combine_docs_chain=document_chain
     )
+    
     result = retrieval_chain.invoke({
         "input": user_input,
         "history": chat_history or []
     })
+    
     sources = "\n\n".join(
         [f"# 문서\n{doc.page_content}\n" for doc in result["context"]]
     )
+    
     return result["answer"], sources
 
-def run_customer_agent_with_rag(
+def run_customer_service_with_rag(
     user_input: str,
+    customer_id: str = None,
+    conversation_id: int = None,
     persona: str = "common",
     chat_history: list = None
 ):
-    topics = classify_topics(user_input)
-    logger.info(f"Classified topics: {topics}")
+    """고객 서비스 RAG 실행 (메인 함수)"""
+    try:
+        topics = classify_topics(user_input)
+        logger.info(f"Classified topics: {topics}")
 
-    if "customer_message" in topics:
-        template_type = extract_template_type(user_input)
-        logger.info(f"Extracted template_type: {template_type}")
-        templates = get_templates_by_type(template_type)
+        if "customer_message" in topics:
+            template_type = extract_template_type(user_input)
+            logger.info(f"Extracted template_type: {template_type}")
+            templates = get_templates_by_type(template_type)
 
-        if template_type == "고객 맞춤 메시지" and templates:
-            filtered_templates = filter_templates_by_query(templates, user_input)
-        else:
-            filtered_templates = templates
+            if template_type == "고객 맞춤 메시지" and templates:
+                filtered_templates = filter_templates_by_query(templates, user_input)
+            else:
+                filtered_templates = templates
 
-        if filtered_templates:
-            answer_blocks = []
-            for t in filtered_templates:
-                if t.get("content_type") == "html":
-                    preview_url = f"http://localhost:8000/preview/{t['template_id']}"
-                    answer_blocks.append(f"제목: {t['title']}\n\n[HTML 미리보기]({preview_url})")
+            if filtered_templates:
+                answer_blocks = []
+                for t in filtered_templates:
+                    if t.get("content_type") == "html":
+                        preview_url = f"http://localhost:8001/preview/{t['template_id']}"
+                        answer_blocks.append(f"제목: {t['title']}\n\n[HTML 미리보기]({preview_url})")
+                    else:
+                        answer_blocks.append(f"제목: {t['title']}\n\n{t['content']}")
+                
+                answer = "\n\n---\n\n".join(answer_blocks)
+                answer += f"\n\n위와 같은 메시지 템플릿을 활용해보세요."
+                sources = ""
+            else:
+                answer, sources = run_rag_chain(user_input, topics, persona, chat_history)
+            
+            return {
+                "topics": topics,
+                "answer": answer,
+                "sources": sources
+            }
 
-                else:
-                    answer_blocks.append(f"제목: {t['title']}\n\n{t['content']}")
-            #answer = "\n\n\n".join(answer_blocks)
-            answer = "\n\n---\n\n".join(answer_blocks)
-            answer += f"\n\n 위와 같은 메시지 템플릿을 활용해보세요."
-            sources = ""
-        else:
-            answer, sources = run_rag_chain(user_input, topics, persona, chat_history)
+        # customer_message가 아닌 경우 공통 RAG 실행
+        answer, sources = run_rag_chain(user_input, topics, persona, chat_history)
         return {
             "topics": topics,
             "answer": answer,
             "sources": sources
         }
+        
+    except Exception as e:
+        logger.error(f"고객 서비스 RAG 실행 오류: {e}")
+        return {
+            "topics": [],
+            "answer": "죄송합니다. 요청을 처리하는 중 오류가 발생했습니다.",
+            "sources": ""
+        }
 
-    # customer_message가 아닌 경우도 공통 RAG 실행
-    answer, sources = run_rag_chain(user_input, topics, persona, chat_history)
-    return {
-        "topics": topics,
-        "answer": answer,
-        "sources": sources
-    }
+# 기존 함수명과의 호환성을 위한 별칭
+run_customer_agent_with_rag = run_customer_service_with_rag

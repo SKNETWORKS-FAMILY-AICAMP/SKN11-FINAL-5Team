@@ -1,9 +1,7 @@
-from crud import create_message, get_conversation_history
-from mental_agent import (
-    get_user_context_from_db, extract_and_save_phq9,
-    vectorstore, LLM_POOL, get_llm_choice, get_fallback_llm_name, answer_prompt,
-    analyze_emotion, is_depressed_emotion, load_phq9_markdown,
-)
+from shared_modules.queries import create_message, get_conversation_history, get_user_context_from_db
+from shared_modules.vector_utils import vectorstore
+from shared_modules.llm_utils import get_llm
+from mental_agent import analyze_emotion, is_depressed_emotion, extract_and_save_phq9, load_phq9_markdown
 
 def node_load_history(state):
     db = state["db"]
@@ -30,7 +28,7 @@ def node_emotion_analysis(state):
     return state
 
 def node_llm_generate(state):
-    llm_name = get_llm_choice()
+    llm = get_llm("gemini",True)
     enhanced_prompt = f"""
 당신은 친절하고 공감하는 멘탈 건강 상담사입니다.
 항상 같은 인사말(예: '안녕하세요')로 시작하지 말고,
@@ -56,19 +54,17 @@ def node_llm_generate(state):
 답변:
 """
     try:
-        llm = LLM_POOL[llm_name]
         response = llm.invoke(enhanced_prompt)
         state["answer"] = response.content if hasattr(response, "content") else str(response)
-        state["llm_used"] = llm_name
+        state["llm_used"] = "gemini"
         state["llm_error"] = None
         state["fallback_used"] = False
     except Exception as e:
-        fallback_llm_name = get_fallback_llm_name(llm_name)
         try:
-            llm = LLM_POOL[fallback_llm_name]
+            llm = get_llm("openai", True)
             response = llm.invoke(enhanced_prompt)
             state["answer"] = response.content if hasattr(response, "content") else str(response)
-            state["llm_used"] = fallback_llm_name
+            state["llm_used"] = "openai"
             state["llm_error"] = str(e)
             state["fallback_used"] = True
         except Exception as e2:

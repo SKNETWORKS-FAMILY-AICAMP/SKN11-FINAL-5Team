@@ -19,7 +19,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # 절대경로로 임포트
-from config.env_config import llm,llm_gemini
+from shared_modules.llm_utils import llm,llm_gemini
 
 # 1. 분류 모델 정의 (Pydantic 대신 간소화)
 class InquiryClassification(BaseModel):

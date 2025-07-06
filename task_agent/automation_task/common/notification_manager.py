@@ -7,10 +7,10 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
 
-from http_client import get_http_client
-from email_manager import get_email_manager
-from config_manager import get_config_manager
-from db_helper import get_db_helper, get_redis_helper
+from .http_client import get_http_client
+from .email_manager import get_email_manager
+from .config_manager import get_config_manager
+from .db_helper import get_db_helper
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ class NotificationManager:
         self.email_manager = get_email_manager()
         self.config_manager = get_config_manager()
         self.db_helper = get_db_helper()
-        self.redis_helper = get_redis_helper()
     
     async def send_notification(self, user_id: int, message: str, 
                                channels: List[str] = None, urgency: str = "medium",

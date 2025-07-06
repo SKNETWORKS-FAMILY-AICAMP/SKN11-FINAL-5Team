@@ -6,27 +6,15 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 import openai
+openai_client = openai
 
 from sqlalchemy.orm import Session
-from crud import (
+from shared_modules.queries import (
     create_message, get_conversation_history,
     save_or_update_phq9_result, get_latest_phq9_by_user
 )
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path="../unified_agent_system/.env")
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-embedding = OpenAIEmbeddings(model="text-embedding-3-small")
-vectorstore = Chroma(
-    collection_name="global-documents",
-    embedding_function=embedding,
-    persist_directory="D:/penta/data/vector_db"
-)
+from shared_modules.env_config import get_google_api_key, get_openai_api_key
 
 answer_prompt = PromptTemplate(
     input_variables=["context", "question", "chat_history"],
@@ -55,10 +43,10 @@ LLM_POOL = {
     "openai": ChatOpenAI(
         model="gpt-4o-mini", 
         temperature=0.7, 
-        api_key=OPENAI_API_KEY
+        api_key=get_openai_api_key()
         ),
     "gemini": ChatGoogleGenerativeAI(
-        google_api_key=GEMINI_API_KEY,
+        google_api_key=get_google_api_key(),
         model="gemini-1.5-flash-latest",
         temperature=0.7,
     )

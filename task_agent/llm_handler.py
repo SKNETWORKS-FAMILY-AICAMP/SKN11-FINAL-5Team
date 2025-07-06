@@ -1,15 +1,19 @@
 """
-간소화된 LLM 핸들러 v3
+Task Agent LLM 핸들러 v4
+공통 모듈의 llm_utils를 활용하여 LLM 처리
 """
 
+import sys
+import os
 import json
 import logging
 from typing import Dict, Any, Optional, List
 
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+# 공통 모듈 경로 추가
+sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+
+from llm_utils import get_llm_manager, LLMManager
+from env_config import get_config
 
 from models import PersonaType
 from config import config
@@ -17,104 +21,95 @@ from prompts import prompt_manager
 
 logger = logging.getLogger(__name__)
 
-class LLMHandler:
-    """간소화된 LLM 핸들러"""
+class TaskAgentLLMHandler:
+    """Task Agent 전용 LLM 핸들러"""
 
     def __init__(self):
-        """LLM 초기화"""
-        self.models = {}
-        self.setup_models()
-        self.str_parser = StrOutputParser()
-        self.json_parser = JsonOutputParser()
+        """LLM 핸들러 초기화"""
+        # 공통 LLM 매니저 사용
+        self.llm_manager = get_llm_manager()
         
-        logger.info(f"LLM 핸들러 초기화 완료")
-
-    def setup_models(self):
-        """LLM 모델 설정"""
-        # OpenAI 모델
-        if config.OPENAI_API_KEY:
-            self.models["openai"] = ChatOpenAI(
-                model="gpt-4o-mini",
-                api_key=config.OPENAI_API_KEY,
-                temperature=config.TEMPERATURE,
-                max_tokens=config.MAX_TOKENS
-            )
-            
-        # Google Gemini 모델
-        if config.GOOGLE_API_KEY:
-            self.models["gemini"] = ChatGoogleGenerativeAI(
-                model=config.DEFAULT_MODEL,
-                google_api_key=config.GOOGLE_API_KEY,
-                temperature=config.TEMPERATURE,
-                max_output_tokens=config.MAX_TOKENS
-            )
-
-        # 기본 모델 설정
-        self.default_model = "gemini" if "gemini" in self.models else "openai"
+        # Task Agent 전용 설정
+        self.default_provider = "gemini" if self.llm_manager.models.get("gemini") else "openai"
+        
+        logger.info(f"Task Agent LLM 핸들러 초기화 완료 (기본 프로바이더: {self.default_provider})")
 
     async def analyze_intent(self, message: str, persona: PersonaType, 
                            conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """사용자 의도 분석"""
         try:
-            model = self.models.get(self.default_model)
-            if not model:
-                return self._fallback_intent_analysis(message)
-
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", prompt_manager.get_intent_analysis_prompt()),
-                ("human", f"""
+            # 메시지 구성
+            messages = [
+                {"role": "system", "content": prompt_manager.get_intent_analysis_prompt()},
+                {"role": "user", "content": f"""
                 페르소나: {persona.value}
                 대화 히스토리: {history_context}
                 현재 메시지: {message}
-                """)
-            ])
+                """}
+            ]
 
-            chain = prompt | model | self.json_parser
-            result = await chain.ainvoke({})
+            # 공통 LLM 매니저를 통한 응답 생성
+            result = await self.llm_manager.generate_response(
+                messages=messages,
+                provider=self.default_provider,
+                output_format="json"
+            )
 
-            return {
-                "intent": result.get("intent", "general_inquiry"),
-                "urgency": result.get("urgency", "medium"),
-                "confidence": result.get("confidence", 0.5)
-            }
+            # 결과 검증 및 기본값 설정
+            if isinstance(result, dict):
+                return {
+                    "intent": result.get("intent", "general_inquiry"),
+                    "urgency": result.get("urgency", "medium"),
+                    "confidence": result.get("confidence", 0.5)
+                }
+            
+            # JSON 파싱 시도
+            try:
+                parsed_result = json.loads(str(result))
+                return {
+                    "intent": parsed_result.get("intent", "general_inquiry"),
+                    "urgency": parsed_result.get("urgency", "medium"),
+                    "confidence": parsed_result.get("confidence", 0.5)
+                }
+            except json.JSONDecodeError:
+                pass
 
         except Exception as e:
             logger.error(f"의도 분석 실패: {e}")
-            return self._fallback_intent_analysis(message)
+
+        return self._fallback_intent_analysis(message)
 
     async def classify_automation_intent(self, message: str) -> Optional[str]:
         """자동화 의도 분류"""
         try:
-            model = self.models.get(self.default_model)
-            if not model:
-                return None
+            messages = [
+                {"role": "system", "content": prompt_manager.get_automation_classification_prompt()},
+                {"role": "user", "content": f"메시지: {message}"}
+            ]
 
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", prompt_manager.get_automation_classification_prompt()),
-                ("human", f"메시지: {message}")
-            ])
-
-            chain = prompt | model | self.str_parser
-            result = await chain.ainvoke({})
+            result = await self.llm_manager.generate_response(
+                messages=messages,
+                provider=self.default_provider,
+                output_format="string"
+            )
             
-            result = result.strip().strip('"')
-            return result if result != "none" else None
+            if isinstance(result, str):
+                result = result.strip().strip('"')
+                return result if result != "none" else None
+            
+            return None
 
         except Exception as e:
             logger.error(f"자동화 의도 분류 실패: {e}")
             return None
 
-    async def generate_response(self, message: str, persona: PersonaType, 
+    async def generate_response(self, message: str, persona: PersonaType, intent: str,
                               context: str = "", conversation_history: List[Dict] = None) -> str:
         """개인화된 응답 생성"""
         try:
-            model = self.models.get(self.default_model)
-            if not model:
-                return self._fallback_response(persona)
-
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
@@ -124,15 +119,18 @@ class LLMHandler:
             if context:
                 context_message += f"\n\n=== 추가 정보 ===\n{context}"
 
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", prompt_manager.get_system_prompt(persona)),
-                ("human", context_message)
-            ])
+            messages = [
+                {"role": "system", "content": prompt_manager.get_intent_specific_prompt(persona, intent)},
+                {"role": "user", "content": context_message}
+            ]
 
-            chain = prompt | model | self.str_parser
-            result = await chain.ainvoke({})
+            result = await self.llm_manager.generate_response(
+                messages=messages,
+                provider=self.default_provider,
+                output_format="string"
+            )
 
-            return result
+            return str(result) if result else self._fallback_response(persona)
 
         except Exception as e:
             logger.error(f"응답 생성 실패: {e}")
@@ -142,28 +140,36 @@ class LLMHandler:
                                 conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
         """정보 추출 (일정, 이메일, SNS 등)"""
         try:
-            model = self.models.get(self.default_model)
-            if not model:
-                return None
-
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", prompt_manager.get_information_extraction_prompt(extraction_type)),
-                ("human", f"""
+            messages = [
+                {"role": "system", "content": prompt_manager.get_information_extraction_prompt(extraction_type)},
+                {"role": "user", "content": f"""
                 대화 히스토리: {history_context}
                 현재 메시지: {message}
                 현재 시간: {self._get_current_time()}
-                """)
-            ])
+                """}
+            ]
 
-            chain = prompt | model | self.json_parser
-            result = await chain.ainvoke({})
+            result = await self.llm_manager.generate_response(
+                messages=messages,
+                provider=self.default_provider,
+                output_format="json"
+            )
 
-            # 기본 검증
-            if result and self._validate_extraction(result, extraction_type):
-                return result
+            # 결과 검증
+            if isinstance(result, dict):
+                if self._validate_extraction(result, extraction_type):
+                    return result
+            
+            # JSON 파싱 시도
+            try:
+                parsed_result = json.loads(str(result))
+                if self._validate_extraction(parsed_result, extraction_type):
+                    return parsed_result
+            except json.JSONDecodeError:
+                pass
             
             return None
 
@@ -223,3 +229,23 @@ class LLMHandler:
     def _fallback_response(self, persona: PersonaType) -> str:
         """백업 응답"""
         return f"{persona.value}를 위한 맞춤 조언을 준비하고 있습니다. 좀 더 구체적으로 말씀해주시면 더 정확한 도움을 드릴 수 있습니다."
+
+    def get_status(self) -> Dict[str, Any]:
+        """LLM 핸들러 상태 반환"""
+        llm_status = self.llm_manager.get_status()
+        
+        return {
+            "task_agent_handler": {
+                "default_provider": self.default_provider,
+                "initialized": True
+            },
+            "llm_manager_status": llm_status
+        }
+
+    def test_connection(self) -> Dict[str, bool]:
+        """LLM 연결 테스트"""
+        return self.llm_manager.test_connection()
+
+
+# 기존 코드와의 호환성을 위한 클래스 별칭
+LLMHandler = TaskAgentLLMHandler

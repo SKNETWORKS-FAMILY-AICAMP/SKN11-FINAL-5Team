@@ -5,7 +5,7 @@
 from typing import Dict, List, Any, Optional
 import logging
 
-from common import get_notification_manager, get_config_manager, ValidationUtils
+from .common import get_notification_manager, get_config_manager, ValidationUtils
 
 logger = logging.getLogger(__name__)
 
