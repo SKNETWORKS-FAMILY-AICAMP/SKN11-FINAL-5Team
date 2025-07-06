@@ -31,6 +31,44 @@ class VectorStoreManager:
         
         self._initialize_embedding()
     
+    def _ensure_chroma_schema(self, persist_directory: str):
+        """
+        ChromaDB 스키마 확인 및 자동 수정
+        collections.topic 컶럼이 없으면 추가
+        """
+        import sqlite3
+        import os
+        
+        db_path = os.path.join(persist_directory, "chroma.sqlite3")
+        
+        if not os.path.exists(db_path):
+            return  # DB 파일이 없으면 스키프
+        
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # collections 테이블 확인
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='collections'")
+            if cursor.fetchone():
+                # topic 컶럼 확인
+                cursor.execute("PRAGMA table_info(collections)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                if 'topic' not in columns:
+                    logger.info("ChromaDB collections 테이블에 topic 컶럼 추가 중...")
+                    cursor.execute("ALTER TABLE collections ADD COLUMN topic TEXT DEFAULT 'general'")
+                    cursor.execute("UPDATE collections SET topic = 'general' WHERE topic IS NULL")
+                    conn.commit()
+                    logger.info("✅ ChromaDB collections.topic 컶럼 추가 완료")
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.warning(f"ChromaDB 스키마 수정 실패: {e}")
+            if 'conn' in locals():
+                conn.close()
+    
     def _initialize_embedding(self):
         """임베딩 모델 초기화"""
         try:
@@ -83,6 +121,9 @@ class VectorStoreManager:
             return self.vectorstores[cache_key]
         
         try:
+            # ChromaDB 스키마 자동 수정 (collections.topic 컶럼 추가)
+            self._ensure_chroma_schema(persist_directory)
+            
             # 벡터 스토어 생성/로드
             vectorstore = Chroma(
                 collection_name=collection_name,
@@ -440,7 +481,28 @@ def add_texts(texts: List[str], metadatas: List[Dict[str, Any]] = None, collecti
     """텍스트 추가"""
     return get_vector_manager().add_texts(texts, metadatas, collection_name)
 
-# 기존 코드와의 호환성을 위한 변수들
-embedding = get_vector_manager().embedding
-vectorstore = get_vectorstore()
-retriever = get_retriever()
+# 기존 코드와의 호환성을 위한 변수들 (lazy loading으로 변경)
+embedding = None  # lazy loading
+vectorstore = None  # lazy loading  
+retriever = None  # lazy loading
+
+def get_default_embedding():
+    """기본 임베딩 반환 (lazy loading)"""
+    global embedding
+    if embedding is None:
+        embedding = get_vector_manager().embedding
+    return embedding
+
+def get_default_vectorstore():
+    """기본 벡터스토어 반환 (lazy loading)"""
+    global vectorstore
+    if vectorstore is None:
+        vectorstore = get_vectorstore()
+    return vectorstore
+
+def get_default_retriever():
+    """기본 검색기 반환 (lazy loading)"""
+    global retriever
+    if retriever is None:
+        retriever = get_retriever()
+    return retriever

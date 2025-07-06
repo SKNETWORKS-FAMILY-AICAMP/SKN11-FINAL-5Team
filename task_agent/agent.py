@@ -78,7 +78,12 @@ class TaskAgent:
             )
             
             # 자동화 요청인지 확인
-            automation_type = await self.llm_handler.classify_automation_intent(query.message)
+            automation_type = None
+            if (
+                intent_analysis["intent"] == IntentType.TASK_AUTOMATION or
+                any(keyword in query.message for keyword in ["자동화", "자동", "등록", "생성", "업로드"])
+            ):
+                automation_type = await self.llm_handler.classify_automation_intent(query.message)
             
             # 워크플로우 결정
             if automation_type:
@@ -290,32 +295,6 @@ class TaskAgent:
                 actions.append({
                     "type": "calendar_integration",
                     "description": "캘린더 연동을 설정하시겠습니까?",
-                    "data": {"persona": persona.value}
-                })
-            elif intent == "task_automation":
-                actions.append({
-                    "type": "automation_tutorial",
-                    "description": "자동화 기능 사용법을 안내해드릴까요?",
-                    "data": {"persona": persona.value}
-                })
-            elif intent == "tool_recommendation":
-                actions.append({
-                    "type": "tool_setup",
-                    "description": f"{persona.value}에 맞는 도구 설정을 도와드릴까요?",
-                    "data": {"persona": persona.value}
-                })
-            
-            # 페르소나별 추가 액션
-            if persona == PersonaType.DEVELOPER:
-                actions.append({
-                    "type": "api_integration",
-                    "description": "API 연동 설정이 필요하신가요?",
-                    "data": {"persona": persona.value}
-                })
-            elif persona == PersonaType.CREATOR:
-                actions.append({
-                    "type": "content_schedule",
-                    "description": "콘텐츠 발행 일정을 관리해드릴까요?",
                     "data": {"persona": persona.value}
                 })
                 

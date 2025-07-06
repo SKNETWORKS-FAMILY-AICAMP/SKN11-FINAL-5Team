@@ -12,7 +12,6 @@ class ChatResponse(BaseModel):
 
 class ConversationCreate(BaseModel):
     user_id: int
-    conversation_type: Optional[str] = "default"
 
 class UserCreate(BaseModel):
     email: str

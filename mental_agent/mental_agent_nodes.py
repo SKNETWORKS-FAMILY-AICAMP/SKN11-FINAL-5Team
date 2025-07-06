@@ -1,5 +1,5 @@
 from shared_modules.queries import create_message, get_conversation_history, get_user_context_from_db
-from shared_modules.vector_utils import vectorstore
+from shared_modules.vector_utils import get_default_vectorstore
 from shared_modules.llm_utils import get_llm
 from mental_agent import analyze_emotion, is_depressed_emotion, extract_and_save_phq9, load_phq9_markdown
 
@@ -14,7 +14,11 @@ def node_load_user_context(state):
     return state
 
 def node_embed_and_retrieve(state):
-    docs = vectorstore.as_retriever().invoke(state["user_input"])
+    vectorstore = get_default_vectorstore()
+    if vectorstore:
+        docs = vectorstore.as_retriever().invoke(state["user_input"])
+    else:
+        docs = []
     state["docs"] = docs
     state["context"] = "\n\n".join([d.page_content for d in docs])
     state["references"] = [

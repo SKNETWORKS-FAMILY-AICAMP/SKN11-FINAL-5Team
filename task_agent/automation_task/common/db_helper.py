@@ -252,7 +252,6 @@ class AutomationDatabaseHelper:
                 return {
                     "conversation_id": conversation.conversation_id,
                     "user_id": conversation.user_id,
-                    "conversation_type": conversation.conversation_type,
                     "started_at": conversation.started_at,
                     "ended_at": conversation.ended_at,
                     "is_visible": conversation.is_visible

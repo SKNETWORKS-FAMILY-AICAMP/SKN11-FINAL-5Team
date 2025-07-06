@@ -13,9 +13,6 @@ from enum import Enum
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 
-# 공통 데이터베이스 모델 가져오기
-from db_models import User, Conversation, Message, AutomationTask
-
 # ===== Task Agent 전용 Enum =====
 
 class PersonaType(str, Enum):
@@ -56,8 +53,6 @@ class IntentType(str, Enum):
     TASK_AUTOMATION = "task_automation"
     SCHEDULE_MANAGEMENT = "schedule_management"
     TOOL_RECOMMENDATION = "tool_recommendation"
-    EMAIL_ASSISTANCE = "email_assistance"
-    SNS_MANAGEMENT = "sns_management"
 
 class UrgencyLevel(str, Enum):
     LOW = "low"
@@ -69,8 +64,8 @@ class UrgencyLevel(str, Enum):
 
 class UserQuery(BaseModel):
     """사용자 쿼리 요청"""
-    user_id: str = Field(..., description="사용자 ID")
-    conversation_id: Optional[str] = Field(None, description="대화 ID")
+    user_id: Optional[int] = Field(..., description="사용자 ID")
+    conversation_id: Optional[int] = Field(None, description="대화 ID")
     message: str = Field(..., description="사용자 메시지")
     persona: PersonaType = Field(PersonaType.COMMON, description="페르소나 타입")
     
@@ -289,8 +284,14 @@ class ErrorResponse(BaseModel):
 
 # ===== 기존 코드와의 호환성을 위한 별칭들 =====
 
-# 데이터베이스 모델 별칭 (공통 모듈에서 가져온 것들)
-DBUser = User
-DBConversation = Conversation
-DBMessage = Message
-DBAutomationTask = AutomationTask
+# # 데이터베이스 모델 별칭 (fully qualified path 사용)
+# DBUser = db_models.User
+# DBConversation = db_models.Conversation
+# DBMessage = db_models.Message
+# DBAutomationTask = db_models.AutomationTask
+# DBPHQ9Result = db_models.PHQ9Result
+# DBReport = db_models.Report
+# DBTemplateMessage = db_models.TemplateMessage
+# DBFAQ = db_models.FAQ
+# DBFeedback = db_models.Feedback
+# DBSubscription = db_models.Subscription

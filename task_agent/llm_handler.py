@@ -105,23 +105,40 @@ class TaskAgentLLMHandler:
         except Exception as e:
             logger.error(f"자동화 의도 분류 실패: {e}")
             return None
-
     async def generate_response(self, message: str, persona: PersonaType, intent: str,
-                              context: str = "", conversation_history: List[Dict] = None) -> str:
+                                context: str = "", conversation_history: List[Dict] = None) -> str:
         """개인화된 응답 생성"""
         try:
-            # 히스토리 컨텍스트 구성
+            # 1. 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
+
+            # 2. 사용자 입력 + 히스토리 기반 컨텍스트 메시지 구성
+            context_message = f"{history_context}\n\n사용자 메시지: {message}".strip()
+
+            # 3. system 프롬프트: 페르소나+의도 역할 지시 프롬프트만 사용
+            def is_brief_request(message: str) -> bool:
+                return any(kw in message for kw in ["간단히", "요약", "짧게", "한눈에", "핵심만"])
+
+            def is_detailed_request(message: str) -> bool:
+                return any(kw in message for kw in ["자세히", "상세히", "예시 포함", "설명 좀", "길게"])
             
-            # 컨텍스트 메시지 생성
-            context_message = prompt_manager.get_context_message(persona, message, history_context)
-            
+            system_prompt = prompt_manager.get_intent_specific_prompt(persona, intent)
+
+            if is_brief_request(message):
+                system_prompt += "\n\n(주의: 응답은 300자 이내로 핵심 요약. 이 문장은 출력하지 말 것.)"
+            elif is_detailed_request(message):
+                system_prompt += "\n\n(주의: 가능한 한 구체적 예시와 함께 상세하게 설명. 이 문장은 출력하지 말 것.)"
+            else:
+                system_prompt += "\n\n(주의: 기본은 간결하게, 질문자가 요청 시에만 자세히 설명. 이 문장은 출력하지 말 것.)"
+
+            # 4. 추가 컨텍스트가 있다면 user 메시지에 포함
             if context:
                 context_message += f"\n\n=== 추가 정보 ===\n{context}"
 
+            # 5. 구성된 메시지
             messages = [
-                {"role": "system", "content": prompt_manager.get_intent_specific_prompt(persona, intent)},
-                {"role": "user", "content": context_message}
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": context_message.strip()}
             ]
 
             result = await self.llm_manager.generate_response(
@@ -135,6 +152,7 @@ class TaskAgentLLMHandler:
         except Exception as e:
             logger.error(f"응답 생성 실패: {e}")
             return self._fallback_response(persona)
+
 
     async def extract_information(self, message: str, extraction_type: str, 
                                 conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:

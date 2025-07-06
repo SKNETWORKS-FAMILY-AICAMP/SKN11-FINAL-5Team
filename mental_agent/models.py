@@ -1,61 +1,28 @@
-from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, DateTime, Text, DECIMAL, JSON
-)
-from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
+"""
+Mental Agent 모델 정의
+Fully qualified path 사용으로 SQLAlchemy 충돌 완전 방지
+"""
 
-Base = declarative_base()
+import sys
+import os
 
-class User(Base):
-    __tablename__ = "user"
-    user_id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False)
-    password = Column(String(255), nullable=True)  
-    nickname = Column(String(100))
-    business_type = Column(String(100))
-    provider = Column(String(32), default="local")
-    social_id = Column(String(128), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    admin = Column(Boolean, default=False)
-    access_token = Column(String(1024), nullable=True)
-    conversations = relationship("Conversation", back_populates="user")
-    phq9_result = relationship("PHQ9Result", back_populates="user", uselist=False)
+# 공통 모듈 경로 추가
+sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 
-class Conversation(Base):
-    __tablename__ = "conversation"
-    conversation_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
-    started_at = Column(DateTime, default=datetime.now)
-    ended_at = Column(DateTime)
-    is_visible = Column(Boolean, default=False)
-    user = relationship("User", back_populates="conversations")
-    messages = relationship("Message", back_populates="conversation")
+# SQLAlchemy 충돌 방지를 위해 fully qualified import 사용
+import shared_modules.db_models as db_models
 
-class Message(Base):
-    __tablename__ = "message"
-    message_id = Column(Integer, primary_key=True, autoincrement=True)
-    conversation_id = Column(Integer, ForeignKey("conversation.conversation_id"), nullable=False)
-    sender_type = Column(String(50))
-    agent_type = Column(String(50))
-    content = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
-    conversation = relationship("Conversation", back_populates="messages")
-    
-class Report(Base):
-    __tablename__ = "report"
-    report_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
-    conversation_id = Column(Integer, ForeignKey("conversation.conversation_id"))
-    report_type = Column(String(50))
-    title = Column(String(100))
-    content_data = Column(JSON)
-    file_url = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
+# Mental Agent는 이제 모든 모델을 fully qualified path로 접근합니다
+# Report 모델도 이제 공통 모듈에 포함되어 있습니다
 
-class PHQ9Result(Base):
-    __tablename__ = "phq9_result"
-    user_id = Column(Integer, ForeignKey("user.user_id"), primary_key=True)
-    score = Column(Integer, nullable=False)
-    level = Column(String(50))
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    user = relationship("User", back_populates="phq9_result", uselist=False)
+# 기존 코드와의 호환성을 위한 별칭들 (fully qualified path 사용)
+DBUser = db_models.User
+DBConversation = db_models.Conversation
+DBMessage = db_models.Message
+DBAutomationTask = db_models.AutomationTask
+DBPHQ9Result = db_models.PHQ9Result
+DBReport = db_models.Report
+DBTemplateMessage = db_models.TemplateMessage
+DBFAQ = db_models.FAQ
+DBFeedback = db_models.Feedback
+DBSubscription = db_models.Subscription

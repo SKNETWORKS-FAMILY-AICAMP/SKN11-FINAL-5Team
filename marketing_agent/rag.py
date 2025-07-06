@@ -5,6 +5,12 @@ Marketing Agent - 공통 모듈 사용 버전
 
 import sys
 import os
+
+# 텔레메트리 비활성화 (ChromaDB 오류 방지)
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['CHROMA_TELEMETRY'] = 'False' 
+os.environ['DO_NOT_TRACK'] = '1'
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from shared_modules import (

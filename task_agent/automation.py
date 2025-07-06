@@ -9,14 +9,15 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
+import shared_modules.db_models as db_models
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+  # 공통 모듈의 DB 모델들
 from models import AutomationRequest, AutomationResponse, AutomationStatus, AutomationTaskType
-from db_models import AutomationTask as DBAutomationTask
 from database import get_db_session
 from utils import TaskAgentLogger, create_success_response, create_error_response
 
@@ -93,7 +94,7 @@ class TaskAgentAutomationManager:
             # DB에 작업 저장 (공통 모듈 활용)
             db_session = get_db_session()
             try:
-                automation_task = DBAutomationTask(
+                automation_task = db_models.AutomationTask(
                     user_id=request.user_id,
                     task_type=request.task_type.value,
                     title=request.title,

@@ -21,10 +21,10 @@ import requests
 
 # 기존 모듈들
 from shared_modules.database import SessionLocal
-from models import Conversation
+from shared_modules.db_models import Conversation
 from schemas import ChatRequest, ChatResponse, ConversationCreate, UserCreate, SocialLoginRequest
 from mental_agent_graph import build_mental_graph
-from shared_modules.queries import create_message, create_user, get_user_by_social, create_user_social
+from shared_modules.queries import create_message, get_user_by_social, create_user_social
 
 # 로깅 설정
 from shared_modules.logging_utils import setup_logging
@@ -139,24 +139,6 @@ def create_conversation(req: ConversationCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail="대화 세션 생성에 실패했습니다.")
 
-@app.post("/create_user")
-def create_user_endpoint(req: UserCreate, db: Session = Depends(get_db)):
-    """사용자 생성"""
-    try:
-        user = create_user(db, req)
-        logger.info(f"새 사용자 생성: user_id={user.user_id}")
-        
-        return {
-            "user_id": user.user_id,
-            "username": user.username,
-            "email": user.email,
-            "created_at": user.created_at
-        }
-        
-    except Exception as e:
-        logger.error(f"사용자 생성 오류: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail="사용자 생성에 실패했습니다.")
 
 @app.post("/social_login")
 def social_login(req: SocialLoginRequest, db: Session = Depends(get_db)):

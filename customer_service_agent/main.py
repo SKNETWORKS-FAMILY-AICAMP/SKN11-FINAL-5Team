@@ -6,10 +6,15 @@ Customer Service Agent - 공통 모듈 사용 버전
 import sys
 import os
 
+# 텔레메트리 비활성화 (ChromaDB 오류 방지)
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['CHROMA_TELEMETRY'] = 'False' 
+os.environ['DO_NOT_TRACK'] = '1'
+
 from fastapi.responses import HTMLResponse
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from shared_modules.queries import get_business_type, get_template, insert_message
+from shared_modules.queries import get_business_type, get_template, insert_message_raw
 from shared_modules import (
     get_config,
     get_llm,
@@ -49,6 +54,7 @@ class AgentQueryRequest(BaseModel):
     question: str
     customer_id: str = None
     conversation_id: int = None
+    persona: str = None
 
 class CustomerQueryResponse(BaseModel):
     answer: str
@@ -71,7 +77,7 @@ async def query_agent(request: AgentQueryRequest = Body(...)):
         business_type = get_business_type(request.user_id) or "common"
         logger.info(f"Business type for user {request.user_id}: {business_type}")
 
-        insert_success = insert_message(
+        insert_success = insert_message_raw(
             conversation_id=request.conversation_id,
             sender_type="user",
             agent_type="customer_agent",
@@ -104,7 +110,7 @@ async def query_agent(request: AgentQueryRequest = Body(...)):
         history.append(AIMessage(content=final_state["answer"]))
 
         # 4. 에이전트 답변 저장
-        insert_success = insert_message(
+        insert_success = insert_message_raw(
             conversation_id=request.conversation_id,
             sender_type="agent",
             agent_type="customer_agent",

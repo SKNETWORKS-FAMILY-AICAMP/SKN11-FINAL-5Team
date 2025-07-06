@@ -6,8 +6,17 @@ Business Planning Agent - 공통 모듈 사용 버전
 # 공통 모듈에서 필요한 것들 import
 import sys
 import os
+from typing import Optional
+
+# 텔레메트리 비활성화 (ChromaDB 오류 방지)
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['CHROMA_TELEMETRY'] = 'False' 
+os.environ['DO_NOT_TRACK'] = '1'
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+from shared_modules.llm_utils import get_llm_manager
+from shared_modules.queries import create_conversation, create_message, get_conversation_by_id, get_conversation_history, get_recent_messages
 from shared_modules import (
     get_config, 
     get_llm, 
@@ -22,7 +31,7 @@ from langchain.chains import RetrievalQA
 from fastapi.middleware.cors import CORSMiddleware
 from config.prompts_config import PROMPT_META
 from fastapi import FastAPI, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain_core.output_parsers import StrOutputParser
 
 # 로깅 설정
@@ -139,81 +148,140 @@ def build_agent_prompt(topics: list, user_input: str, persona: str, history: str
         template=template
     )
 
-def run_business_planning_with_rag(user_input: str, use_retriever: bool = True, persona: str = "common"):
+async def run_business_planning_with_rag(conversation_id:int, user_input: str, use_retriever: bool = True, persona: str = "common"):
     selected_llm = get_llm_with_balancing()
     topics = classify_topics(user_input)
-
-    # 히스토리 불러오기
-    from shared_modules.queries import get_recent_messages 
-    conversation_id = 4
-    history_rows = get_recent_messages(conversation_id)
-
-    # 텍스트로 변환
-    history_text = ""
-    for msg in reversed(history_rows):
-        role = "User" if msg["sender_type"] == "USER" else "Agent"
-        history_text += f"{role}: {msg['content']}\n"
+    
+    with get_session_context() as db:
+        messages = get_recent_messages(db, conversation_id, 10)
+        
+        history = []
+        for msg in reversed(messages):  # 시간순 정렬
+            history.append({
+                "role": "user" if msg.sender_type.lower() == "user" else "assistant",
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+                "agent_type": msg.agent_type
+            })
 
     # 프롬프트 생성
-    prompt = build_agent_prompt(topics, user_input, persona, history_text)
+    prompt = build_agent_prompt(topics, user_input, persona, history)
 
-    # 필터 설정
-    if topics:
-        topic_filter = {
-            "$and": [
-                {"category": "business_planning"},
-                {"topic": {"$in": topics}}
-            ]
+    try:
+        # 필터 설정
+        if topics:
+            topic_filter = {
+                "$and": [
+                    {"category": "business_planning"},
+                    {"topic": {"$in": topics}}
+                ]
+            }
+        else:
+            topic_filter = {}
+
+        # 벡터 스토어 및 검색기 가져오기
+        vectorstore = get_vectorstore("global-documents")
+        topic_retriever = vectorstore.as_retriever(
+            search_kwargs={"k": 5, "filter": topic_filter}
+        ) if vectorstore else None
+
+        # RetrievalQA 체인 생성
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=selected_llm,
+            chain_type="stuff",
+            retriever=topic_retriever if use_retriever and topic_retriever else None,
+            chain_type_kwargs={"prompt": prompt},
+            return_source_documents=True
+        )
+
+        result = qa_chain.invoke(user_input)
+        sources = [
+            {
+                "source": doc.metadata.get("source", "❌ 없음"),
+                "metadata": doc.metadata,
+                "length": len(doc.page_content),
+                "snippet": doc.page_content[:300]
+            }
+            for doc in result.get('source_documents', [])
+        ]
+
+        formatted_sources = "\n\n".join(
+            [f"# 문서\n{doc['snippet']}\n" for doc in sources]
+        )
+
+        return {
+            "topics": topics,
+            "answer": result['result'],
+            "sources": formatted_sources
         }
-    else:
-        topic_filter = {}
 
-    # 벡터 스토어 및 검색기 가져오기
-    vectorstore = get_vectorstore("global-documents")
-    topic_retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 5, "filter": topic_filter}
-    ) if vectorstore else None
-
-    # RetrievalQA 체인 생성
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=selected_llm,
-        chain_type="stuff",
-        retriever=topic_retriever if use_retriever and topic_retriever else None,
-        chain_type_kwargs={"prompt": prompt},
-        return_source_documents=True
-    )
-
-    result = qa_chain.invoke(user_input)
-
-    sources = [
-        {
-            "source": doc.metadata.get("source", "❌ 없음"),
-            "metadata": doc.metadata,
-            "length": len(doc.page_content),
-            "snippet": doc.page_content[:300]
+    except Exception as e:
+        llm = get_llm("gemini", True)
+        prompt = prompt.template.format(context="관련 문서를 찾지 못했습니다. 기본 컨설턴트 지식만으로 답변해주세요.")
+        chain = prompt | llm | StrOutputParser()
+        
+        # 응답 생성
+        result = await chain.ainvoke({
+            })
+        
+        return {
+            "topics": topics,
+            "answer": result,
+            "sources": "문서을 찾지 못했습니다. 기본 지식으로 답변합니다."
         }
-        for doc in result.get('source_documents', [])
-    ]
-
-    formatted_sources = "\n\n".join(
-        [f"# 문서\n{doc['snippet']}\n" for doc in sources]
-    )
-
-    return {
-        "topics": topics,
-        "answer": result['result'],
-        "sources": formatted_sources
-    }
+    
 
 # 요청 모델 정의
-class AgentQueryRequest(BaseModel):
-    question: str
+class UserQuery(BaseModel):
+    """사용자 쿼리 요청"""
+    user_id: Optional[int] = Field(..., description="사용자 ID")
+    conversation_id: Optional[int] = Field(None, description="대화 ID")
+    message: str = Field(..., description="사용자 메시지")
+    persona: Optional[str] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user123",
+                "conversation_id": "conv_abc123",
+                "message": "내일 회의 일정을 예약해줘",
+                "persona": "developer"
+            }
+        }
+
 
 # FastAPI 라우터
 @app.post("/agent/query")
-def query_agent(request: AgentQueryRequest = Body(...)):
-    user_question = request.question
+# def query_agent(request: AgentQueryRequest = Body(...)):
+async def process_user_query(request: UserQuery):
+    with get_session_context() as db:
+        user_question = request.message
 
+        # 1. 대화 세션 처리
+        user_id = request.user_id
+        conversation_id=request.conversation_id
+        if conversation_id:
+            conversation = get_conversation_by_id(db, conversation_id)
+            if conversation and conversation.user_id == user_id:
+                return {
+                    "conversation_id": conversation.conversation_id,
+                    "is_new": False
+                }
+                
+        # 새 대화 세션 생성
+        conversation = create_conversation(db, user_id)
+        if not conversation:
+            logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
+            raise Exception("대화 세션 생성에 실패했습니다")
+        
+        conversation_id = conversation.conversation_id
+
+        # 3. 사용자 메시지 저장
+        _ = create_message(db, conversation_id, "user", "business_planning", request.message)
+        
+    # 4. 쿼리 업데이트
+    request.conversation_id = conversation_id
+    
     # 린캔버스 요청 분기 처리
     if "린캔버스" in user_question:
         from shared_modules.queries import get_template_by_title
@@ -241,28 +309,21 @@ def query_agent(request: AgentQueryRequest = Body(...)):
         }
 
     # 아니면 평소대로 RAG 흐름
-    result = run_business_planning_with_rag(
+    result = await run_business_planning_with_rag(
+        conversation_id,
         user_question,
         use_retriever=True,
-        persona=persona
+        persona=request.persona
     )
 
-    from shared_modules.queries import insert_message
-
-    conversation_id = 4  # 예시 고정 ID
-
-    insert_message(
-        conversation_id=conversation_id,
-        sender_type="USER",
-        content=user_question
-    )
-
-    insert_message(
-        conversation_id=conversation_id,
-        sender_type="AGENT",
-        content=result['answer'],
-        agent_type="business_planning"
-    )
+    from shared_modules.queries import insert_message_raw
+    
+    _ = insert_message_raw(
+            conversation_id=conversation_id,
+            sender_type="agent",
+            agent_type="business_planning",
+            content=result["answer"]
+        )
 
     return result
 
