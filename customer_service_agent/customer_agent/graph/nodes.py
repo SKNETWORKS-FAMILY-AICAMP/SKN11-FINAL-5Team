@@ -19,11 +19,13 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # 절대경로로 임포트
-from shared_modules.llm_utils import llm,llm_gemini
+from shared_modules.llm_utils import get_llm #,llm_gemini
+
 
 # 1. 분류 모델 정의 (Pydantic 대신 간소화)
 class InquiryClassification(BaseModel):
     inquiry_type: str = Field(..., enum=["인사", "상담", "잡담"])
+
 
 def analyze_inquiry_node(state: CustomerAgentState) -> dict:
     """문의 분류 노드 (JSON 파서 사용)"""
@@ -49,6 +51,8 @@ def analyze_inquiry_node(state: CustomerAgentState) -> dict:
         ("system", system_prompt + "\n\n{format_instructions}"),
         ("human", "문의 내용: {input}")
     ]).partial(format_instructions=parser.get_format_instructions())
+    
+    llm = get_llm()
     
     # 5. 체인 구성
     chain = prompt | llm | parser
@@ -79,8 +83,9 @@ def small_talk_node(state: CustomerAgentState) -> dict:
         prompt = ChatPromptTemplate.from_template(
             "사용자의 인사나 잡담에 1-2문장으로 정중한 어투로 답변하세요: {input}"
         )
-        chain = prompt | llm_gemini | StrOutputParser()
-        #chain = prompt | llm | StrOutputParser()
+        llm = get_llm()
+        #chain = prompt | llm_gemini | StrOutputParser()
+        chain = prompt | llm | StrOutputParser()
         response = chain.invoke({"input": state["user_input"]})
 
     # 새 메시지 생성 (history에 append)

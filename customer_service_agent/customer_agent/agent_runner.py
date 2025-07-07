@@ -72,23 +72,60 @@ TEMPLATE_TYPE_EXTRACT_PROMPT = """
 질문: {input}
 """
 
+# def classify_topics(user_input: str) -> list:
+#     """토픽 분류"""
+#     classify_prompt = ChatPromptTemplate.from_messages([
+#         ("system", TOPIC_CLASSIFY_SYSTEM_PROMPT),
+#         ("human", "사용자 질문: {input}")
+#     ])
+    
+#     # 공통 모듈의 LLM 사용
+#     llm = get_llm()
+#     if not llm:
+#         logger.error("LLM을 사용할 수 없습니다")
+#         return []
+    
+#     chain = classify_prompt | llm | StrOutputParser()
+#     result = chain.invoke({"input": user_input}).strip()
+    
+#     return [result.strip()] if result.strip() in PROMPT_META else []
+
 def classify_topics(user_input: str) -> list:
-    """토픽 분류"""
-    classify_prompt = ChatPromptTemplate.from_messages([
-        ("system", TOPIC_CLASSIFY_SYSTEM_PROMPT),
-        ("human", "사용자 질문: {input}")
-    ])
-    
-    # 공통 모듈의 LLM 사용
-    llm = get_llm()
-    if not llm:
-        logger.error("LLM을 사용할 수 없습니다")
-        return []
-    
-    chain = classify_prompt | llm | StrOutputParser()
-    result = chain.invoke({"input": user_input}).strip()
-    
-    return [result.strip()] if result.strip() in PROMPT_META else []
+    from shared_modules import get_llm_manager
+    manager = get_llm_manager()
+
+    try:
+        llm = manager.get_llm()
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", TOPIC_CLASSIFY_SYSTEM_PROMPT),
+            ("human", "사용자 질문: {input}")
+        ])
+        chain = prompt | llm | StrOutputParser()
+        result = chain.invoke({"input": user_input}).strip()
+
+        topic = result.strip()
+        if topic not in PROMPT_META:
+            logger.warning(f"Unknown topic classified: {topic}")
+            return []
+        return [topic]
+
+    except Exception as e:
+        logger.warning(f"[classify_topics] Gemini 실패 → OpenAI fallback: {e}")
+        manager.current_provider = "openai"
+
+        try:
+            llm = manager.get_llm()
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", TOPIC_CLASSIFY_SYSTEM_PROMPT),
+                ("human", "사용자 질문: {input}")
+            ])
+            chain = prompt | llm | StrOutputParser()
+            result = chain.invoke({"input": user_input}).strip()
+            return [result.strip()] if result.strip() in PROMPT_META else []
+        except Exception as e2:
+            logger.error(f"[classify_topics] Fallback 실패: {e2}")
+            return []
+
 
 def build_agent_prompt(topics: list, persona: str):  
     """에이전트 프롬프트 구성"""
@@ -175,46 +212,50 @@ def filter_templates_by_query(templates, query):
 def run_rag_chain(user_input, topics, persona, chat_history):
     """RAG 체인 실행"""
     prompt = build_agent_prompt(topics, persona)
-    base_filter = {"category": "customer_management"}
 
-    if topics == ["customer_etc"]:
-        search_kwargs = {"k": 5, "filter": base_filter}
-    elif topics:
-        topic_filter = {"$and": [base_filter, {"topic": {"$in": topics}}]}
-        search_kwargs = {"k": 5, "filter": topic_filter}
-    else:
-        search_kwargs = {"k": 5, "filter": base_filter}
-
-    # 공통 모듈의 벡터스토어 사용
-    vectorstore = get_vectorstore("global-documents")
-    if not vectorstore:
-        logger.error("벡터스토어를 사용할 수 없습니다")
-        return "죄송합니다. 현재 서비스에 접속할 수 없습니다.", ""
-
-    retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
-    
-    # 공통 모듈의 LLM 사용
     llm = get_llm()
     if not llm:
         logger.error("LLM을 사용할 수 없습니다")
         return "죄송합니다. 현재 AI 서비스에 접속할 수 없습니다.", ""
 
-    document_chain = create_stuff_documents_chain(llm=llm, prompt=prompt)
-    retrieval_chain = create_retrieval_chain(
-        retriever=retriever,
-        combine_docs_chain=document_chain
-    )
-    
-    result = retrieval_chain.invoke({
-        "input": user_input,
-        "history": chat_history or []
-    })
-    
-    sources = "\n\n".join(
-        [f"# 문서\n{doc.page_content}\n" for doc in result["context"]]
-    )
-    
-    return result["answer"], sources
+    try:
+        vectorstore = get_vectorstore("global-documents")
+        if not vectorstore:
+            raise ValueError("Vectorstore 연결 실패")
+
+        retriever = vectorstore.as_retriever(search_kwargs={
+            "k": 5,
+            "filter": {"category": "customer_management", "topic": {"$in": topics}} if topics != ["customer_etc"] else {"category": "customer_management"}
+        })
+
+        document_chain = create_stuff_documents_chain(llm=llm, prompt=prompt)
+        retrieval_chain = create_retrieval_chain(
+            retriever=retriever,
+            combine_docs_chain=document_chain
+        )
+
+        result = retrieval_chain.invoke({
+            "input": user_input,
+            "history": chat_history or []
+        })
+
+        sources = "\n\n".join(
+            [f"# 문서\n{doc.page_content}\n" for doc in result["context"]]
+        )
+
+        return result["answer"], sources
+
+    except Exception as e:
+        logger.warning(f"🔁 벡터스토어 오류로 RAG 실패. 문서 없이 기본 LLM 응답 수행: {e}")
+        # 벡터스토어 없이도 기본 프롬프트로 답변 생성
+        chain = prompt | llm | StrOutputParser()
+        answer = chain.invoke({
+            "input": user_input,
+            "history": chat_history or [],
+            "context": "문서 없음"
+        })
+        return answer, ""
+
 
 def run_customer_service_with_rag(
     user_input: str,
