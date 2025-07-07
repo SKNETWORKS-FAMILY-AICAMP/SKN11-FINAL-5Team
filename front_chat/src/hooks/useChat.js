@@ -94,11 +94,13 @@ function useChat() {
           user_id: "3", //하드코딩
           message: currentInput,
           conversation_id: conversationId,
+          persona: "common" //하드코딩
         }
       : {
           customer_id: "3", //하드코딩
           question: currentInput,
-          conversation_id: conversationId,
+          conversation_id: 3 ,//하드코딩
+          persona: "common" //하드코딩
         };
 
   const endpoint =
