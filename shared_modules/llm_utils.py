@@ -69,6 +69,7 @@ class LLMManager:
             
         except Exception as e:
             logger.error(f"LLM 모델 초기화 실패: {e}")
+            
     
     def get_llm(self, provider: str = None, load_balance: bool = False):
         """
