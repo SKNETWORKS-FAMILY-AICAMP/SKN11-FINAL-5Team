@@ -23,11 +23,11 @@ export default function SignIn() {
   return (
     <div className="min-h-screen bg-[#FFFAD1] flex flex-col items-center">
       {/* 상단 고양이 일러스트 - 파란색 영역 확대 */}
-      <div className="w-full relative bg-[#044BD9] h-80 flex justify-center items-end">
+      <div className="w-full relative bg-[#044BD9] h-64 flex justify-center items-end">
         <img
           src="/images/cat.png"
           alt="cat"
-          className="w-[500px] absolute bottom-[-150px]"
+          className="w-[450px] absolute bottom-[-150px]"
         />
       </div>
 

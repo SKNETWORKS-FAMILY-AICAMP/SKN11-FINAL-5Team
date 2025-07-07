@@ -67,7 +67,7 @@ const CatImage = () => {
     <img
       src="/images/cat_face.png"
       alt="TinkerBell 고양이"
-      className="absolute w-[1000px] top-[-15%] left-[0%] h-auto drop-shadow-xl"
+      className="absolute w-[1000px] top-[-2%] left-[0%] h-auto drop-shadow-xl"
       onError={(e) => {
         console.log("이미지 로드 실패, 대체 이미지 표시");
         e.target.style.display = 'none';
