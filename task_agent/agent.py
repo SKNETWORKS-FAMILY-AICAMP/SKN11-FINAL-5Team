@@ -85,10 +85,19 @@ class TaskAgent:
             ):
                 automation_type = await self.llm_handler.classify_automation_intent(query.message)
             
+            # 자동화 완료 데이터 확인 (포맷에 맞게 입력된 데이터인지 확인)
+            is_automation_data = self._check_if_automation_data(query.message, conversation_history)
+            
             # 워크플로우 결정
             if automation_type:
-                response = await self._handle_automation_workflow(
-                    query, automation_type, intent_analysis, conversation_history
+                # 자동화 타입이 감지되면 포맷 제공
+                response = await self._provide_automation_format(
+                    query, automation_type, intent_analysis
+                )
+            elif is_automation_data:
+                # 포맷에 맞는 데이터가 입력되면 DB 저장
+                response = await self._save_automation_task(
+                    query, intent_analysis, conversation_history
                 )
             else:
                 response = await self._handle_consultation_workflow(
@@ -164,9 +173,221 @@ class TaskAgent:
             # 백업 응답 생성
             return self._create_fallback_response(query, intent_analysis)
 
+    def _check_if_automation_data(self, message: str, conversation_history: List[Dict] = None) -> bool:
+        """입력된 데이터가 자동화 포맷에 맞는지 확인"""
+        try:
+            # 대화 이력에서 마지막 메시지가 포맷 제공이었는지 확인
+            if not conversation_history:
+                return False
+                
+            # 마지막 어시스턴트 응답에서 포맷 제공 여부 확인
+            last_assistant_message = None
+            for msg in reversed(conversation_history):
+                if msg.get('role') == 'assistant':
+                    last_assistant_message = msg.get('content', '')
+                    break
+            
+            if not last_assistant_message:
+                return False
+                
+            # 포맷 제공 메시지인지 확인
+            format_indicators = [
+                "정보를 알려주세요",
+                "탬플릿",
+                "예시:",
+                "제목:",
+                "날짜:",
+                "시간:",
+                "내용:",
+                "플랫폼:",
+                "받는사람:"
+            ]
+            
+            has_format_in_last_message = any(indicator in last_assistant_message for indicator in format_indicators)
+            
+            if not has_format_in_last_message:
+                return False
+                
+            # 현재 메시지가 포맷에 맞는 데이터인지 확인
+            structured_data_patterns = [
+                r'제목[:\s]*(.+)',
+                r'날짜[:\s]*(.+)',
+                r'시간[:\s]*(.+)',
+                r'내용[:\s]*(.+)',
+                r'플랫폼[:\s]*(.+)',
+                r'받는사람[:\s]*(.+)',
+                r'주제[:\s]*(.+)'
+            ]
+            
+            import re
+            for pattern in structured_data_patterns:
+                if re.search(pattern, message, re.IGNORECASE):
+                    return True
+                    
+            # 일정 등록 패턴 확인 ("내일 오후 2시에 회의" 같은 형태)
+            time_patterns = [
+                r'\d{1,2}시',
+                r'\d{1,2}:\d{2}',
+                r'내일|모레|다음주',
+                r'\d{4}-\d{2}-\d{2}',
+                r'오전|오후'
+            ]
+            
+            has_time_info = any(re.search(pattern, message) for pattern in time_patterns)
+            
+            # 이메일 패턴 확인
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            has_email = re.search(email_pattern, message)
+            
+            return has_time_info or bool(has_email)
+            
+        except Exception as e:
+            logger.error(f"자동화 데이터 확인 실패: {e}")
+            return False
+    
+    async def _provide_automation_format(self, query: UserQuery, automation_type: str, 
+                                       intent_analysis: Dict) -> QueryResponse:
+        """자동화 타입에 따른 포맷 제공"""
+        try:
+            # 자동화 타입에 따른 포맷 제공
+            template = self._get_automation_template(automation_type)
+            
+            # 사용자 컨텍스트에 맞는 안내 메시지 추가
+            context_message = f"안녕하세요! {automation_type} 자동화를 설정해드리겠습니다. \n\n"
+            context_message += "아래 포맷에 맞춰 정보를 입력해주세요:\n\n"
+            
+            full_response = context_message + template
+            
+            return QueryResponse(
+                status="format_provided",
+                response=full_response,
+                conversation_id=query.conversation_id or "",
+                intent=intent_analysis["intent"],
+                urgency=intent_analysis.get("urgency", "medium"),
+                confidence=intent_analysis.get("confidence", 0.8),
+                actions=[{
+                    "type": "automation_format_provided",
+                    "data": {"automation_type": automation_type},
+                    "description": f"{automation_type} 자동화 포맷이 제공되었습니다."
+                }]
+            )
+            
+        except Exception as e:
+            logger.error(f"자동화 포맷 제공 실패: {e}")
+            return self._create_fallback_response(query, intent_analysis)
+    
+    async def _save_automation_task(self, query: UserQuery, intent_analysis: Dict,
+                                  conversation_history: List[Dict] = None) -> QueryResponse:
+        """포맷에 맞는 데이터를 DB에 저장"""
+        try:
+            # 대화 이력에서 자동화 타입 추출
+            automation_type = self._extract_automation_type_from_history(conversation_history)
+            
+            if not automation_type:
+                # 자동화 타입을 다시 추출 시도
+                automation_type = await self.llm_handler.classify_automation_intent(query.message)
+            
+            if not automation_type:
+                return QueryResponse(
+                    status="error",
+                    response="자동화 타입을 파악할 수 없습니다. 다시 시도해주세요.",
+                    conversation_id=query.conversation_id or "",
+                    intent=intent_analysis["intent"],
+                    urgency="medium",
+                    confidence=0.3
+                )
+            
+            # 정보 추출
+            extraction_type = self._map_automation_to_extraction(automation_type)
+            extracted_info = await self.llm_handler.extract_information(
+                query.message, extraction_type, conversation_history
+            )
+            
+            if not extracted_info or not self._validate_extracted_info(extracted_info, automation_type):
+                return QueryResponse(
+                    status="error",
+                    response="제공해주신 정보가 부족합니다. 필수 정보를 모두 입력해주세요.",
+                    conversation_id=query.conversation_id or "",
+                    intent=intent_analysis["intent"],
+                    urgency="medium",
+                    confidence=0.4
+                )
+            
+            # 자동화 작업 생성 및 DB 저장
+            automation_request = AutomationRequest(
+                user_id=int(query.user_id),
+                task_type=automation_type,
+                title=self._generate_automation_title(automation_type, extracted_info),
+                task_data=extracted_info
+            )
+            
+            automation_response = await self.automation_manager.create_automation_task(automation_request)
+            
+            # 성공 메시지 생성
+            success_message = f"✅ {automation_type} 자동화 작업이 성공적으로 등록되었습니다!\n\n"
+            success_message += f"작업 ID: {automation_response.task_id}\n"
+            success_message += f"제목: {automation_request.title}\n\n"
+            success_message += "자동화 작업이 예약된 시간에 실행됩니다."
+            
+            return QueryResponse(
+                status="success",
+                response=success_message,
+                conversation_id=query.conversation_id or "",
+                intent=intent_analysis["intent"],
+                urgency=intent_analysis.get("urgency", "medium"),
+                confidence=intent_analysis.get("confidence", 0.9),
+                actions=[{
+                    "type": "automation_saved",
+                    "data": {
+                        "task_id": automation_response.task_id,
+                        "automation_type": automation_type,
+                        "title": automation_request.title
+                    },
+                    "description": "자동화 작업이 DB에 저장되었습니다."
+                }]
+            )
+            
+        except Exception as e:
+            logger.error(f"자동화 작업 저장 실패: {e}")
+            return QueryResponse(
+                status="error",
+                response="자동화 작업 저장 중 오류가 발생했습니다. 다시 시도해주세요.",
+                conversation_id=query.conversation_id or "",
+                intent=intent_analysis["intent"],
+                urgency="medium",
+                confidence=0.3
+            )
+    
+    def _extract_automation_type_from_history(self, conversation_history: List[Dict] = None) -> str:
+        """대화 이력에서 자동화 타입 추출"""
+        try:
+            if not conversation_history:
+                return None
+                
+            # 마지막 몇 개 메시지에서 자동화 타입 찾기
+            automation_types = {
+                "schedule_calendar": ["일정", "캘린더", "회의", "예약"],
+                "send_email": ["이메일", "메일", "발송"],
+                "publish_sns": ["SNS", "소셜", "게시", "트위터", "페이스북"],
+                "send_reminder": ["리마인더", "알림", "알려주기"],
+                "send_message": ["메시지", "슬랙", "Slack", "팀즈", "Teams"]
+            }
+            
+            for msg in reversed(conversation_history[-5:]):  # 마지막 5개 메시지만 확인
+                content = msg.get('content', '')
+                for auto_type, keywords in automation_types.items():
+                    if any(keyword in content for keyword in keywords):
+                        return auto_type
+                        
+            return None
+            
+        except Exception as e:
+            logger.error(f"자동화 타입 추출 실패: {e}")
+            return None
+
     async def _handle_automation_workflow(self, query: UserQuery, automation_type: str, 
                                         intent_analysis: Dict, conversation_history: List[Dict] = None) -> QueryResponse:
-        """자동화 워크플로우 처리"""
+        """자동화 워크플로우 처리 (기존 로직 유지 - 호환성을 위해)"""
         try:
             # 정보 추출
             extraction_type = self._map_automation_to_extraction(automation_type)

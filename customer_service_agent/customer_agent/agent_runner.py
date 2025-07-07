@@ -269,11 +269,11 @@ def run_customer_service_with_rag(
         
     except Exception as e:
         logger.error(f"고객 서비스 RAG 실행 오류: {e}")
-        return {
-            "topics": [],
-            "answer": "죄송합니다. 요청을 처리하는 중 오류가 발생했습니다.",
-            "sources": ""
-        }
+        # return {
+        #     "topics": [],
+        #     "answer": "죄송합니다. 요청을 처리하는 중 오류가 발생했습니다.",
+        #     "sources": ""
+        # }
 
 # 기존 함수명과의 호환성을 위한 별칭
 run_customer_agent_with_rag = run_customer_service_with_rag
