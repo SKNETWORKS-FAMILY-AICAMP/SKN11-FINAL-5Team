@@ -3,6 +3,7 @@ import './App.css';
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
 import MainPage from "./pages/chat/MainPage"
 import ChatPage from "./pages/chat/ChatPage"
+import ScenarioPage from './pages/chat/ScenarioPage';
 
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
       <Routes>
         <Route path="/" element={<MainPage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/scenario" element={<ScenarioPage />} />
       </Routes>
     </Router>
   );
