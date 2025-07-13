@@ -74,7 +74,7 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
         try:
             # 비즈니스 플래닝 에이전트 API 형식에 맞게 변환
             payload = {
-                "question": request.message
+                "question": request.message,
             }
             
             result = await self._make_request(payload)

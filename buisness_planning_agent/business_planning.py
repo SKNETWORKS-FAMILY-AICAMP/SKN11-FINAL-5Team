@@ -28,6 +28,9 @@ from shared_modules import (
     get_conversation_by_id, 
     get_recent_messages,
     get_template_by_title,
+    get_report_by_id,
+    get_db_dependency,
+    get_user_reports,
     insert_message_raw,
     load_prompt_from_file,
     create_success_response,
@@ -40,10 +43,12 @@ from shared_modules import (
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_core.output_parsers import StrOutputParser
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
 
 # 로깅 설정 - 공통 모듈 활용
 logger = setup_logging("business_planning", log_file="logs/business_planning.log")
@@ -532,6 +537,130 @@ def detailed_status():
         logger.error(f"상세 상태 확인 실패: {e}")
         return create_error_response(f"상세 상태 확인 실패: {str(e)}", "DETAILED_STATUS_ERROR")
 
+
+
+### pdf 다운로드 추가 ###
+from fpdf import FPDF
+from io import BytesIO
+import uuid
+import tempfile
+import pdfkit
+
+def generate_pdf_from_html(html_content: str) -> bytes:
+    pdf_bytes = pdfkit.from_string(html_content, False)  # False: 메모리에 저장
+    return pdf_bytes
+
+
+def generate_pdf(content: str) -> bytes:
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, content)
+    pdf_output = BytesIO()
+    pdf.output(pdf_output)
+    return pdf_output.getvalue()
+
+def save_pdf_to_temp(pdf_bytes: bytes) -> str:
+    file_id = str(uuid.uuid4())
+    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}.pdf")
+    with open(temp_path, "wb") as f:
+        f.write(pdf_bytes)
+    return file_id
+
+def load_pdf_from_temp(file_id: str) -> bytes:
+    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}.pdf")
+    with open(temp_path, "rb") as f:
+        return f.read()
+
+### pdf 생성/다운로드 api###
+from fastapi.responses import StreamingResponse, JSONResponse
+
+# @app.post("/report/pdf/create")
+# async def create_pdf_report(data: dict = Body(...)):
+#     content = data.get("content", "리포트 내용이 없습니다.")
+#     pdf_bytes = generate_pdf(content)
+#     file_id = save_pdf_to_temp(pdf_bytes)
+#     return JSONResponse({"file_id": file_id})
+
+@app.post("/report/pdf/create")
+async def create_pdf_from_html_api(data: dict = Body(...)):
+    html = data.get("html", "<p>내용 없음</p>")
+    try:
+        pdf_bytes = generate_pdf_from_html(html)
+        file_id = save_pdf_to_temp(pdf_bytes)
+        return JSONResponse({"file_id": file_id})
+    except Exception as e:
+        logger.error(f"PDF 생성 실패: {e}")
+    raise HTTPException(status_code=500, detail="PDF 생성 중 오류 발생")
+
+@app.get("/report/pdf/download/{file_id}")
+async def download_pdf_report(file_id: str):
+    pdf_bytes = load_pdf_from_temp(file_id)
+    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=report_{file_id}.pdf"
+    })
+
+# 리포트 조회
+@app.get("/reports/{report_id}")
+def get_report_detail(report_id: int, db: Session = Depends(get_db_dependency)):
+    """
+    리포트 상세 조회 API
+    """
+    report = get_report_by_id(db, report_id)
+
+    if not report:
+        raise HTTPException(status_code=404, detail="해당 리포트를 찾을 수 없습니다")
+
+    return {
+        "success": True,
+        "data": {
+            "report_id": report.report_id,
+            "report_type": report.report_type,
+            "title": report.title,
+            "status": "completed" if report.file_url else "generating",
+            "content_data": report.content_data,
+            "file_url": report.file_url,
+            "created_at": report.created_at.isoformat()
+        }
+    }
+
+
+@app.get("/reports")
+def get_report_list(
+    user_id: int = Query(...),  #  필수 파라미터
+    report_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    리포트 목록 조회 API (필수: user_id, 선택: report_type, status)
+    """
+    try:
+        reports = get_user_reports(db, user_id=user_id, report_type=report_type, limit=100)
+
+        if status:
+            if status == "completed":
+                reports = [r for r in reports if r.file_url]
+            elif status == "generating":
+                reports = [r for r in reports if not r.file_url]
+
+        return {
+            "success": True,
+            "data": [
+                {
+                    "report_id": r.report_id,
+                    "report_type": r.report_type,
+                    "title": r.title,
+                    "status": "completed" if r.file_url else "generating",
+                    "file_url": r.file_url,
+                    "created_at": r.created_at.isoformat()
+                }
+                for r in reports
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"리포트 조회 중 오류: {str(e)}")
+    
 # 메인 실행
 if __name__ == "__main__":
     import uvicorn

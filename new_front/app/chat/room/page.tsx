@@ -298,6 +298,9 @@ export default function ChatRoomPage() {
     port: getAgentPort(agent),
   })
 
+  // html린캐버스
+  const [leanCanvasHtml, setLeanCanvasHtml] = useState<string | null>(null)
+
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [rating, setRating] = useState(0)
@@ -347,6 +350,25 @@ export default function ChatRoomPage() {
       }, 100)
     }
   }, [])
+
+
+  // PDF 다운로드 함수
+  async function downloadLeanCanvasPdf() {
+    const previewDiv = document.getElementById('lean-canvas-preview');
+    if (!previewDiv) {
+      alert("미리보기 영역을 찾을 수 없습니다.");
+      return;
+    }
+    const html = previewDiv.innerHTML;
+    const res = await fetch('http://localhost:8001/report/pdf/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html }),
+    });
+    const { file_id } = await res.json();
+    window.location.href = `http://localhost:8001/report/pdf/download/${file_id}`;
+  }
+
 
   const loadPreviousChat = async (chatId: number) => {
     try {
@@ -471,6 +493,12 @@ export default function ChatRoomPage() {
 
       const res = await response.json()
 
+       if (res.success && res.data && res.data.type === "lean_canvas") {
+          setLeanCanvasHtml(res.data.content); // 린캔버스 HTML만 따로 저장
+        } else {
+          setLeanCanvasHtml(null); // 린캔버스가 아니면 미리보기 숨김
+        }
+
       if (res.success && res.data) {
         const agentMessage: Message = {
           sender: "agent",
@@ -493,6 +521,7 @@ export default function ChatRoomPage() {
       setMessages((prev) => [...prev, agentMessage])
     }
   }
+
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setUserInput(e.target.value)
@@ -557,6 +586,7 @@ export default function ChatRoomPage() {
     setComment("")
   }
 
+
   return (
     <div className="flex h-screen overflow-hidden bg-green-50">
       <Sidebar
@@ -592,6 +622,24 @@ export default function ChatRoomPage() {
           </>
         )}
 
+        {leanCanvasHtml && (
+          <div className="mb-4">
+            <div
+              id="lean-canvas-preview"
+              className="border rounded-lg p-4 bg-white mb-2"
+              dangerouslySetInnerHTML={{ __html: leanCanvasHtml }}
+            />
+            <Button
+              type="button"
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mt-2"
+              onClick={downloadLeanCanvasPdf}
+            >
+              PDF 다운로드
+            </Button>
+          </div>
+        )}
+
+
         {/* 채팅 메시지 영역 */}
         <div className="flex-1 space-y-4 overflow-y-auto pb-24">
           {messages.map((msg, idx) => (
@@ -599,7 +647,7 @@ export default function ChatRoomPage() {
               {msg.sender === "user" ? (
                 <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2">
                   {/* 고양이 아이콘 */}
-                  <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
+                  {/* <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
                     <Image
                       src="/3D_고양이.png"
                       width={36}
@@ -608,7 +656,7 @@ export default function ChatRoomPage() {
                       className="rounded-full"
                     />
 
-                  </div>
+                  </div> */}
 
                   {/* 유저 말풍선 */}
                   <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
@@ -650,7 +698,7 @@ export default function ChatRoomPage() {
           ))}
           <div ref={scrollRef} />
         </div>
-
+        
         {/* 입력창 */}
         <form
           className="absolute bottom-4 left-8 right-8 bg-white shadow-lg rounded-2xl px-4 py-3 flex flex-col space-y-2 border border-gray-200"
@@ -672,8 +720,8 @@ export default function ChatRoomPage() {
             style={{ lineHeight: "1.5" }}
           />
 
-          <div className="flex justify-between items-center">
-            <Button
+          <div className="flex justify-end items-center">
+            {/* <Button
               type="button"
               variant="ghost"
               size="sm"
@@ -681,7 +729,7 @@ export default function ChatRoomPage() {
               onClick={() => setShowFeedbackModal(true)}
             >
               대화 끝내기
-            </Button>
+            </Button> */}
             <Button type="submit" size="sm" className="w-8 h-8 bg-green-600 hover:bg-green-700 rounded-full p-0">
               <Send className="w-4 h-4 text-white" />
             </Button>
@@ -704,3 +752,13 @@ export default function ChatRoomPage() {
     </div>
   )
 }
+  
+
+// 목표
+// 린캔버스 답변이 올 때만 미리보기와 PDF 다운로드 버튼이 자동으로 노출되고, 
+// ->  {leanCanvasHtml && ( <div ...   <Button ...
+
+//  leanCanvasHtml 상태에 HTML이 저장됨
+// -> if (res.success && res.data && res.data.type === "lean_canvas") { .. }
+
+// 버튼을 누르면 PDF로 변환 및 다운로드가 정상적으로 이뤄집니다. -> downloadLeanCanvasPdf() 

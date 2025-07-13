@@ -12,6 +12,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { useState } from "react"
 import { User, LogOut, CreditCard, FileText, HelpCircle, MessageSquare } from "lucide-react"
+import { useReportList } from "@/hooks/useReport"
+import { useMemo } from "react"
 
 export default function MyPage() {
   const [activeTab, setActiveTab] = useState("profile")
@@ -23,9 +25,17 @@ export default function MyPage() {
     phone: "010-1234-5678",
   })
 
+  const userId = 1  // 실제론 로그인 정보에서 받아와야 함
+  const reportParams = useMemo(() => ({
+    user_id: userId,
+    report_type: undefined,
+    status: undefined,
+  }), [userId])
+
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
     { id: "subscription", label: "구독 관리", icon: CreditCard },
+    { id: "report", label: "리포트 조회", icon: FileText },
     { id: "support", label: "고객 지원", icon: HelpCircle },
   ]
 
@@ -260,6 +270,55 @@ export default function MyPage() {
                         </Button>
                       </CardContent>
                     </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === "report" && (
+              <Card className="border-0 shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <FileText className="h-5 w-5" />
+                    <span>리포트 조회</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="text-sm text-gray-600">
+                    생성된 리포트 목록을 확인하고 다운로드할 수 있어요.
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    {/* 여기에 API로 불러온 리포트 목록 map 렌더링 */}
+                    {reportLoading && <p className="text-sm text-gray-500">불러오는 중...</p>}
+                    {reportError && <p className="text-sm text-red-500">{reportError}</p>}
+                    {!reportLoading && reports.length === 0 && (
+                      <p className="text-sm text-gray-500">생성된 리포트가 없습니다.</p>
+                    )}
+
+                    {reports.map((report) => (
+                      <div
+                        key={report.report_id}
+                        className="flex justify-between items-center bg-white p-4 border border-gray-100 rounded-lg shadow-sm"
+                      >
+                        <div>
+                          <p className="font-semibold text-gray-800">{report.title}</p>
+                          <p className="text-sm text-gray-500">생성일: {new Date(report.created_at).toLocaleDateString()}</p>
+                        </div>
+                        {report.file_url ? (
+                          <a
+                            href={`http://localhost:8001${report.file_url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Button variant="outline" size="sm">다운로드</Button>
+                          </a>
+                        ) : (
+                          <span className="text-sm text-yellow-600">생성 중...</span>
+                        )}
+                      </div>
+                    ))}
+
+                    
                   </div>
                 </CardContent>
               </Card>
