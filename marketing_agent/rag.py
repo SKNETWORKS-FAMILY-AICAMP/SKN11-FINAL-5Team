@@ -2,18 +2,37 @@ from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, H
 from langchain.chains import RetrievalQA
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain_core.output_parsers import StrOutputParser
 
 from config.prompts_config import PROMPT_META
 from fastapi.responses import FileResponse
 
 # 공통 모듈 사용
-from shared_modules.env_config import get_config
-from shared_modules.llm_utils import get_llm_manager, get_llm
-from shared_modules.vector_utils import get_vector_manager, get_vectorstore, get_retriever
-from shared_modules.utils import load_prompt_from_file
-from shared_modules.queries import get_templates_by_type
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import get_or_create_conversation_session
+from shared_modules import (
+    get_config,
+    get_llm_manager, 
+    get_llm,
+    get_vector_manager, 
+    get_vectorstore, 
+    get_retriever,
+    load_prompt_from_file,
+    get_templates_by_type,
+    create_conversation,
+    create_message,
+    get_conversation_by_id,
+    get_recent_messages,
+    insert_message_raw,
+    get_session_context,
+    create_success_response,
+    create_error_response,
+    get_current_timestamp
+)
 
 # 기존 모듈 (공통 모듈에 없는 함수들)
 try:
@@ -41,8 +60,6 @@ from pydantic import BaseModel
 from config.persona_config import get_persona_by_type, get_specialized_config
 
 from datetime import datetime as dt
-
-
 
 # ✅ 환경설정 로드 (공통 모듈 사용)
 config = get_config()
@@ -206,20 +223,16 @@ def create_smart_retriever(user_input: str, topics: list = None):
 def get_history_messages(conversation_id: int) -> list[str]:
     """이전 대화 기록을 불러온다 (최신 순 정렬, 최근 N개만)"""
     try:
-        history = db.get_last_messages(conversation_id, limit=5)
-        # (sender_type, content) 튜플 리스트 형태라고 가정
-        formatted = []
-
-        for msg in history:
-            if isinstance(msg, dict):
-                sender = msg.get("sender_type", "unknown")
-                content = msg.get("content", "")
-            else:
-                # 목 데이터 처리
-                continue
-            prefix = "사용자:" if sender == "user" else "에이전트:"
-            formatted.append(f"{prefix} {content}")
-        return formatted
+        with get_session_context() as db_session:
+            messages = get_recent_messages(db_session, conversation_id, 10)
+            formatted = []
+            
+            for msg in reversed(messages):  # 시간순 정렬
+                sender = "user" if msg.sender_type.lower() == "user" else "agent"
+                prefix = "사용자:" if sender == "user" else "에이전트:"
+                formatted.append(f"{prefix} {msg.content}")
+            
+            return formatted[:5]  # 최근 5개만
     except Exception as e:
         print(f"⚠️ 히스토리 로드 실패: {e}")
         return []
@@ -298,20 +311,22 @@ def is_template_query(text: str) -> bool:
 def run_customer_agent_with_rag(user_input: str, user_id: int, conversation_id: int = None, use_retriever: bool = True, persona: str = "common"):
     print(f"\n🚀 사용자 질문: {user_input}")
 
-    # ✅ 대화 ID 처리 (공통 모듈 사용)
-    if conversation_id is None:
-        conversation_id = db.insert_conversation(user_id)
-        if isinstance(conversation_id, dict) or conversation_id == -1:
-            print(f"❌ 대화 생성 실패: {conversation_id}")
-            raise HTTPException(status_code=500, detail="MySQL 연결에 실패했습니다. 대화를 생성할 수 없습니다.")
-        print(f"🆕 새 대화 생성: conversation_id={conversation_id}")
-    else:
-        print(f"🔄 기존 대화 사용: conversation_id={conversation_id}")
+    # ✅ 대화 ID 처리 - 통일된 로직 사용
+    try:
+        session_info = get_or_create_conversation_session(user_id, conversation_id)
+        conversation_id = session_info["conversation_id"]
+    except Exception as e:
+        print(f"❌ 대화 세션 처리 실패: {e}")
+        raise HTTPException(status_code=500, detail="대화 세션 생성에 실패했습니다.")
 
-    # ✅ 사용자 메시지 저장 (공통 모듈 사용)
-    message_result = db.insert_message(conversation_id, sender_type="user", content=user_input)
-    if not message_result:
-        print("⚠️ 사용자 메시지 저장 실패 (계속 진행)")
+    # ✅ 사용자 메시지 저장
+    try:
+        with get_session_context() as db:
+            user_message = create_message(db, conversation_id, "user", "marketing", user_input)
+            if not user_message:
+                print("⚠️ 사용자 메시지 저장 실패 (계속 진행)")
+    except Exception as e:
+        print(f"⚠️ 사용자 메시지 저장 실패: {e}")
 
     # ✅ 토픽 분류
     topics = classify_topics(user_input)
@@ -337,15 +352,22 @@ def run_customer_agent_with_rag(user_input: str, user_id: int, conversation_id: 
 
         # LLM 응답 생성
         llm_selected = get_llm_auto()
-        print(f"🔁 현재 LLM: {llm_state['current']} (요청 수: {llm_state['use_count']})")
+        # print(f"🔁 현재 LLM: {llm_state['current']} (요청 수: {llm_state['use_count']})")
+        print("🔁 LLM 선택 완료")
 
         formatted_prompt = prompt.format_messages(context=context)
         response = llm_selected.invoke(formatted_prompt)
 
         # ✅ 응답 메시지 저장 (공통 모듈 사용)
-        save_result = db.insert_message(conversation_id, sender_type="agent", agent_type="marketing", content=response.content)
-        if not save_result:
-            print("⚠️ 에이전트 응답 저장 실패")
+        try:
+            insert_message_raw(
+                conversation_id=conversation_id,
+                sender_type="agent",
+                agent_type="marketing",
+                content=response.content
+            )
+        except Exception as e:
+            print(f"⚠️ 에이전트 응답 저장 실패: {e}")
 
         # 출처 요약
         sources = [
@@ -460,13 +482,25 @@ def recommend_templates_core(query: str, limit: int = 5) -> list:
         print(f"❌ 템플릿 추천 오류: {e}")
         return []
 
-# ✅ FastAPI 요청 모델
-class AgentQueryRequest(BaseModel):
-    user_id: int
-    question: str
-    conversation_id: Optional[int] = None  # 새 대화 시작 시 None 전달
+# ✅ 통일된 요청 모델
+class UserQuery(BaseModel):
+    """사용자 쿼리 요청"""
+    user_id: Optional[int] = Field(..., description="사용자 ID")
+    conversation_id: Optional[int] = Field(None, description="대화 ID")
+    message: str = Field(..., description="사용자 메시지")
+    persona: Optional[str] = Field(default="common", description="페르소나")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": 123,
+                "conversation_id": 456,
+                "message": "소셜미디어 마케팅 전략을 알려주세요",
+                "persona": "common"
+            }
+        }
 
-# ✅ 디버깅용 엔드포인트 추가
+# ✅ 디버깅용 엔드포인트 (에이전트별 디버깅 기능)
 @app.get("/debug/vectorstore")
 def debug_vectorstore():
     """벡터스토어 상태를 확인하는 디버깅 엔드포인트"""
@@ -475,22 +509,25 @@ def debug_vectorstore():
         
         # 샘플 검색 테스트
         test_query = "마케팅 전략"
-        sample_docs = vectorstore.similarity_search(test_query, k=3)
-        
-        return {
-            "status": "success" if status else "failed",
-            "total_documents": vectorstore._collection.count(),
-            "sample_search": {
-                "query": test_query,
-                "results": len(sample_docs),
-                "documents": [
-                    {
-                        "metadata": doc.metadata,
-                        "content_preview": doc.page_content[:200]
-                    } for doc in sample_docs
-                ]
+        if vectorstore:
+            sample_docs = vectorstore.similarity_search(test_query, k=3)
+            
+            return {
+                "status": "success" if status else "failed",
+                "total_documents": vectorstore._collection.count(),
+                "sample_search": {
+                    "query": test_query,
+                    "results": len(sample_docs),
+                    "documents": [
+                        {
+                            "metadata": doc.metadata,
+                            "content_preview": doc.page_content[:200]
+                        } for doc in sample_docs
+                    ]
+                }
             }
-        }
+        else:
+            return {"status": "failed", "message": "벡터스토어를 사용할 수 없습니다"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -527,54 +564,55 @@ def debug_templates_by_type(template_type: str):
 
     
 
-# ✅ FastAPI 라우터
+# ✅ FastAPI 라우터 - 통일된 요청/응답 구조
 @app.post("/agent/query")
-def query_agent(request: AgentQueryRequest = Body(...)):
-    user_input = request.question
+def query_agent(request: UserQuery = Body(...)):
+    user_input = request.message
     print(f"🚀 사용자 입력: {user_input}")
-
-    # 템플릿 쿼리 확인
-    if is_template_query(user_input):
-        print("📝 템플릿 요청으로 감지됨")
-        
-        templates = recommend_templates_core(user_input)
-        
-        if templates:
-            return {
-                "conversation_id": request.conversation_id,
-                "answer": f"'{user_input}' 관련 템플릿을 {len(templates)}개 찾았습니다! 아래에서 참고해보세요.",
-                "templates": templates,
-                "topics": ["template_request"],
-                "sources": "",
-                "debug_info": {
-                    "template_match": True,
-                    "template_count": len(templates),
-                    "query_type": "template"
-                }
-            }
-        else:
-            return {
-                "conversation_id": request.conversation_id,
-                "answer": "죄송합니다. 관련 템플릿을 찾을 수 없습니다. 다른 키워드로 검색해보시거나 구체적인 상황을 말씀해주세요.",
-                "templates": [],
-                "topics": ["template_request"],
-                "sources": "",
-                "debug_info": {
-                    "template_match": True,
-                    "template_count": 0,
-                    "query_type": "template_no_result"
-                }
-            }
     
-    # 일반 RAG 처리
-    result = run_customer_agent_with_rag(
-        user_input=request.question,
-        user_id=request.user_id,
-        conversation_id=request.conversation_id,
-        use_retriever=True,
-        persona="common"  # 또는 적절한 persona
-    )
-    return result
+    try:
+        # 템플릿 쿼리 확인
+        if is_template_query(user_input):
+            print("📝 템플릿 요청으로 감지됨")
+            
+            templates = recommend_templates_core(user_input)
+            
+            response_data = {
+                "conversation_id": request.conversation_id,
+                "topics": ["template_request"],
+                "answer": f"'{user_input}' 관련 템플릿을 {len(templates)}개 찾았습니다! 아래에서 참고해보세요." if templates else "죄송합니다. 관련 템플릿을 찾을 수 없습니다. 다른 키워드로 검색해보시거나 구체적인 상황을 말씀해주세요.",
+                "sources": "템플릿 데이터베이스",
+                "retrieval_used": len(templates) > 0,
+                "templates": templates,
+                "timestamp": get_current_timestamp()
+            }
+            
+            return create_success_response(response_data)
+        
+        # 일반 RAG 처리
+        result = run_customer_agent_with_rag(
+            user_input=request.message,
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+            use_retriever=True,
+            persona=request.persona or "common"
+        )
+        
+        # 통일된 응답 구조로 변환
+        response_data = {
+            "conversation_id": result["conversation_id"],
+            "topics": result.get("topics", []),
+            "answer": result["answer"],
+            "sources": result.get("sources", ""),
+            "retrieval_used": result.get("debug_info", {}).get("retriever_type") != "fallback",
+            "timestamp": get_current_timestamp()
+        }
+        
+        return create_success_response(response_data)
+        
+    except Exception as e:
+        print(f"❌ 쿼리 처리 실패: {e}")
+        return create_error_response(f"쿼리 처리 중 오류가 발생했습니다: {str(e)}", "QUERY_PROCESSING_ERROR")
 
 
 

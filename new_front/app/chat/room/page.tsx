@@ -9,64 +9,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import Image from "next/image"
-import {
-  Send,
-  ThumbsUp,
-  ThumbsDown,
-  MessageCircle,
-  Plus,
-  Home,
-  Target,
-  TrendingUp,
-  Users,
-  Zap,
-  Heart,
-} from "lucide-react"
-
-// 에이전트 포트 매핑
-const getAgentPort = (agent: string) => {
-  const portMap: { [key: string]: number } = {
-    unified_agent: 8000,
-    planner: 8001,
-    marketing: 8002,
-    crm: 8003,
-    task: 8004,
-    mentalcare: 8005,
-  }
-  return portMap[agent] || 8000
-}
-
-// 에이전트 아이콘 매핑
-const agentIcons = {
-  planner: Target,
-  marketing: TrendingUp,
-  crm: Users,
-  task: Zap,
-  mentalcare: Heart,
-}
-
-const exampleQuestions = [
-  {
-    category: "사업기획",
-    question: "온라인 쇼핑몰을 운영하려는데 초기 사업계획을 어떻게 세우면 좋을까요?",
-    agent: "planner",
-  },
-  {
-    category: "마케팅",
-    question: "인스타그램에서 제품을 효과적으로 홍보하려면 어떤 팁이 있을까요?",
-    agent: "marketing",
-  },
-  {
-    category: "고객관리",
-    question: "리뷰에 불만 글이 달렸을 때 어떻게 대응해야 좋을까요?",
-    agent: "crm",
-  },
-  {
-    category: "업무지원",
-    question: "매번 반복되는 예약 문자 전송을 자동화할 수 있을까요?",
-    agent: "task",
-  },
-]
+import { Send, Menu, User } from "lucide-react"
+import { agentApi } from "@/app/api/agent"
+import { AGENT_CONFIG, type AgentType } from "@/config/constants"
 
 interface Message {
   sender: "user" | "agent"
@@ -165,55 +110,22 @@ function Sidebar({
 
   const menuItems = [
     {
-      icon: "/icons/3D_새채팅.png", 
+      icon: "/icons/3D_새채팅.png",
       label: "새 채팅 시작하기",
       type: "unified_agent",
-      color: "text-green-600",
-      isLucideIcon: false,
     },
     {
-      icon: "/icons/3D_홈.png",  
+      icon: "/icons/3D_홈.png",
       label: "상담 메인화면",
       type: "home",
-      color: "text-emerald-600",
-      isLucideIcon: false,
     },
-
-    {
-      icon: "/icons/3D_사업기획.png",
-      label: "사업기획 에이전트",
-      type: "planner",
-      color: "text-green-600",
-      isLucideIcon: false,
-    },
-    {
-      icon: "/icons/3D_마케팅.png",
-      label: "마케팅 에이전트",
-      type: "marketing",
-      color: "text-yellow-600",
-      isLucideIcon: false,
-    },
-    {
-      icon: "/icons/3D_업무관리.png",
-      label: "업무 지원 에이전트",
-      type: "task",
-      color: "text-amber-600",
-      isLucideIcon: false,
-    },
-    {
-      icon: "/icons/3D_고객관리.png",
-      label: "고객 관리 에이전트",
-      type: "crm",
-      color: "text-emerald-600",
-      isLucideIcon: false,
-    },
-    {
-      icon: "/icons/3D_멘탈케어.png",
-      label: "멘탈 케어 에이전트",
-      type: "mentalcare",
-      color: "text-lime-600",
-      isLucideIcon: false,
-    },
+    ...Object.entries(AGENT_CONFIG)
+      .filter(([key]) => key !== "unified_agent")
+      .map(([key, value]) => ({
+        icon: value.icon,
+        label: `${value.name} 에이전트`,
+        type: key,
+      })),
   ]
 
   return (
@@ -233,19 +145,11 @@ function Sidebar({
               idx === 0 ? "text-green-700 font-semibold hover:bg-green-50" : "text-gray-800 hover:bg-green-100"
             } cursor-pointer ${expanded ? "px-1 py-1 rounded-md" : "justify-center"}`}
           >
-            <div className="rounded-full bg-white flex items-center justify-center shadow shrink-0" style={{ width: "36px", height: "36px" }}>
-
-              {item.isLucideIcon ? (
-                <item.icon className={`w-6 h-6 ${item.color}`} />
-              ) : (
-                <Image
-                  src={item.icon || "/placeholder.svg"}
-                  alt={item.label}
-                  width={14}
-                  height={14}
-                  className="w-6 h-6"
-                />
-              )}
+            <div
+              className="rounded-full bg-white flex items-center justify-center shadow shrink-0"
+              style={{ width: "36px", height: "36px" }}
+            >
+              <Image src={item.icon} alt={item.label} width={24} height={24} className="w-6 h-6" />
             </div>
             {expanded && <span className="whitespace-nowrap">{item.label}</span>}
           </div>
@@ -284,19 +188,40 @@ function Sidebar({
   )
 }
 
+const exampleQuestions = [
+  {
+    category: "사업기획",
+    question: "온라인 쇼핑몰을 운영하려는데 초기 사업계획을 어떻게 세우면 좋을까요?",
+    agent: "planner",
+  },
+  {
+    category: "마케팅",
+    question: "인스타그램에서 제품을 효과적으로 홍보하려면 어떤 팁이 있을까요?",
+    agent: "marketing",
+  },
+  {
+    category: "고객관리",
+    question: "리뷰에 불만 글이 달렸을 때 어떻게 대응해야 좋을까요?",
+    agent: "crm",
+  },
+  {
+    category: "업무지원",
+    question: "매번 반복되는 예약 문자 전송을 자동화할 수 있을까요?",
+    agent: "task",
+  },
+]
+
 export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const agent = searchParams?.get("agent") || "unified_agent"
+  const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
 
-  const [conversationId, setConversationId] = useState(3)
+  const [userId] = useState(3) // 실제 구현시 로그인 사용자 ID 사용
+  const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState("")
-  const [agentConfig, setAgentConfig] = useState({
-    type: agent,
-    port: getAgentPort(agent),
-  })
+  const [agentType, setAgentType] = useState<AgentType>(agent)
 
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -307,7 +232,6 @@ export default function ChatRoomPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // 기존 상태들 아래에 추가
   const [chatHistory, setChatHistory] = useState([
     {
       id: 1,
@@ -321,9 +245,6 @@ export default function ChatRoomPage() {
       lastMessage: "해시태그 전략에 대해 더 알고 싶어요.",
       timestamp: "2024-01-14",
     },
-    { id: 3, title: "고객 응대 자동화", lastMessage: "챗봇 설정 방법을 알려주세요.", timestamp: "2024-01-13" },
-    { id: 4, title: "멘탈케어 상담", lastMessage: "스트레스 관리법이 도움됐어요.", timestamp: "2024-01-12" },
-    { id: 5, title: "사업 계획서 작성", lastMessage: "계획서 템플릿 감사합니다.", timestamp: "2024-01-11" },
   ])
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
 
@@ -350,92 +271,39 @@ export default function ChatRoomPage() {
 
   const loadPreviousChat = async (chatId: number) => {
     try {
-      // 실제로는 API에서 해당 채팅 기록을 가져와야 함
-      const response = await fetch(`/api/conversations/${chatId}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        if (result.status === "success" && result.data.messages) {
-          setMessages(result.data.messages)
-          setConversationId(chatId)
-          setCurrentChatId(chatId)
-          return
-        }
+      const result = await agentApi.getConversationMessages(chatId)
+      if (result.status === "success" && result.data.messages) {
+        setMessages(
+          result.data.messages.map((msg) => ({
+            sender: msg.role === "user" ? "user" : "agent",
+            text: msg.content,
+          }))
+        )
+        setConversationId(chatId)
+        setCurrentChatId(chatId)
       }
     } catch (error) {
-      console.warn("이전 채팅 로드 실패, 샘플 데이터 사용:", error)
+      console.error("이전 채팅 로드 실패:", error)
     }
-
-    // API 실패 시 샘플 데이터 사용
-    const sampleMessages: Message[] = [
-      { sender: "user", text: "온라인 쇼핑몰을 시작하려고 하는데 어떻게 해야 할까요?" },
-      {
-        sender: "agent",
-        text: "온라인 쇼핑몰 창업을 위해서는 다음과 같은 단계를 거치시면 됩니다:\n\n1. **시장 조사**: 판매하고자 하는 상품의 시장성 분석\n2. **사업자 등록**: 개인사업자 또는 법인 설립\n3. **플랫폼 선택**: 자체 쇼핑몰 vs 오픈마켓 입점\n4. **상품 소싱**: 공급업체 발굴 및 계약\n5. **결제 시스템**: PG사 연동 및 배송 시스템 구축\n\n어떤 부분부터 시작하고 싶으신가요?",
-      },
-      { sender: "user", text: "시장 조사는 어떻게 하면 좋을까요?" },
-      {
-        sender: "agent",
-        text: "시장 조사를 위한 구체적인 방법들을 알려드릴게요:\n\n**온라인 조사 방법:**\n- 네이버 트렌드, 구글 트렌드로 검색량 확인\n- 쿠팡, 11번가 등에서 유사 상품 판매량 분석\n- 소셜미디어에서 관련 해시태그 인기도 확인\n\n**오프라인 조사 방법:**\n- 타겟 고객층 설문조사\n- 경쟁업체 매장 방문 및 가격 비교\n- 관련 전시회나 박람회 참관\n\n어떤 상품군을 고려하고 계신지 알려주시면 더 구체적인 조사 방법을 제안해드릴 수 있어요!",
-      },
-    ]
-
-    setMessages(sampleMessages)
-    setConversationId(chatId)
-    setCurrentChatId(chatId)
   }
 
-  const startNewConversation = async (newAgent = "unified_agent") => {
+  const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
     try {
-      const response = await fetch("/api/conversations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: 3,
-          conversation_type: newAgent.replace("_agent", "") || "general",
-        }),
-      })
-
-      if (!response.ok) throw new Error("서버 응답 실패")
-
-      const result = await response.json()
+      const result = await agentApi.createConversation(userId)
       if (result.status === "success") {
-        const newId = result.data.conversation_id
-        setConversationId(newId)
+        setConversationId(result.data.conversation_id)
         setMessages([])
         setUserInput("")
-        setAgentConfig({
-          type: newAgent,
-          port: getAgentPort(newAgent),
-        })
-        return
+        setAgentType(newAgent)
       }
-
-      console.warn("대화 세션 생성 실패:", result)
     } catch (error) {
-      console.warn("대화 세션 서버 요청 실패, 로컬 ID로 대체:", error)
+      console.error("대화 세션 생성 실패:", error)
     }
-
-    const fallbackId = Date.now()
-    setConversationId(fallbackId)
-    setMessages([])
-    setUserInput("")
-    setAgentConfig({
-      type: newAgent,
-      port: getAgentPort(newAgent),
-    })
   }
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userInput.trim()) return
+    if (!userInput.trim() || !conversationId) return
 
     const currentInput = userInput
     setUserInput("")
@@ -445,36 +313,15 @@ export default function ChatRoomPage() {
     }
 
     const userMessage: Message = { sender: "user", text: currentInput }
-    const newMessages = [...messages, userMessage]
-    setMessages(newMessages)
-
-    const payload = {
-      user_id: 3,
-      message: currentInput,
-      conversation_id: conversationId,
-      persona: "common",
-    }
-
-    const endpoint =
-      agentConfig.type === "unified_agent"
-        ? `http://localhost:${agentConfig.port}/query`
-        : `http://localhost:${agentConfig.port}/agent/query`
+    setMessages((prev) => [...prev, userMessage])
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      })
+      const result = await agentApi.sendQuery(userId, conversationId, currentInput, agentType)
 
-      const res = await response.json()
-
-      if (res.success && res.data) {
+      if (result.success && result.data) {
         const agentMessage: Message = {
           sender: "agent",
-          text: res.data.answer,
+          text: result.data.answer,
         }
         setMessages((prev) => [...prev, agentMessage])
       } else {
@@ -519,29 +366,15 @@ export default function ChatRoomPage() {
       router.push("/chat")
     } else {
       router.push(`/chat/room?agent=${type}`)
-      startNewConversation(type)
+      startNewConversation(type as AgentType)
     }
   }
 
   const handleFeedbackSubmit = async () => {
+    if (!conversationId) return
+
     try {
-      const response = await fetch("/api/feedback", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: 2,
-          conversation_id: conversationId,
-          rating,
-          comment,
-          category,
-        }),
-      })
-
-      const result = await response.json()
-      console.log("피드백 응답:", result)
-
+      const result = await agentApi.sendFeedback(userId, conversationId, rating, comment, category)
       if (result.status === "success") {
         alert("피드백이 등록되었습니다!")
       } else {
@@ -566,7 +399,7 @@ export default function ChatRoomPage() {
         onLoadPreviousChat={loadPreviousChat}
         onNewChat={() => {
           setCurrentChatId(null)
-          startNewConversation(agentConfig.type)
+          startNewConversation(agentType)
         }}
       />
 
@@ -598,19 +431,9 @@ export default function ChatRoomPage() {
             <div key={idx} className={`flex items-start ${idx === 0 && msg.sender === "user" ? "mt-6" : ""}`}>
               {msg.sender === "user" ? (
                 <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2">
-                  {/* 고양이 아이콘 */}
                   <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
-                    <Image
-                      src="/3D_고양이.png"
-                      width={36}
-                      height={36}
-                      alt="사용자"
-                      className="rounded-full"
-                    />
-
+                    <Image src="/3D_고양이.png" width={36} height={36} alt="사용자" className="rounded-full" />
                   </div>
-
-                  {/* 유저 말풍선 */}
                   <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
                     <div className="bg-green-100 text-green-900 px-4 py-3 rounded-2xl shadow-md word-break-break-word whitespace-pre-wrap leading-relaxed">
                       {msg.text}
@@ -618,30 +441,19 @@ export default function ChatRoomPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex justify-start w-full">
-                  <div className="flex flex-col space-y-2 max-w-[70%] mr-auto">
-                    <div className="bg-white text-gray-800 px-4 py-3 rounded-2xl shadow-md border border-gray-200 whitespace-pre-line">
+                <div className="flex items-end space-x-2">
+                  <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow shrink-0">
+                    <Image
+                      src={AGENT_CONFIG[agentType].icon}
+                      width={36}
+                      height={36}
+                      alt={AGENT_CONFIG[agentType].name}
+                      className="rounded-full"
+                    />
+                  </div>
+                  <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
+                    <div className="bg-white text-gray-800 px-4 py-3 rounded-2xl shadow-md whitespace-pre-wrap leading-relaxed">
                       <ReactMarkdown>{msg.text}</ReactMarkdown>
-                    </div>
-                    <div className="mt-3 text-sm text-gray-500 flex items-center space-x-4">
-                      <span>이 답변이 도움이 되었나요?</span>
-                      <Button variant="ghost" size="sm" className="flex items-center space-x-1 h-auto p-1">
-                        <ThumbsUp className="w-4 h-4" />
-                        <span>좋아요</span>
-                      </Button>
-                      <Button variant="ghost" size="sm" className="flex items-center space-x-1 h-auto p-1">
-                        <ThumbsDown className="w-4 h-4" />
-                        <span>별로예요</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex items-center space-x-1 h-auto p-1"
-                        onClick={() => setShowFeedbackModal(true)}
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        <span>상세 피드백</span>
-                      </Button>
                     </div>
                   </div>
                 </div>
@@ -651,56 +463,47 @@ export default function ChatRoomPage() {
           <div ref={scrollRef} />
         </div>
 
-        {/* 입력창 */}
-        <form
-          className="absolute bottom-4 left-8 right-8 bg-white shadow-lg rounded-2xl px-4 py-3 flex flex-col space-y-2 border border-gray-200"
-          onSubmit={handleSend}
-        >
-          <Textarea
-            ref={textareaRef}
-            placeholder="추가 질문하기 ..."
-            value={userInput}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSend(e)
-              }
-            }}
-            rows={1}
-            className="w-full min-h-[40px] max-h-[120px] bg-white text-sm px-3 py-2 rounded-lg border-none outline-none resize-none overflow-y-auto focus:ring-0 focus:border-none transition-colors"
-            style={{ lineHeight: "1.5" }}
-          />
-
-          <div className="flex justify-between items-center">
+        {/* 입력 영역 */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-green-50 via-green-50">
+          <form onSubmit={handleSend} className="flex space-x-2">
+            <Textarea
+              ref={textareaRef}
+              value={userInput}
+              onChange={handleInputChange}
+              placeholder="메시지를 입력하세요..."
+              className="flex-1 resize-none overflow-hidden rounded-xl border-2 border-gray-200 focus:border-green-400 shadow-lg"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend(e)
+                }
+              }}
+            />
             <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-gray-500 hover:text-red-600 text-xs"
-              onClick={() => setShowFeedbackModal(true)}
+              type="submit"
+              size="icon"
+              className="h-full aspect-square rounded-xl bg-green-600 hover:bg-green-700 shadow-lg"
+              disabled={!userInput.trim()}
             >
-              대화 끝내기
+              <Send className="h-5 w-5" />
             </Button>
-            <Button type="submit" size="sm" className="w-8 h-8 bg-green-600 hover:bg-green-700 rounded-full p-0">
-              <Send className="w-4 h-4 text-white" />
-            </Button>
-          </div>
-        </form>
-
-        {showFeedbackModal && (
-          <FeedbackModal
-            rating={rating}
-            setRating={setRating}
-            comment={comment}
-            setComment={setComment}
-            category={category}
-            setCategory={setCategory}
-            onClose={() => setShowFeedbackModal(false)}
-            onSubmit={handleFeedbackSubmit}
-          />
-        )}
+          </form>
+        </div>
       </div>
+
+      {showFeedbackModal && (
+        <FeedbackModal
+          rating={rating}
+          setRating={setRating}
+          comment={comment}
+          setComment={setComment}
+          category={category}
+          setCategory={setCategory}
+          onClose={() => setShowFeedbackModal(false)}
+          onSubmit={handleFeedbackSubmit}
+        />
+      )}
     </div>
   )
 }
