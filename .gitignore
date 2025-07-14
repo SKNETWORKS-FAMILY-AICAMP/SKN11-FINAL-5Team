@@ -8,3 +8,5 @@ __pycache__
 *.bin
 *.pickle
 *.log
+*package*
+node_modules

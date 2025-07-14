@@ -38,6 +38,9 @@ from shared_modules import (
     get_current_timestamp
 )
 
+from shared_modules.utils import get_or_create_conversation_session
+
+
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
@@ -390,31 +393,22 @@ async def process_user_query(request: UserQuery):
         user_id = request.user_id
         conversation_id = request.conversation_id
         
-        # 1. 대화 세션 처리
-        with get_session_context() as db:
-            if conversation_id:
-                conversation = get_conversation_by_id(db, conversation_id)
-                if conversation and conversation.user_id == user_id:
-                    logger.info(f"기존 대화 세션 사용: {conversation_id}")
-                else:
-                    conversation = create_conversation(db, user_id)
-                    if not conversation:
-                        logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                        return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                    conversation_id = conversation.conversation_id
-                    logger.info(f"새 대화 세션 생성: {conversation_id}")
-            else:
-                conversation = create_conversation(db, user_id)
-                if not conversation:
-                    logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                    return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                conversation_id = conversation.conversation_id
-                logger.info(f"새 대화 세션 생성: {conversation_id}")
+        # 1. 대화 세션 처리 - 통일된 로직 사용
+        try:
+            session_info = get_or_create_conversation_session(user_id, conversation_id)
+            conversation_id = session_info["conversation_id"]
+        except Exception as e:
+            logger.error(f"대화 세션 처리 실패: {e}")
+            return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
 
-            # 2. 사용자 메시지 저장
-            user_message = create_message(db, conversation_id, "user", "customer_service", user_question)
-            if not user_message:
-                logger.warning("사용자 메시지 저장 실패")
+        # 2. 사용자 메시지 저장
+        try:
+            with get_session_context() as db:
+                user_message = create_message(db, conversation_id, "user", "customer_service", user_question)
+                if not user_message:
+                    logger.warning("사용자 메시지 저장 실패")
+        except Exception as e:
+            logger.warning(f"사용자 메시지 저장 실패: {e}")
 
         # 3. 고객 서비스 쿼리 실행
         result = await customer_service.run_customer_service_query(
@@ -455,20 +449,8 @@ async def process_user_query(request: UserQuery):
 
 @app.get("/preview/{template_id}", response_class=HTMLResponse)
 def preview_template(template_id: int):
-    """템플릿 미리보기"""
-    try:
-        template = get_template(template_id)
-        if not template:
-            return HTMLResponse(content="<p>템플릿을 찾을 수 없습니다</p>", status_code=404)
-        
-        if template.get("content_type") != "html":
-            return HTMLResponse(content="<p>HTML 템플릿이 아닙니다</p>", status_code=400)
-        
-        return HTMLResponse(content=template["content"])
-        
-    except Exception as e:
-        logger.error(f"템플릿 미리보기 실패: {e}")
-        return HTMLResponse(content="<p>템플릿을 로드할 수 없습니다</p>", status_code=500)
+    """템플릿 미리보기 - 통합 시스템 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /preview/{template_id}를 사용해주세요.", "API_MOVED")
 
 @app.get("/health")
 def health_check():

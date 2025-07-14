@@ -14,7 +14,7 @@ os.environ['CHROMA_TELEMETRY'] = 'False'
 os.environ['DO_NOT_TRACK'] = '1'
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
+from shared_modules.utils import get_or_create_conversation_session
 # 공통 모듈에서 모든 필요한 것들 import (이제 __init__.py에서 export됨)
 from shared_modules import (
     get_config, 
@@ -386,33 +386,22 @@ async def process_user_query(request: UserQuery):
         user_id = request.user_id
         conversation_id = request.conversation_id
         
-        # 1. 대화 세션 처리 - 공통 모듈의 DB 함수 활용
-        with get_session_context() as db:
-            if conversation_id:
-                conversation = get_conversation_by_id(db, conversation_id)
-                if conversation and conversation.user_id == user_id:
-                    logger.info(f"기존 대화 세션 사용: {conversation_id}")
-                else:
-                    # 새 대화 세션 생성
-                    conversation = create_conversation(db, user_id)
-                    if not conversation:
-                        logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                        return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                    conversation_id = conversation.conversation_id
-                    logger.info(f"새 대화 세션 생성: {conversation_id}")
-            else:
-                # 새 대화 세션 생성
-                conversation = create_conversation(db, user_id)
-                if not conversation:
-                    logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                    return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                conversation_id = conversation.conversation_id
-                logger.info(f"새 대화 세션 생성: {conversation_id}")
+        # 1. 대화 세션 처리 - 통일된 로직 사용
+        try:
+            session_info = get_or_create_conversation_session(user_id, conversation_id)
+            conversation_id = session_info["conversation_id"]
+        except Exception as e:
+            logger.error(f"대화 세션 처리 실패: {e}")
+            return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
 
-            # 2. 사용자 메시지 저장 - 공통 모듈의 DB 함수 활용
-            user_message = create_message(db, conversation_id, "user", "business_planning", user_question)
-            if not user_message:
-                logger.warning("사용자 메시지 저장 실패")
+        # 2. 사용자 메시지 저장
+        try:
+            with get_session_context() as db:
+                user_message = create_message(db, conversation_id, "user", "business_planning", user_question)
+                if not user_message:
+                    logger.warning("사용자 메시지 저장 실패")
+        except Exception as e:
+            logger.warning(f"사용자 메시지 저장 실패: {e}")
         
         # 3. 린캔버스 요청 분기 처리
         if "린캔버스" in user_question:
@@ -582,6 +571,8 @@ from fastapi.responses import StreamingResponse, JSONResponse
 #     file_id = save_pdf_to_temp(pdf_bytes)
 #     return JSONResponse({"file_id": file_id})
 
+
+## db에 저장하려 하는데 안들어감 
 @app.post("/report/pdf/create")
 async def create_pdf_from_html_api(data: dict = Body(...)):
     html = data.get("html", "<p>내용 없음</p>")
@@ -665,13 +656,9 @@ def get_report_list(
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info("=== Business Planning Agent v2.0 시작 ===")
-    logger.info(f"공통 모듈 활용 현황:")
-    logger.info(f"  - 설정 관리: {config.__class__.__name__}")
-    logger.info(f"  - LLM 관리: {llm_manager.__class__.__name__}")
-    logger.info(f"  - 벡터 관리: {vector_manager.__class__.__name__}")
-    logger.info(f"  - DB 관리: {db_manager.__class__.__name__}")
-    logger.info(f"  - 프롬프트 메타: {len(PROMPT_META)}개 토픽")
+    logger.info("=== Business Planning Agent v2.0 시작 ===\n✅ 이제 통합 시스템과 연동됩니다.")
+    logger.info("✅ 핵심 기능만 유지: /agent/query, /health, /status")
+    logger.info("✅ 린캔버스 템플릿은 통합 시스템 사용")
     
     uvicorn.run(
         app, 

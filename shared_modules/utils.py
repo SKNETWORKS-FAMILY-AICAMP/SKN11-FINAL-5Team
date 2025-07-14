@@ -9,6 +9,40 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
+from shared_modules import (
+    create_conversation,
+    get_conversation_by_id,
+    get_session_context
+)
+
+def get_or_create_conversation_session(user_id: int, conversation_id: int = None) -> Dict[str, Any]:
+    """통일된 대화 세션 조회 또는 생성 로직"""
+    try:
+        with get_session_context() as db:
+            if conversation_id:
+                conversation = get_conversation_by_id(db, conversation_id)
+                if conversation and conversation.user_id == user_id:
+                    print(f"🔄 기존 대화 세션 사용: {conversation_id}")
+                    return {
+                        "conversation_id": conversation.conversation_id,
+                        "is_new": False
+                    }
+            
+            # 새 대화 세션 생성
+            conversation = create_conversation(db, user_id)
+            if not conversation:
+                print(f"❌ 대화 세션 생성 실패 - user_id: {user_id}")
+                raise Exception("대화 세션 생성에 실패했습니다")
+            
+            print(f"🆕 새 대화 세션 생성: {conversation.conversation_id}")
+            return {
+                "conversation_id": conversation.conversation_id,
+                "is_new": True
+            }
+    except Exception as e:
+        print(f"❌ 대화 세션 처리 실패: {e}")
+        raise
+
 
 def load_prompt_from_file(file_path: str, encoding: str = 'utf-8') -> str:
     """

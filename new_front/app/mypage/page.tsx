@@ -32,6 +32,10 @@ export default function MyPage() {
     status: undefined,
   }), [userId])
 
+  const showReports = activeTab === "report"
+  const { list: reports = [], loading: reportLoading, error: reportError } = useReportList(reportParams, showReports)
+
+
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
     { id: "subscription", label: "구독 관리", icon: CreditCard },

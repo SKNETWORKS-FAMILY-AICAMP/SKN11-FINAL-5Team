@@ -11,6 +11,7 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # 공통 모듈에서 모든 필요한 것들 import
+from shared_modules.utils import get_or_create_conversation_session
 from shared_modules.llm_utils import get_llm
 from shared_modules import (
     get_config, 
@@ -398,31 +399,22 @@ async def process_user_query(request: UserQuery):
         user_id = request.user_id
         conversation_id = request.conversation_id
         
-        # 1. 대화 세션 처리
-        with get_session_context() as db:
-            if conversation_id:
-                conversation = get_conversation_by_id(db, conversation_id)
-                if conversation and conversation.user_id == user_id:
-                    logger.info(f"기존 대화 세션 사용: {conversation_id}")
-                else:
-                    conversation = create_conversation(db, user_id)
-                    if not conversation:
-                        logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                        return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                    conversation_id = conversation.conversation_id
-                    logger.info(f"새 대화 세션 생성: {conversation_id}")
-            else:
-                conversation = create_conversation(db, user_id)
-                if not conversation:
-                    logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                    return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-                conversation_id = conversation.conversation_id
-                logger.info(f"새 대화 세션 생성: {conversation_id}")
+        # 1. 대화 세션 처리 - 통일된 로직 사용
+        try:
+            session_info = get_or_create_conversation_session(user_id, conversation_id)
+            conversation_id = session_info["conversation_id"]
+        except Exception as e:
+            logger.error(f"대화 세션 처리 실패: {e}")
+            return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
 
-            # 2. 사용자 메시지 저장
-            user_message = create_message(db, conversation_id, "user", "mental_health", user_question)
-            if not user_message:
-                logger.warning("사용자 메시지 저장 실패")
+        # 2. 사용자 메시지 저장
+        try:
+            with get_session_context() as db:
+                user_message = create_message(db, conversation_id, "user", "mental_health", user_question)
+                if not user_message:
+                    logger.warning("사용자 메시지 저장 실패")
+        except Exception as e:
+            logger.warning(f"사용자 메시지 저장 실패: {e}")
 
         # 3. 정신건강 상담 실행
         result = await mental_health_service.run_mental_health_chat(
@@ -465,157 +457,35 @@ async def process_user_query(request: UserQuery):
 # 기존 호환성을 위한 엔드포인트들
 @app.post("/chat", response_model=ChatResponse)
 def chat_legacy(req: ChatRequest, db: Session = Depends(get_db)):
-    """기존 호환성을 위한 채팅 엔드포인트"""
+    """기존 호환성을 위한 채팅 엔드포인트 - 대신 /agent/query 사용 권장"""
     try:
-        logger.info(f"레거시 정신건강 채팅 요청: {req.user_input[:100]}...")
-        
-        # 새로운 구조로 변환
-        user_query = UserQuery(
-            user_id=int(req.user_id),
-            conversation_id=int(req.conversation_id),
-            message=req.user_input
+        return ChatResponse(
+            response="이 API는 더 이상 사용되지 않습니다. /agent/query를 사용해주세요.",
+            type="deprecated"
         )
-        
-        # 새로운 엔드포인트 호출
-        import asyncio
-        result = asyncio.run(process_user_query(user_query))
-        
-        if result.get("success"):
-            data = result["data"]
-            return ChatResponse(
-                response=data["answer"],
-                type=data.get("response_type", "normal")
-            )
-        else:
-            return ChatResponse(
-                response="죄송합니다. 상담 처리 중 오류가 발생했습니다.",
-                type="error"
-            )
-        
     except Exception as e:
-        logger.error(f"레거시 채팅 오류: {e}")
-        raise HTTPException(status_code=500, detail="정신건강 상담 처리 중 오류가 발생했습니다.")
+        logger.error(f"레거시 API 오류: {e}")
+        raise HTTPException(status_code=500, detail="API가 더 이상 지원되지 않습니다.")
 
 @app.post("/create_conversation")
 def create_conversation_endpoint(req: ConversationCreate, db: Session = Depends(get_db)):
-    """대화 세션 생성"""
-    try:
-        with get_session_context() as db:
-            conversation = create_conversation(db, int(req.user_id))
-            if not conversation:
-                raise HTTPException(status_code=500, detail="대화 세션 생성에 실패했습니다.")
-            
-            logger.info(f"새 대화 세션 생성: conversation_id={conversation.conversation_id}, user_id={req.user_id}")
-            
-            response_data = {
-                "conversation_id": conversation.conversation_id,
-                "user_id": conversation.user_id,
-                "title": req.title or "정신건강 상담",
-                "created_at": conversation.started_at.isoformat() if conversation.started_at else None
-            }
-            
-            return create_success_response(response_data)
-        
-    except Exception as e:
-        logger.error(f"대화 세션 생성 오류: {e}")
-        raise HTTPException(status_code=500, detail="대화 세션 생성에 실패했습니다.")
+    """대화 세션 생성 - 통합 시스템의 /conversations 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. /conversations를 사용해주세요.", "API_MOVED")
 
 @app.post("/social_login")
 def social_login(req: SocialLoginRequest, db: Session = Depends(get_db)):
-    """소셜 로그인"""
-    try:
-        with get_session_context() as db:
-            # 기존 사용자 확인
-            user = get_user_by_social(db, req.provider, req.social_id)
-            
-            if user:
-                logger.info(f"기존 사용자 로그인: user_id={user.user_id}, provider={req.provider}")
-                response_data = {
-                    "user_id": user.user_id,
-                    "username": req.username,
-                    "email": req.email,
-                    "is_new_user": False
-                }
-            else:
-                # 새 사용자 생성
-                user = create_user_social(
-                    db,
-                    provider=req.provider,
-                    social_id=req.social_id,
-                    email=req.email,
-                    nickname=req.username
-                )
-                
-                logger.info(f"새 소셜 사용자 생성: user_id={user.user_id}, provider={req.provider}")
-                
-                response_data = {
-                    "user_id": user.user_id,
-                    "username": req.username,
-                    "email": req.email,
-                    "is_new_user": True
-                }
-            
-            return create_success_response(response_data)
-        
-    except Exception as e:
-        logger.error(f"소셜 로그인 오류: {e}")
-        raise HTTPException(status_code=500, detail="소셜 로그인에 실패했습니다.")
+    """소셜 로그인 - 통합 시스템의 /social_login 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /social_login을 사용해주세요.", "API_MOVED")
 
 @app.get("/conversations/{user_id}")
 def get_user_conversations(user_id: str, db: Session = Depends(get_db)):
-    """사용자의 대화 세션 목록 조회"""
-    try:
-        # 공통 모듈의 쿼리 함수 사용
-        from shared_modules.queries import get_user_conversations
-        
-        with get_session_context() as db:
-            conversations = get_user_conversations(db, int(user_id))
-            
-            conversation_list = [
-                {
-                    "conversation_id": conv.conversation_id,
-                    "title": "정신건강 상담",
-                    "created_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "updated_at": conv.ended_at.isoformat() if conv.ended_at else None
-                }
-                for conv in conversations
-            ]
-            
-            return create_success_response(conversation_list)
-        
-    except Exception as e:
-        logger.error(f"대화 목록 조회 오류: {e}")
-        raise HTTPException(status_code=500, detail="대화 목록 조회에 실패했습니다.")
+    """사용자의 대화 세션 목록 조회 - 통합 시스템 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /conversations/{user_id}를 사용해주세요.", "API_MOVED")
 
-# PHQ-9 관련 엔드포인트
 @app.post("/phq9/start")
 def start_phq9_assessment(user_id: str = Body(..., embed=True), conversation_id: str = Body(..., embed=True)):
-    """PHQ-9 평가 시작"""
-    try:
-        logger.info(f"PHQ-9 평가 시작: user_id={user_id}, conversation_id={conversation_id}")
-        
-        response_data = {
-            "message": "PHQ-9 우울증 선별검사를 시작합니다. 다음 질문들에 솔직하게 답변해주세요.",
-            "assessment_type": "phq9",
-            "status": "started",
-            "questions": [
-                "지난 2주 동안, 일 또는 여가활동을 하는데 흥미나 즐거움을 느끼지 못함",
-                "지난 2주 동안, 기분이 가라앉거나, 우울하거나, 희망이 없다고 느낌",
-                "지난 2주 동안, 잠이 들거나 계속 잠을 자는 것이 어려움, 또는 잠을 너무 많이 잠",
-                "지난 2주 동안, 피곤하다고 느끼거나 기운이 거의 없음",
-                "지난 2주 동안, 입맛이 없거나 과식을 함",
-                "지난 2주 동안, 자신을 부정적으로 봄 — 혹은 자신이 실패자라고 느끼거나 자신 또는 가족을 실망시켰다고 느낌",
-                "지난 2주 동안, 신문을 읽거나 텔레비전 보는 것과 같은 일에 집중하는 것이 어려움",
-                "지난 2주 동안, 다른 사람들이 주목할 정도로 너무 느리게 움직이거나 말을 함. 또는 그 반대로 평상시보다 많이 움직여서 가만히 앉아 있을 수 없었음",
-                "지난 2주 동안, 자신이 죽는 것이 더 낫다고 생각하거나 어떤 식으로든 자신을 해칠 것이라고 생각함"
-            ]
-        }
-        
-        return create_success_response(response_data)
-        
-    except Exception as e:
-        logger.error(f"PHQ-9 시작 오류: {e}")
-        raise HTTPException(status_code=500, detail="PHQ-9 평가 시작에 실패했습니다.")
+    """PHQ-9 평가 시작 - 통합 시스템 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /phq9/start를 사용해주세요.", "API_MOVED")
 
 @app.post("/phq9/submit")
 def submit_phq9_assessment(
@@ -623,100 +493,17 @@ def submit_phq9_assessment(
     conversation_id: str = Body(...),
     scores: List[int] = Body(...)
 ):
-    """PHQ-9 평가 결과 제출"""
-    try:
-        if len(scores) != 9:
-            raise HTTPException(status_code=400, detail="9개의 응답이 필요합니다.")
-        
-        total_score = sum(scores)
-        
-        # 우울증 수준 판정
-        if total_score <= 4:
-            level = 1  # 최소
-            level_text = "최소 우울"
-        elif total_score <= 9:
-            level = 2  # 경미
-            level_text = "경미한 우울"
-        elif total_score <= 14:
-            level = 3  # 중등도
-            level_text = "중등도 우울"
-        elif total_score <= 19:
-            level = 4  # 중증
-            level_text = "중증 우울"
-        else:
-            level = 5  # 최중증
-            level_text = "최중증 우울"
-        
-        # DB에 결과 저장
-        with get_session_context() as db:
-            result = save_or_update_phq9_result(db, int(user_id), total_score, level)
-            
-            # 상담 메시지 저장
-            phq9_message = f"PHQ-9 평가 완료: 총점 {total_score}점 ({level_text})"
-            create_message(db, int(conversation_id), "system", "mental_health", phq9_message)
-        
-        # 권장사항 생성
-        if total_score >= 15:
-            recommendation = "전문의 상담을 강력히 권합니다. 정신건강의학과 방문을 고려해보세요."
-        elif total_score >= 10:
-            recommendation = "전문가 상담을 권합니다. 상담센터나 정신건강의학과 방문을 고려해보세요."
-        elif total_score >= 5:
-            recommendation = "경미한 우울 증상이 있습니다. 생활 습관 개선과 함께 지속적인 관찰이 필요합니다."
-        else:
-            recommendation = "현재 우울 증상은 최소 수준입니다. 현재 상태를 잘 유지하세요."
-        
-        logger.info(f"PHQ-9 평가 완료: user_id={user_id}, score={total_score}, level={level}")
-        
-        response_data = {
-            "total_score": total_score,
-            "level": level,
-            "level_text": level_text,
-            "recommendation": recommendation,
-            "assessment_date": get_current_timestamp()
-        }
-        
-        return create_success_response(response_data)
-        
-    except Exception as e:
-        logger.error(f"PHQ-9 제출 오류: {e}")
-        raise HTTPException(status_code=500, detail="PHQ-9 평가 제출에 실패했습니다.")
+    """PHQ-9 평가 결과 제출 - 통합 시스템 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /phq9/submit를 사용해주세요.", "API_MOVED")
 
-# 긴급상황 처리 엔드포인트
 @app.post("/emergency")
 def handle_emergency(
     user_id: str = Body(...),
     conversation_id: str = Body(...),
     message: str = Body(...)
 ):
-    """긴급상황 처리"""
-    try:
-        logger.warning(f"긴급상황 감지: user_id={user_id}, message={message[:100]}")
-        
-        response = mental_health_service._generate_emergency_response(message)
-        
-        # 긴급 메시지 저장
-        with get_session_context() as db:
-            create_message(
-                db,
-                int(conversation_id),
-                "system",
-                "mental_health",
-                f"긴급상황 감지: {message}"
-            )
-            
-            create_message(
-                db,
-                int(conversation_id),
-                "agent",
-                "mental_health",
-                response["answer"]
-            )
-        
-        return create_success_response(response)
-        
-    except Exception as e:
-        logger.error(f"긴급상황 처리 오류: {e}")
-        raise HTTPException(status_code=500, detail="긴급상황 처리에 실패했습니다.")
+    """긴급상황 처리 - 통합 시스템 사용 권장"""
+    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /emergency를 사용해주세요.", "API_MOVED")
 
 @app.get("/health")
 def health_check():
@@ -788,19 +575,10 @@ app.include_router(router)
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info("=== Mental Health Agent v2.0 시작 ===")
-    logger.info(f"공통 모듈 활용 현황:")
-    logger.info(f"  - 설정 관리: {config.__class__.__name__}")
-    logger.info(f"  - LLM 관리: {llm_manager.__class__.__name__}")
-    logger.info(f"  - 벡터 관리: {vector_manager.__class__.__name__}")
-    logger.info(f"  - DB 관리: {db_manager.__class__.__name__}")
-    logger.info(f"  - 정신건강 그래프: {'사용 가능' if mental_health_service.mental_graph else '사용 불가'}")
-    
-    # 설정 검증
-    validation = config.validate_config()
-    if validation["warnings"]:
-        for warning in validation["warnings"]:
-            logger.warning(warning)
+    logger.info("=== Mental Health Agent v2.0 시작 ===\n✅ 이제 통합 시스템과 연동됩니다.")
+    logger.info("✅ 핵심 기능만 유지: /agent/query, /health, /status")
+    logger.info("✅ 대화/사용자 관리는 통합 시스템 사용")
+    logger.info("✅ PHQ-9/긴급상황은 통합 시스템 사용")
     
     uvicorn.run(
         app,

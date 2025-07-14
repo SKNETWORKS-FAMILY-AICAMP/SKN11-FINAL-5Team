@@ -14,27 +14,36 @@ os.environ['DO_NOT_TRACK'] = '1'
 import logging
 from datetime import datetime
 from typing import Dict, Any, List
-
-# 공통 모듈 경로 추가
-sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+from models import UserQuery, AutomationRequest
+from utils import TaskAgentLogger, TaskAgentResponseFormatter
+from agent import TaskAgent
+import config
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# 공통 모듈 import
-from utils import create_success_response, create_error_response
 
-from models import UserQuery, AutomationRequest
-from agent import TaskAgent
-from shared_modules.queries import create_conversation, create_message, get_conversation_by_id, get_recent_messages, get_user_by_email
-from shared_modules.database import get_session_context 
-from utils import TaskAgentLogger, TaskAgentResponseFormatter, generate_conversation_id
-from config import config
+# 공통 모듈 경로 추가
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+# 공통 모듈 import
+from shared_modules import (
+    create_success_response, 
+    create_error_response,
+    create_conversation, 
+    create_message, 
+    get_conversation_by_id, 
+    get_recent_messages,
+    get_session_context,
+    insert_message_raw,
+    get_current_timestamp
+)
+from shared_modules.utils import get_or_create_conversation_session
+from shared_modules.logging_utils import setup_logging
 
 # 로깅 설정
-TaskAgentLogger.setup(config.LOG_LEVEL)
-logger = logging.getLogger("task_agent")
+logger = setup_logging("task", log_file="logs/task.log")
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -56,32 +65,6 @@ app.add_middleware(
 agent = None
 
 # ===== 대화 관리 함수 =====
-
-async def get_or_create_conversation(user_id: int, conversation_id: int = None) -> Dict[str, Any]:
-    """대화 세션 조회 또는 생성"""
-    try:
-        with get_session_context() as db:
-            if conversation_id:
-                conversation = get_conversation_by_id(db, conversation_id)
-                if conversation and conversation.user_id == user_id:
-                    return {
-                        "conversation_id": conversation.conversation_id,
-                        "is_new": False
-                    }
-            
-            # 새 대화 세션 생성
-            conversation = create_conversation(db, user_id)
-            if not conversation:
-                logger.error(f"대화 세션 생성 실패 - user_id: {user_id}")
-                raise Exception("대화 세션 생성에 실패했습니다")
-            
-            return {
-                "conversation_id": conversation.conversation_id,
-                "is_new": True
-            }
-    except Exception as e:
-        logger.error(f"대화 세션 처리 실패: {e}")
-        raise
 
 async def get_conversation_history(conversation_id: int, limit: int = 10) -> List[Dict]:
     """대화 히스토리 조회"""
@@ -176,10 +159,14 @@ async def process_user_query(query: UserQuery):
             details=f"persona: {query.persona}, message_length: {len(query.message)}"
         )
         
-        # 1. 대화 세션 처리
+        # 1. 대화 세션 처리 - 통일된 로직 사용
         user_id_int = int(query.user_id)
-        conversation_info = await get_or_create_conversation(user_id_int, query.conversation_id)
-        conversation_id = conversation_info["conversation_id"]
+        try:
+            session_info = get_or_create_conversation_session(user_id_int, query.conversation_id)
+            conversation_id = session_info["conversation_id"]
+        except Exception as e:
+            logger.error(f"대화 세션 처리 실패: {e}")
+            return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
         
         # 2. 대화 히스토리 조회
         history = await get_conversation_history(conversation_id)
@@ -194,7 +181,15 @@ async def process_user_query(query: UserQuery):
         response = await agent.process_query(query, history)
         
         # 6. 에이전트 응답 저장
-        await save_message(conversation_id, response.response, "agent", "task_agent")
+        try:
+            insert_message_raw(
+                conversation_id=conversation_id,
+                sender_type="agent",
+                agent_type="task_agent",
+                content=response.response
+            )
+        except Exception as e:
+            logger.warning(f"에이전트 메시지 저장 실패: {e}")
         
         TaskAgentLogger.log_user_interaction(
             user_id=query.user_id,
@@ -202,7 +197,18 @@ async def process_user_query(query: UserQuery):
             details=f"conversation_id: {conversation_id}, intent: {response.intent}"
         )
         
-        return response.dict()
+        # 7. 통일된 응답 생성
+        response_data = {
+            "conversation_id": conversation_id,
+            "topics": [response.intent] if hasattr(response, 'intent') else [],
+            "answer": response.response,
+            "sources": getattr(response, 'sources', ""),
+            "retrieval_used": getattr(response, 'retrieval_used', False),
+            "response_type": getattr(response, 'response_type', "normal"),
+            "timestamp": get_current_timestamp()
+        }
+        
+        return create_success_response(response_data)
         
     except Exception as e:
         logger.error(f"쿼리 처리 실패: {e}")
@@ -212,117 +218,6 @@ async def process_user_query(query: UserQuery):
             conversation_id=query.conversation_id
         )
         raise HTTPException(status_code=500, detail=error_response)
-
-@app.post("/automation")
-async def create_automation_task(request: AutomationRequest):
-    """자동화 작업 생성"""
-    try:
-        TaskAgentLogger.log_automation_task(
-            task_id="pending",
-            task_type=request.task_type.value,
-            status="creating",
-            details=f"user_id: {request.user_id}"
-        )
-        
-        response = await agent.create_automation_task(request)
-        
-        TaskAgentLogger.log_automation_task(
-            task_id=str(response.task_id),
-            task_type=request.task_type.value,
-            status=response.status.value,
-            details="automation task created successfully"
-        )
-        
-        return create_success_response(
-            data=response.dict(),
-            message="자동화 작업이 생성되었습니다."
-        )
-        
-    except Exception as e:
-        logger.error(f"자동화 작업 생성 실패: {e}")
-        TaskAgentLogger.log_automation_task(
-            task_id="failed",
-            task_type=request.task_type.value,
-            status="failed",
-            details=f"error: {str(e)}"
-        )
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/automation/{task_id}/status")
-async def get_automation_status(task_id: int):
-    """자동화 작업 상태 조회"""
-    try:
-        status = await agent.get_automation_status(task_id)
-        
-        if "error" in status:
-            raise HTTPException(status_code=404, detail=status["error"])
-        
-        return create_success_response(data=status)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"자동화 상태 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/automation/{task_id}")
-async def cancel_automation_task(task_id: int):
-    """자동화 작업 취소"""
-    try:
-        success = await agent.cancel_automation_task(task_id)
-        
-        if success:
-            TaskAgentLogger.log_automation_task(
-                task_id=str(task_id),
-                task_type="unknown",
-                status="cancelled",
-                details="cancelled by user request"
-            )
-            return create_success_response(message="자동화 작업이 취소되었습니다.")
-        else:
-            raise HTTPException(status_code=404, detail="작업을 찾을 수 없거나 취소할 수 없습니다.")
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"자동화 작업 취소 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ===== 대화 관리 API =====
-
-@app.get("/conversations/{user_id}")
-async def get_user_conversations(user_id: int):
-    """사용자의 대화 세션 목록 조회"""
-    try:
-        with get_session_context() as db:
-            from shared_modules.queries import get_user_conversations as get_conversations_query
-            conversations = get_conversations_query(db, user_id, visible_only=True)
-            
-            conversation_list = []
-            for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None
-                })
-            
-            return create_success_response(data=conversation_list)
-            
-    except Exception as e:
-        logger.error(f"대화 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/conversations/{conversation_id}/messages")
-async def get_conversation_messages(conversation_id: int, limit: int = 50):
-    """대화의 메시지 목록 조회"""
-    try:
-        history = await get_conversation_history(conversation_id, limit)
-        return create_success_response(data=history)
-        
-    except Exception as e:
-        logger.error(f"메시지 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ===== 시스템 API =====
 
