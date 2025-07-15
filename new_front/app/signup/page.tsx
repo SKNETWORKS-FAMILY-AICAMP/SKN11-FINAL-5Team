@@ -228,8 +228,11 @@ export default function SignupPage() {
                       <SelectValue placeholder="창업 상태를 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="preparing">창업 경험 없음</SelectItem>
-                      <SelectItem value="experienced">창업 경험 있음</SelectItem>
+                          <SelectItem value="preparing">창업 준비중</SelectItem>
+                          <SelectItem value="1year">1년 미만</SelectItem>
+                          <SelectItem value="1-3years">1-3년</SelectItem>
+                          <SelectItem value="3-5years">3-5년</SelectItem>
+                          <SelectItem value="5years+">5년 이상</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

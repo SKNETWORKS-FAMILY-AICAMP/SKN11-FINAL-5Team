@@ -1,6 +1,8 @@
 """
 통합 에이전트 시스템 메인 FastAPI 애플리케이션
 """
+from dotenv import load_dotenv
+load_dotenv()  # main.py 최상단에 추가
 
 import logging
 import asyncio
@@ -12,10 +14,12 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
 import requests
 import uvicorn
 import sys
 import os
+import time
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -38,9 +42,11 @@ from shared_modules import (
     get_latest_phq9_by_user,
     create_success_response,
     create_error_response,
+    create_template_message,
+    update_template_message,
+    delete_template_message,
     get_current_timestamp
 )
-
 from core.models import (
     UnifiedRequest, UnifiedResponse, HealthCheck, 
     AgentType, RoutingDecision
@@ -51,7 +57,8 @@ from core.config import (
     LOG_LEVEL, LOG_FORMAT
 )
 from shared_modules.database import get_session_context as unified_get_session_context
-from shared_modules.queries import get_conversation_history
+from shared_modules.auth import verify_token_and_get_user_id
+from shared_modules.queries import get_conversation_history, get_user_by_id
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 
 # 로깅 설정
@@ -127,6 +134,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static 파일 등록 (이미지/파일 제공용)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
 # ===== 공통 대화 관리 API =====
 
 @app.post("/conversations")
@@ -199,6 +210,85 @@ async def get_conversation_messages(conversation_id: int, limit: int = 50):
 import requests
 from fastapi import Request
 from sqlalchemy.orm import Session
+
+@app.get("/users/profile")
+def get_user_profile(user_id: int = Depends(verify_token_and_get_user_id)):
+    with get_session_context() as db:
+        user = get_user_by_id(db, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {
+            "success": True,
+            "data": {
+                "user_id": user.user_id,
+                "email": user.email,
+                "nickname": user.nickname,
+                "provider": user.provider,
+                "business_type": user.business_type,
+                "business_stage": user.business_stage,
+                "phone": user.phone,
+                "profile_image": user.profile_image
+            }
+        }
+#프로필 수정
+@app.put("/users/profile")
+def update_user_profile(
+    payload: dict = Body(...),
+    user_id: int = Depends(verify_token_and_get_user_id)
+):
+    try:
+        with get_session_context() as db:
+            user = get_user_by_id(db, user_id)
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            user.nickname = payload.get("nickname", user.nickname)
+            user.business_type = payload.get("business_type", user.business_type)
+            user.business_stage = payload.get("business_stage", user.business_stage)
+            user.phone = payload.get("phone", user.phone)
+            db.commit()
+
+            return create_success_response({"message": "프로필이 수정되었습니다."})
+    except Exception as e:
+        logger.error(f"프로필 수정 오류: {e}")
+        return create_error_response("프로필 수정 실패", "PROFILE_UPDATE_ERROR")
+
+#프로필 사진 업로드
+from fastapi import UploadFile, File
+
+@app.post("/users/profile/image")
+async def upload_profile_image(
+    file: UploadFile = File(...),
+    user_id: int = Depends(verify_token_and_get_user_id)
+):
+    try:
+        # 업로드 디렉토리 생성
+        upload_dir = "static/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # 파일 저장
+        filename = f"profile_{user_id}_{int(time.time())}.png"
+        file_path = os.path.join(upload_dir, filename)
+
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        image_url = f"/static/uploads/{filename}"
+
+        with get_session_context() as db:
+            user = get_user_by_id(db, user_id)
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            user.profile_image = image_url
+            db.commit()
+
+        return create_success_response({"image_url": image_url})
+    except Exception as e:
+        logger.error(f"프로필 이미지 업로드 오류: {e}")
+        return create_error_response("이미지 업로드 실패", "PROFILE_IMAGE_UPLOAD_ERROR")
+
+
 
 # 소셜 로그인 인증 URL 생성 엔드포인트
 @app.get("/auth/{provider}")
@@ -360,7 +450,9 @@ async def google_login(request: Request, code: str, state: str = None):
                         "user_id": existing_user.user_id,
                         "provider": provider,
                         "email": existing_user.email,
-                        "username": nickname
+                        "username": nickname,
+                        "access_token": access_token
+
                     }
                 else:
                     # 계정이 없음 - 회원가입 페이지로 리디렉션
@@ -762,24 +854,70 @@ async def preview_template(template_id: int):
         logger.error(f"템플릿 미리보기 실패: {e}")
         return Response(content="<p>템플릿을 로드할 수 없습니다</p>", status_code=500, media_type="text/html")
 
-@app.get("/templates")
-async def get_templates(template_type: Optional[str] = None):
-    """템플릿 목록 조회"""
+# @app.get("/templates")
+# async def create_templates(template_type: Optional[str] = None):
+#     """템플릿 목록 조회"""
+#     try:
+#         if template_type:
+#             templates = get_templates_by_type(template_type)
+#         else:
+#             templates = get_templates_by_type("전체")
+        
+#         return create_success_response({
+#             "templates": templates,
+#             "count": len(templates),
+#             "type": template_type or "전체"
+#         })
+        
+    # except Exception as e:
+    #     logger.error(f"템플릿 목록 조회 실패: {e}")
+    #     return create_error_response("템플릿 목록 조회에 실패했습니다", "TEMPLATE_LIST_ERROR")
+
+@app.get("/api/v1/templates")
+async def get_user_templates(user_id: int = Depends(verify_token_and_get_user_id)):
+    """사용자 템플릿 목록 조회"""
     try:
-        if template_type:
-            templates = get_templates_by_type(template_type)
-        else:
-            templates = get_templates_by_type("전체")
-        
-        return create_success_response({
-            "templates": templates,
-            "count": len(templates),
-            "type": template_type or "전체"
-        })
-        
+        with get_session_context() as db:
+            # 사용자별 템플릿 조회 로직
+            templates = get_user_templates(db, user_id)
+            
+            return create_success_response({
+                "templates": templates,
+                "total_count": len(templates)
+            })
     except Exception as e:
-        logger.error(f"템플릿 목록 조회 실패: {e}")
-        return create_error_response("템플릿 목록 조회에 실패했습니다", "TEMPLATE_LIST_ERROR")
+        logger.error(f"사용자 템플릿 조회 실패: {e}")
+        return create_error_response("템플릿 조회에 실패했습니다", "TEMPLATE_FETCH_ERROR")
+    
+@app.post("/api/v1/templates")
+async def create_new_template(payload: Dict[str, Any], user_id: int = Depends(verify_token_and_get_user_id)):
+    try:
+        with get_session_context() as db:
+            template = create_template_message(db, user_id=user_id, **payload)
+            return create_success_response({"template_id": template.template_id})
+    except Exception as e:
+        logger.error(f"템플릿 생성 오류: {e}")
+        return create_error_response("템플릿 생성에 실패했습니다", "TEMPLATE_CREATE_ERROR")
+    
+@app.put("/api/v1/templates/{template_id}")
+async def update_existing_template(template_id: int, payload: Dict[str, Any], user_id: int = Depends(verify_token_and_get_user_id)):
+    try:
+        with get_session_context() as db:
+            template = update_template_message(db, template_id, user_id, **payload)
+            return create_success_response({"message": "템플릿이 수정되었습니다."})
+    except Exception as e:
+        logger.error(f"템플릿 수정 오류: {e}")
+        return create_error_response("템플릿 수정에 실패했습니다", "TEMPLATE_UPDATE_ERROR")
+    
+@app.delete("/api/v1/templates/{template_id}")
+async def delete_template(template_id: int, user_id: int = Depends(verify_token_and_get_user_id)):
+    try:
+        with get_session_context() as db:
+            delete_template(db, template_id, user_id)
+            return create_success_response({"message": "템플릿이 삭제되었습니다."})
+    except Exception as e:
+        logger.error(f"템플릿 삭제 오류: {e}")
+        return create_error_response("템플릿 삭제에 실패했습니다", "TEMPLATE_DELETE_ERROR")
 
 # ===== 정신건강 전용 API =====
 

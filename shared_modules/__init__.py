@@ -11,6 +11,8 @@ from .vector_utils import *
 from .queries import *
 from .logging_utils import *  # 추가
 from .utils import *          # 추가
+from .auth import *
+
 
 __version__ = "1.0.0"
 __author__ = "SKN Team"

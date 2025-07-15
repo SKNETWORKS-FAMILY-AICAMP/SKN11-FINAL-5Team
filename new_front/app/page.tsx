@@ -1,28 +1,59 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ArrowRight, MessageSquare, Phone, Clock, ChevronDown, ChevronUp, User } from "lucide-react"
-import { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
 
+
+// FAQ 아이템 컴포넌트
 function FAQItem({ question, answer }: { question: string; answer: string }) {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
     <div className="border-b border-gray-200 py-4">
-      <button className="flex justify-between items-center w-full text-left" onClick={() => setIsOpen(!isOpen)}>
+      <button 
+        className="flex justify-between items-center w-full text-left" 
+        onClick={() => setIsOpen(!isOpen)}
+      >
         <span className="font-medium text-gray-900">{question}</span>
-        {isOpen ? <ChevronUp className="h-5 w-5 text-gray-500" /> : <ChevronDown className="h-5 w-5 text-gray-500" />}
+        {isOpen ? (
+          <ChevronUp className="h-5 w-5 text-gray-500" />
+        ) : (
+          <ChevronDown className="h-5 w-5 text-gray-500" />
+        )}
       </button>
-      {isOpen && <div className="mt-3 text-gray-600 leading-relaxed">{answer}</div>}
+      {isOpen && (
+        <div className="mt-3 text-gray-600 leading-relaxed">{answer}</div>
+      )}
     </div>
   )
 }
 
+import { useAuth } from "@/hooks/authcontext"
+// 메인 HomePage 컴포넌트
 export default function HomePage() {
+  const { user, logout } = useAuth()
+
+  const [showMenu, setShowMenu] = useState(false)
+
+  useEffect(() => {
+    // 클라이언트 사이드에서만 실행
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem("access_token")
+    }
+  }, [])
+
+  const handleLogout = () => {
+    localStorage.removeItem("access_token")
+    localStorage.removeItem("user")
+    setShowMenu(false)
+    window.location.href = "/" // 홈으로 이동
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
       {/* Navigation */}
@@ -49,15 +80,36 @@ export default function HomePage() {
             <a href="#faq" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
               FAQ
             </a>
-            <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">
-              로그인
-            </Link>
-            {/* 로그인 상태일 때만 표시되는 사용자 아이콘 (현재는 숨김) */}
-            {false && (
-              <Link href="/mypage" className="block">
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center cursor-pointer">
+            {user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center cursor-pointer hover:bg-green-200 transition-colors"
+                >
                   <User className="h-4 w-4 text-green-600" />
-                </div>
+                </button>
+
+                {showMenu && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 shadow-lg rounded-md z-50">
+                    <Link
+                      href="/mypage"
+                      className="block px-4 py-2 text-gray-700 hover:bg-gray-100 text-sm"
+                      onClick={() => setShowMenu(false)}
+                    >
+                      마이페이지
+                    </Link>
+                    <button
+                      onClick={logout}
+                      className="w-full text-left px-4 py-2 text-red-500 hover:bg-gray-100 text-sm"
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">
+                로그인
               </Link>
             )}
           </div>
@@ -120,8 +172,7 @@ export default function HomePage() {
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-6">1인 창업자의 현실적인 고민들</h2>
             <p className="text-xl text-gray-600 max-w-4xl mx-auto leading-relaxed">
-              <br />
-              <span className="font-bold text-gray-900"></span>
+              창업 과정에서 마주하는 다양한 도전들을 함께 해결해나가요
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -159,7 +210,7 @@ export default function HomePage() {
                 <CardHeader className="text-center">
                   <div className={`w-20 h-20 ${item.bg} rounded-full flex items-center justify-center mx-auto mb-4`}>
                     <Image
-                      src={item.icon || "/placeholder.svg"}
+                      src={item.icon}
                       alt={item.title}
                       width={32}
                       height={32}
@@ -173,9 +224,6 @@ export default function HomePage() {
                 </CardContent>
               </Card>
             ))}
-          </div>
-          <div className="mt-12 text-center">
-            <p className="text-lg text-gray-700 font-medium"></p>
           </div>
         </div>
       </section>
@@ -346,47 +394,46 @@ export default function HomePage() {
           </div>
           <div className="grid md:grid-cols-2 gap-8">
             <Card className="border-0 shadow-lg bg-white p-8">
-  <div className="text-center">
-    {/* 전화 상담 이미지 아이콘 */}
-    <Image
-      src="/icons/3D_전화.png"
-      alt="전화 상담"
-      width={48}
-      height={48}
-      className="mx-auto mb-4"
-    />
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">전화 상담</h3>
-    <p className="text-gray-600 mb-4">전문 상담사와 직접 통화</p>
-    <p className="text-2xl font-bold text-green-600 mb-4">1588-0000</p>
-    <div className="flex items-center justify-center text-sm text-gray-500">
-      <Clock className="h-4 w-4 mr-1" />
-      평일 09:00 - 18:00
-    </div>
-  </div>
-</Card>
+              <div className="text-center">
+                {/* 전화 상담 이미지 아이콘 */}
+                <Image
+                  src="/icons/3D_전화.png"
+                  alt="전화 상담"
+                  width={48}
+                  height={48}
+                  className="mx-auto mb-4"
+                />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">전화 상담</h3>
+                <p className="text-gray-600 mb-4">전문 상담사와 직접 통화</p>
+                <p className="text-2xl font-bold text-green-600 mb-4">1588-0000</p>
+                <div className="flex items-center justify-center text-sm text-gray-500">
+                  <Clock className="h-4 w-4 mr-1" />
+                  평일 09:00 - 18:00
+                </div>
+              </div>
+            </Card>
 
-<Card className="border-0 shadow-lg bg-white p-8">
-  <div className="text-center">
-    {/* AI 상담 이미지 아이콘 */}
-    <Image
-      src="/icons/3D_메세지.png"
-      alt="AI 상담"
-      width={48}
-      height={48}
-      className="mx-auto mb-4"
-    />
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">AI 상담</h3>
-    <p className="text-gray-600 mb-4">24시간 AI 챗봇 상담</p>
-    <Link href="/chat">
-      <Button className="bg-yellow-500 hover:bg-yellow-600 w-full mb-4">채팅 시작하기</Button>
-    </Link>
-    <div className="flex items-center justify-center text-sm text-gray-500">
-      <Clock className="h-4 w-4 mr-1" />
-      24시간 언제든지
-    </div>
-  </div>
-</Card>
-
+            <Card className="border-0 shadow-lg bg-white p-8">
+              <div className="text-center">
+                {/* AI 상담 이미지 아이콘 */}
+                <Image
+                  src="/icons/3D_메세지.png"
+                  alt="AI 상담"
+                  width={48}
+                  height={48}
+                  className="mx-auto mb-4"
+                />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">AI 상담</h3>
+                <p className="text-gray-600 mb-4">24시간 AI 챗봇 상담</p>
+                <Link href="/chat">
+                  <Button className="bg-yellow-500 hover:bg-yellow-600 w-full mb-4">채팅 시작하기</Button>
+                </Link>
+                <div className="flex items-center justify-center text-sm text-gray-500">
+                  <Clock className="h-4 w-4 mr-1" />
+                  24시간 언제든지
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
       </section>
@@ -435,17 +482,21 @@ export default function HomePage() {
             <span className="font-bold text-yellow-300">다중 AI 에이전트팀</span>이 24시간 당신을 지원합니다
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" className="bg-white text-green-600 hover:bg-gray-100 text-lg px-8 py-3 rounded-full">
-              시작하기
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              className="border-white text-white hover:bg-white hover:text-green-600 text-lg px-8 py-3 rounded-full bg-transparent"
-            >
-              상담 예약하기
-            </Button>
+            <Link href="/chat">
+              <Button size="lg" className="bg-white text-green-600 hover:bg-gray-100 text-lg px-8 py-3 rounded-full">
+                시작하기
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
+            <Link href="#consultation">
+              <Button
+                variant="outline"
+                size="lg"
+                className="border-white text-white hover:bg-white hover:text-green-600 text-lg px-8 py-3 rounded-full bg-transparent"
+              >
+                상담 예약하기
+              </Button>
+            </Link>
           </div>
         </div>
       </section>

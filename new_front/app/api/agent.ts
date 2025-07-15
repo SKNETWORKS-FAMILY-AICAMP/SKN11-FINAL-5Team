@@ -161,5 +161,55 @@ export const agentApi = {
         error: '피드백 전송에 실패했습니다'
       }
     }
+  },
+
+  getUserProfile: async (accessToken: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/profile`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (!data.success) {
+        return {
+          success: false,
+          error: data.error || "프로필 불러오기에 실패했습니다"
+        }
+      }
+
+      return {
+        success: true,
+        data: data.data
+      }
+    } catch (error) {
+      console.error("getUserProfile error:", error)
+      return {
+        success: false,
+        error: "프로필 불러오기에 실패했습니다"
+      }
+    }
+  },
+  getTemplates: async (accessToken: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/templates`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      })
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`)
+      }
+      return await res.json()
+    } catch (err) {
+      console.error("템플릿 조회 실패:", err)
+      throw err
+    }
   }
 }

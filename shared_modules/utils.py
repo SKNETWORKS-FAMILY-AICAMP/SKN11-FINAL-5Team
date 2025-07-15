@@ -46,6 +46,7 @@ def get_or_create_conversation_session(user_id: int, conversation_id: int = None
 
 def load_prompt_from_file(file_path: str, encoding: str = 'utf-8') -> str:
     """
+    
     파일에서 프롬프트 텍스트 로드
     
     Args:
@@ -416,3 +417,171 @@ class PromptTemplate:
         import re
         variables = re.findall(r'\{(\w+)\}', self.template)
         return list(set(variables))
+# utils.py 파일 맨 아래에 다음 함수들을 추가하세요
+
+def get_config() -> Dict[str, Any]:
+    """
+    환경 설정 정보 반환
+    
+    Returns:
+        Dict[str, Any]: 설정 정보
+    """
+    return {
+        "database_url": os.getenv("DATABASE_URL", "sqlite:///./test.db"),
+        "secret_key": os.getenv("SECRET_KEY", "your-secret-key-here"),
+        "debug": os.getenv("DEBUG", "false").lower() == "true",
+        "log_level": os.getenv("LOG_LEVEL", "INFO"),
+        "server_host": os.getenv("SERVER_HOST", "127.0.0.1"),
+        "server_port": int(os.getenv("SERVER_PORT", "8000")),
+        
+        # 소셜 로그인 설정
+        "google_client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+        "google_client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        "google_redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", ""),
+        
+        "kakao_client_id": os.getenv("KAKAO_CLIENT_ID", ""),
+        "kakao_redirect_uri": os.getenv("KAKAO_REDIRECT_URI", ""),
+        
+        "naver_client_id": os.getenv("NAVER_CLIENT_ID", ""),
+        "naver_client_secret": os.getenv("NAVER_CLIENT_SECRET", ""),
+        "naver_redirect_uri": os.getenv("NAVER_REDIRECT_URI", ""),
+        
+        # LLM 설정
+        "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+        
+        # 기타 설정
+        "cors_origins": os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(","),
+        "max_file_size_mb": int(os.getenv("MAX_FILE_SIZE_MB", "10")),
+        "session_timeout_hours": int(os.getenv("SESSION_TIMEOUT_HOURS", "24"))
+    }
+
+def setup_logging(level: str = "INFO", format_string: str = None) -> logging.Logger:
+    """
+    로깅 설정
+    
+    Args:
+        level: 로그 레벨 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        format_string: 로그 포맷 문자열
+    
+    Returns:
+        logging.Logger: 설정된 로거
+    """
+    if format_string is None:
+        format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    
+    # 기본 로깅 설정
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format=format_string,
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    
+    # 외부 라이브러리 로그 레벨 조정
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    
+    # 프로젝트 로거 반환
+    logger = logging.getLogger("unified_agent_system")
+    logger.info(f"로깅 설정 완료 - 레벨: {level}")
+    
+    return logger
+
+def get_current_timestamp(format_type: str = "iso") -> str:
+    """
+    현재 시간 문자열 반환 (기존 함수 확장)
+    
+    Args:
+        format_type: 포맷 타입 ("iso", "filename", "display", "custom")
+        
+    Returns:
+        str: 포맷팅된 시간 문자열
+    """
+    now = datetime.now()
+    
+    if format_type == "iso":
+        return now.isoformat()
+    elif format_type == "filename":
+        return now.strftime("%Y%m%d_%H%M%S")
+    elif format_type == "display":
+        return now.strftime("%Y-%m-%d %H:%M:%S")
+    elif format_type == "date_only":
+        return now.strftime("%Y-%m-%d")
+    elif format_type == "time_only":
+        return now.strftime("%H:%M:%S")
+    else:
+        # custom format_type을 직접 strftime 포맷으로 사용
+        try:
+            return now.strftime(format_type)
+        except ValueError:
+            return now.isoformat()
+
+def validate_config() -> Dict[str, Any]:
+    """
+    설정 유효성 검사
+    
+    Returns:
+        Dict[str, Any]: 검사 결과
+    """
+    config = get_config()
+    issues = []
+    warnings = []
+    
+    # 필수 설정 확인
+    required_settings = [
+        "database_url",
+        "secret_key"
+    ]
+    
+    for setting in required_settings:
+        if not config.get(setting):
+            issues.append(f"필수 설정 누락: {setting}")
+    
+    # 소셜 로그인 설정 확인
+    social_providers = ["google", "kakao", "naver"]
+    for provider in social_providers:
+        client_id = config.get(f"{provider}_client_id")
+        if not client_id:
+            warnings.append(f"{provider.title()} 로그인 설정 누락")
+    
+    # LLM API 키 확인
+    if not config.get("openai_api_key") and not config.get("anthropic_api_key"):
+        warnings.append("LLM API 키가 설정되지 않음")
+    
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "warnings": warnings,
+        "config_summary": {
+            "database_configured": bool(config.get("database_url")),
+            "social_login_providers": len([p for p in social_providers 
+                                         if config.get(f"{p}_client_id")]),
+            "llm_providers": len([k for k in ["openai_api_key", "anthropic_api_key"] 
+                                if config.get(k)])
+        }
+    }
+
+def get_environment_info() -> Dict[str, Any]:
+    """
+    실행 환경 정보 반환
+    
+    Returns:
+        Dict[str, Any]: 환경 정보
+    """
+    import platform
+    import sys
+    
+    return {
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "working_directory": os.getcwd(),
+        "python_path": sys.executable,
+        "environment_variables": {
+            key: value for key, value in os.environ.items() 
+            if key.startswith(("OPENAI_", "ANTHROPIC_", "DATABASE_", "DEBUG", "LOG_"))
+        }
+    }

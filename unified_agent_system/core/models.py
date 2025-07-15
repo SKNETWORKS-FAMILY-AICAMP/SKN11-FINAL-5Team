@@ -6,6 +6,9 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 from datetime import datetime
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
 
 
 class AgentType(str, Enum):
@@ -113,3 +116,39 @@ class HealthCheck(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     agents: Dict[AgentType, bool] = Field(description="각 에이전트 상태")
     system_info: Dict[str, Any] = Field(default_factory=dict)
+
+class TemplateBase(BaseModel):
+    title: str
+    content: str
+    template_type: str
+    channel_type: str = "EMAIL"
+    content_type: str = "html"
+
+class TemplateCreate(TemplateBase):
+    pass
+
+class TemplateUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    template_type: Optional[str] = None
+    channel_type: Optional[str] = None
+
+class TemplateResponse(TemplateBase):
+    template_id: int
+    user_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    is_custom: bool = False  # 사용자 커스텀 여부
+    
+    class Config:
+        from_attributes = True
+
+class TemplateListResponse(BaseModel):
+    templates: List[TemplateResponse]
+    total_count: int
+
+class TemplateOperationResponse(BaseModel):
+    """템플릿 작업 응답 (생성, 수정, 삭제 등)"""
+    success: bool
+    message: str
+    template: Optional[TemplateResponse] = None

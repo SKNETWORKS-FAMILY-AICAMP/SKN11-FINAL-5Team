@@ -9,9 +9,19 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import bindparam, text
 from shared_modules.database import DatabaseManager
+from typing import List, Optional, Dict, Any
+
+import logging
+
+import sys
+import os
+
+# 공통 모듈 경로 추가
+# sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 
 # SQLAlchemy 충돌 방지를 위해 fully qualified import 사용
 import shared_modules.db_models as db_models
+from shared_modules.database import get_connection
 
 engine = DatabaseManager().engine
 logger = logging.getLogger(__name__)
@@ -645,6 +655,11 @@ def create_automation_task(db: Session, user_id: int, task_type: str, title: str
         db.rollback()
         return None
 
+def get_user_by_access_token(db: Session, token: str):
+    return db.query(db_models.User).filter(db_models.User.access_token == token).first()
+
+
+
 def get_user_tasks(db: Session, user_id: int, status: str = None, limit: int = 50):
     try:
         query = db.query(db_models.AutomationTask).filter(db_models.AutomationTask.user_id == user_id)
@@ -924,4 +939,378 @@ def delete_template(template_id: int) -> bool:
             return result.rowcount > 0
     except Exception as e:
         return handle_db_error(e, "delete_template") or False
+# queries.py에 추가할 템플릿 관련 함수들
 
+def get_user_templates_with_defaults(db: Session, user_id: int) -> list:
+    """사용자 템플릿 조회 (기본 템플릿 + 커스텀 템플릿)"""
+    try:
+        # 1. 사용자의 커스텀 템플릿 조회
+        user_templates = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == user_id
+        ).all()
+        
+        # 2. 기본 템플릿 조회 (user_id = 3)
+        default_templates = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == 3
+        ).all()
+        
+        # 3. 결과 통합 (커스텀 템플릿이 있으면 우선, 없으면 기본 템플릿)
+        result = []
+        user_template_types = {(t.template_type, t.channel_type) for t in user_templates}
+        
+        # 사용자 커스텀 템플릿 추가
+        for template in user_templates:
+            template_dict = {
+                'template_id': template.template_id,
+                'user_id': template.user_id,
+                'template_type': template.template_type,
+                'channel_type': template.channel_type,
+                'title': template.title,
+                'content': template.content,
+                'content_type': template.content_type,
+                'created_at': template.created_at,
+                'is_custom': True
+            }
+            result.append(template_dict)
+        
+        # 기본 템플릿 중 사용자가 커스텀하지 않은 것들 추가
+        for template in default_templates:
+            template_key = (template.template_type, template.channel_type)
+            if template_key not in user_template_types:
+                template_dict = {
+                    'template_id': template.template_id,
+                    'user_id': template.user_id,
+                    'template_type': template.template_type,
+                    'channel_type': template.channel_type,
+                    'title': template.title,
+                    'content': template.content,
+                    'content_type': template.content_type,
+                    'created_at': template.created_at,
+                    'is_custom': False
+                }
+                result.append(template_dict)
+        
+        logger.info(f"사용자 {user_id} 템플릿 조회: {len(result)}개")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[get_user_templates_with_defaults 오류] {e}", exc_info=True)
+        return []
+
+def copy_default_template_to_user(db: Session, user_id: int, base_template_id: int) -> dict:
+    """기본 템플릿을 사용자 커스텀 템플릿으로 복사"""
+    try:
+        # 기본 템플릿 조회
+        base_template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == base_template_id,
+            db_models.TemplateMessage.user_id == 3  # 기본 템플릿만
+        ).first()
+        
+        if not base_template:
+            logger.error(f"기본 템플릿 {base_template_id} 를 찾을 수 없습니다")
+            return None
+        
+        # 새 커스텀 템플릿 생성
+        new_template = db_models.TemplateMessage(
+            user_id=user_id,
+            template_type=base_template.template_type,
+            channel_type=base_template.channel_type,
+            title=f"{base_template.title}_custom",
+            content=base_template.content,
+            content_type=base_template.content_type
+        )
+        
+        db.add(new_template)
+        db.commit()
+        db.refresh(new_template)
+        
+        logger.info(f"템플릿 복사 완료: {base_template_id} -> {new_template.template_id}")
+        
+        return {
+            'template_id': new_template.template_id,
+            'user_id': new_template.user_id,
+            'template_type': new_template.template_type,
+            'channel_type': new_template.channel_type,
+            'title': new_template.title,
+            'content': new_template.content,
+            'content_type': new_template.content_type,
+            'created_at': new_template.created_at,
+            'is_custom': True
+        }
+        
+    except Exception as e:
+        logger.error(f"[copy_default_template_to_user 오류] {e}", exc_info=True)
+        db.rollback()
+        return None
+
+def get_template_with_ownership_check(db: Session, template_id: int, user_id: int) -> dict:
+    """템플릿 조회 (소유권 확인 포함)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            (db_models.TemplateMessage.user_id == user_id) | 
+            (db_models.TemplateMessage.user_id == 3)  # 기본 템플릿도 접근 가능
+        ).first()
+        
+        if not template:
+            return None
+        
+        return {
+            'template_id': template.template_id,
+            'user_id': template.user_id,
+            'template_type': template.template_type,
+            'channel_type': template.channel_type,
+            'title': template.title,
+            'content': template.content,
+            'content_type': template.content_type,
+            'created_at': template.created_at,
+            'is_custom': template.user_id != 3
+        }
+        
+    except Exception as e:
+        logger.error(f"[get_template_with_ownership_check 오류] {e}", exc_info=True)
+        return None
+
+def update_user_template(db: Session, template_id: int, user_id: int, **kwargs) -> bool:
+    """사용자 템플릿 업데이트 (소유권 확인)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            db_models.TemplateMessage.user_id == user_id  # 사용자 소유 템플릿만 수정 가능
+        ).first()
+        
+        if not template:
+            logger.warning(f"템플릿 {template_id} 업데이트 실패: 소유권 없음 (user_id: {user_id})")
+            return False
+        
+        # 유효한 필드만 업데이트
+        valid_fields = ['template_type', 'channel_type', 'title', 'content', 'content_type']
+        updated = False
+        
+        for field, value in kwargs.items():
+            if field in valid_fields and value is not None:
+                setattr(template, field, value)
+                updated = True
+        
+        if updated:
+            db.commit()
+            logger.info(f"템플릿 {template_id} 업데이트 완료")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"[update_user_template 오류] {e}", exc_info=True)
+        db.rollback()
+        return False
+
+def delete_user_template(db: Session, template_id: int, user_id: int) -> bool:
+    """사용자 템플릿 삭제 (기본 템플릿 삭제 방지)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            db_models.TemplateMessage.user_id == user_id,
+            db_models.TemplateMessage.user_id != 3  # 기본 템플릿 삭제 방지
+        ).first()
+        
+        if not template:
+            logger.warning(f"템플릿 {template_id} 삭제 실패: 소유권 없음 또는 기본 템플릿")
+            return False
+        
+        db.delete(template)
+        db.commit()
+        logger.info(f"템플릿 {template_id} 삭제 완료")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[delete_user_template 오류] {e}", exc_info=True)
+        db.rollback()
+        return False
+
+# queries.py 파일 맨 아래에 추가할 함수들
+
+def get_user_templates_with_defaults(db: Session, user_id: int) -> list:
+    """사용자 템플릿 조회 (기본 템플릿 + 커스텀 템플릿)"""
+    try:
+        # 1. 사용자의 커스텀 템플릿 조회
+        user_templates = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == user_id
+        ).all()
+        
+        # 2. 기본 템플릿 조회 (user_id = 3)
+        default_templates = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == 3
+        ).all()
+        
+        # 3. 결과 통합 (커스텀 템플릿이 있으면 우선, 없으면 기본 템플릿)
+        result = []
+        user_template_types = {(t.template_type, t.channel_type) for t in user_templates}
+        
+        # 사용자 커스텀 템플릿 추가
+        for template in user_templates:
+            template_dict = {
+                'template_id': template.template_id,
+                'user_id': template.user_id,
+                'template_type': template.template_type,
+                'channel_type': template.channel_type,
+                'title': template.title,
+                'content': template.content,
+                'content_type': template.content_type,
+                'created_at': template.created_at,
+                'is_custom': True
+            }
+            result.append(template_dict)
+        
+        # 기본 템플릿 중 사용자가 커스텀하지 않은 것들 추가
+        for template in default_templates:
+            template_key = (template.template_type, template.channel_type)
+            if template_key not in user_template_types:
+                template_dict = {
+                    'template_id': template.template_id,
+                    'user_id': template.user_id,
+                    'template_type': template.template_type,
+                    'channel_type': template.channel_type,
+                    'title': template.title,
+                    'content': template.content,
+                    'content_type': template.content_type,
+                    'created_at': template.created_at,
+                    'is_custom': False
+                }
+                result.append(template_dict)
+        
+        logger.info(f"사용자 {user_id} 템플릿 조회: {len(result)}개")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[get_user_templates_with_defaults 오류] {e}", exc_info=True)
+        return []
+
+def copy_default_template_to_user(db: Session, user_id: int, base_template_id: int) -> dict:
+    """기본 템플릿을 사용자 커스텀 템플릿으로 복사"""
+    try:
+        # 기본 템플릿 조회
+        base_template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == base_template_id,
+            db_models.TemplateMessage.user_id == 3  # 기본 템플릿만
+        ).first()
+        
+        if not base_template:
+            logger.error(f"기본 템플릿 {base_template_id} 를 찾을 수 없습니다")
+            return None
+        
+        # 새 커스텀 템플릿 생성
+        new_template = db_models.TemplateMessage(
+            user_id=user_id,
+            template_type=base_template.template_type,
+            channel_type=base_template.channel_type,
+            title=f"{base_template.title}_custom",
+            content=base_template.content,
+            content_type=base_template.content_type
+        )
+        
+        db.add(new_template)
+        db.commit()
+        db.refresh(new_template)
+        
+        logger.info(f"템플릿 복사 완료: {base_template_id} -> {new_template.template_id}")
+        
+        return {
+            'template_id': new_template.template_id,
+            'user_id': new_template.user_id,
+            'template_type': new_template.template_type,
+            'channel_type': new_template.channel_type,
+            'title': new_template.title,
+            'content': new_template.content,
+            'content_type': new_template.content_type,
+            'created_at': new_template.created_at,
+            'is_custom': True
+        }
+        
+    except Exception as e:
+        logger.error(f"[copy_default_template_to_user 오류] {e}", exc_info=True)
+        db.rollback()
+        return None
+
+def get_template_with_ownership_check(db: Session, template_id: int, user_id: int) -> dict:
+    """템플릿 조회 (소유권 확인 포함)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            (db_models.TemplateMessage.user_id == user_id) | 
+            (db_models.TemplateMessage.user_id == 3)  # 기본 템플릿도 접근 가능
+        ).first()
+        
+        if not template:
+            return None
+        
+        return {
+            'template_id': template.template_id,
+            'user_id': template.user_id,
+            'template_type': template.template_type,
+            'channel_type': template.channel_type,
+            'title': template.title,
+            'content': template.content,
+            'content_type': template.content_type,
+            'created_at': template.created_at,
+            'is_custom': template.user_id != 3
+        }
+        
+    except Exception as e:
+        logger.error(f"[get_template_with_ownership_check 오류] {e}", exc_info=True)
+        return None
+
+def update_user_template(db: Session, template_id: int, user_id: int, **kwargs) -> bool:
+    """사용자 템플릿 업데이트 (소유권 확인)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            db_models.TemplateMessage.user_id == user_id  # 사용자 소유 템플릿만 수정 가능
+        ).first()
+        
+        if not template:
+            logger.warning(f"템플릿 {template_id} 업데이트 실패: 소유권 없음 (user_id: {user_id})")
+            return False
+        
+        # 유효한 필드만 업데이트
+        valid_fields = ['template_type', 'channel_type', 'title', 'content', 'content_type']
+        updated = False
+        
+        for field, value in kwargs.items():
+            if field in valid_fields and value is not None:
+                setattr(template, field, value)
+                updated = True
+        
+        if updated:
+            db.commit()
+            logger.info(f"템플릿 {template_id} 업데이트 완료")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"[update_user_template 오류] {e}", exc_info=True)
+        db.rollback()
+        return False
+
+def delete_user_template(db: Session, template_id: int, user_id: int) -> bool:
+    """사용자 템플릿 삭제 (기본 템플릿 삭제 방지)"""
+    try:
+        template = db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.template_id == template_id,
+            db_models.TemplateMessage.user_id == user_id,
+            db_models.TemplateMessage.user_id != 3  # 기본 템플릿 삭제 방지
+        ).first()
+        
+        if not template:
+            logger.warning(f"템플릿 {template_id} 삭제 실패: 소유권 없음 또는 기본 템플릿")
+            return False
+        
+        db.delete(template)
+        db.commit()
+        logger.info(f"템플릿 {template_id} 삭제 완료")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[delete_user_template 오류] {e}", exc_info=True)
+        db.rollback()
+        return False

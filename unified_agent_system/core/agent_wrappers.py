@@ -12,7 +12,83 @@ from abc import ABC, abstractmethod
 from .models import AgentType, AgentResponse, UnifiedRequest
 from .config import get_system_config
 
+from shared_modules.database import get_connection
+import shared_modules.queries as queries
+
 logger = logging.getLogger(__name__)
+
+def extract_template_keyword(text: str) -> str:
+    """기존 키워드 매핑 함수 (그대로 사용)"""
+    text_lower = text.lower()
+    mapping = {
+        "생일": "생일/기념일", 
+        "기념일": "생일/기념일",
+        "축하": "생일/기념일",
+        "리뷰": "리뷰 요청", 
+        "후기": "리뷰 요청",
+        "평가": "리뷰 요청",
+        "예약": "예약",
+        "설문": "설문 요청",
+        "감사": "구매 후 안내", 
+        "출고": "구매 후 안내", 
+        "배송": "구매 후 안내",
+        "발송": "구매 후 안내",
+        "재구매": "재구매 유도", 
+        "재방문": "재방문",
+        "다시": "재구매 유도",
+        "VIP": "고객 맞춤 메시지", 
+        "맞춤": "고객 맞춤 메시지",
+        "특별": "고객 맞춤 메시지",
+        "이벤트": "이벤트 안내", 
+        "할인": "이벤트 안내", 
+        "프로모션": "이벤트 안내",
+        "세일": "이벤트 안내"
+    }
+    
+    for keyword, category in mapping.items():
+        if keyword in text_lower:
+            return category
+    return None
+
+async def auto_save_templates_for_user(user_id: int, keyword_category: str) -> list:
+    """키워드 카테고리에 맞는 템플릿을 자동 저장"""
+    try:
+        with get_connection() as db:
+            # 해당 카테고리의 기본 템플릿들 조회 (user_id=3)
+            default_templates = queries.get_templates_by_type(keyword_category)
+            saved_templates = []
+            
+            for template in default_templates[:2]:  # 최대 2개만 자동 저장
+                # 이미 사용자가 저장한 템플릿인지 확인
+                existing = queries.get_templates_by_user(
+                    db, user_id, 
+                    template_type=template['template_type'],
+                    channel_type=template['channel_type']
+                )
+                
+                if not existing:  # 중복이 아니면 저장
+                    new_template = queries.create_template_message(
+                        db=db,
+                        user_id=user_id,
+                        template_type=template['template_type'],
+                        channel_type=template['channel_type'],
+                        title=f"{template['title']} (AI 추천)",
+                        content=template['content'],
+                        content_type=template.get('content_type')
+                    )
+                    
+                    if new_template:
+                        saved_templates.append({
+                            'title': new_template.title,
+                            'template_type': new_template.template_type
+                        })
+                        logger.info(f"✅ 자동 저장: {new_template.title} (user: {user_id})")
+            
+            return saved_templates
+            
+    except Exception as e:
+        logger.error(f"❌ 템플릿 자동 저장 실패: {e}")
+        return []
 
 
 class BaseAgentWrapper(ABC):
@@ -118,6 +194,16 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 🆕 키워드 감지 및 자동 저장
+            keyword_category = extract_template_keyword(request.message)
+            saved_templates = []
+            
+            # 고객 서비스 관련 키워드만 처리
+            cs_keywords = ["리뷰 요청", "구매 후 안내", "예약", "설문 요청", "고객 맞춤 메시지"]
+            if keyword_category and keyword_category in cs_keywords:
+                logger.info(f"🔍 CS 키워드 감지: {keyword_category} (user: {request.user_id})")
+                saved_templates = await auto_save_templates_for_user(request.user_id, keyword_category)
+            
             # 고객 서비스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
@@ -127,17 +213,29 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
             }
             
             result = await self._make_request(payload)
-            
             processing_time = time.time() - start_time
+            
+            # 🆕 응답에 자동 저장 정보 추가
+            response_text = result.get("answer", "응답을 받지 못했습니다.")
+            
+            if saved_templates:
+                template_info = "\n\n💾 **관련 템플릿 저장됨**:\n"
+                for template in saved_templates:
+                    template_info += f"• {template['title']}\n"
+                template_info += "\n📋 마이페이지에서 확인하고 수정하세요!"
+                response_text += template_info
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=response_text,  # ✅ 수정된 응답 사용
                 confidence=0.85,
                 sources="",  # 고객 서비스 에이전트는 sources를 따로 반환하지 않음
                 metadata={
                     "topics": result.get("topics", []),
-                    "history": result.get("history", [])
+                    "history": result.get("history", []),
+                    # 🆕 자동 저장 정보 추가
+                    "auto_saved_templates": saved_templates,
+                    "keyword_category": keyword_category
                 },
                 processing_time=processing_time
             )
@@ -162,6 +260,14 @@ class MarketingAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 🆕 키워드 감지 및 자동 저장
+            keyword_category = extract_template_keyword(request.message)
+            saved_templates = []
+            
+            if keyword_category:
+                logger.info(f"🔍 키워드 감지: {keyword_category} (user: {request.user_id})")
+                saved_templates = await auto_save_templates_for_user(request.user_id, keyword_category)
+            
             # 마케팅 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
@@ -171,19 +277,31 @@ class MarketingAgentWrapper(BaseAgentWrapper):
             }
             
             result = await self._make_request(payload)
-            
             processing_time = time.time() - start_time
+
+            # 🆕 응답에 자동 저장 정보 추가
+            response_text = result.get("answer", "응답을 받지 못했습니다.")
+            
+            if saved_templates:
+                template_info = "\n\n💾 **템플릿 자동 저장 완료**:\n"
+                for template in saved_templates:
+                    template_info += f"• {template['title']}\n"
+                template_info += "\n📋 마이페이지 > 내 템플릿에서 확인하고 수정하세요!"
+                response_text += template_info
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=response_text,  # ✅ 수정된 응답 텍스트 사용
                 confidence=0.85,
                 sources=result.get("sources", ""),
                 metadata={
                     "topics": result.get("topics", []),
                     "conversation_id": result.get("conversation_id"),
                     "templates": result.get("templates", []),
-                    "debug_info": result.get("debug_info", {})
+                    "debug_info": result.get("debug_info", {}),
+                    # 🆕 자동 저장 정보 추가
+                    "auto_saved_templates": saved_templates,
+                    "keyword_category": keyword_category
                 },
                 processing_time=processing_time
             )
@@ -254,6 +372,16 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 🆕 키워드 감지 및 자동 저장
+            keyword_category = extract_template_keyword(request.message)
+            saved_templates = []
+            
+            # 업무 자동화 관련 키워드만 처리
+            automation_keywords = ["예약", "발송", "출고", "배송", "재구매 유도", "이벤트 안내"]
+            if keyword_category and keyword_category in automation_keywords:
+                logger.info(f"🔍 자동화 키워드 감지: {keyword_category} (user: {request.user_id})")
+                saved_templates = await auto_save_templates_for_user(request.user_id, keyword_category)
+            
             # 업무 자동화 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
@@ -263,12 +391,21 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
             }
             
             result = await self._make_request(payload)
-            
             processing_time = time.time() - start_time
+            
+            # 🆕 응답에 자동 저장 정보 추가
+            response_text = result.get("response", "응답을 받지 못했습니다.")
+            
+            if saved_templates:
+                template_info = "\n\n💾 **자동화 템플릿 저장됨**:\n"
+                for template in saved_templates:
+                    template_info += f"• {template['title']}\n"
+                template_info += "\n📋 마이페이지에서 확인하고 자동화에 활용하세요!"
+                response_text += template_info
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("response", "응답을 받지 못했습니다."),
+                response=response_text,  # ✅ 수정된 응답 사용
                 confidence=0.85,
                 sources="",
                 metadata={
@@ -276,7 +413,10 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
                     "intent": result.get("intent", "general_inquiry"),
                     "urgency": result.get("urgency", "medium"),
                     "actions": result.get("actions", []),
-                    "automation_created": result.get("automation_created", False)
+                    "automation_created": result.get("automation_created", False),
+                    # 🆕 자동 저장 정보 추가
+                    "auto_saved_templates": saved_templates,
+                    "keyword_category": keyword_category
                 },
                 processing_time=processing_time
             )

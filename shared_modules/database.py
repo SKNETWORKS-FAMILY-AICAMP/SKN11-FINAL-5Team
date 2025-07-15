@@ -11,6 +11,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
+
+
 
 from shared_modules.env_config import get_config
 
@@ -280,3 +285,4 @@ engine, SessionLocal = get_engine_and_session()
 
 # 기존 코드와의 호환성을 위한 함수 별칭
 get_session = get_db_session  # get_session -> get_db_session 별칭
+get_connection = get_session_context  # ✅ 기존 코드 호환성

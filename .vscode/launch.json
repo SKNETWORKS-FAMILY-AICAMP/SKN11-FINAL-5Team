@@ -1,99 +1,103 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "🧠 Unified Agent System",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "main",
-        "cwd": "${workspaceFolder}/unified_agent_system",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-      {
-        "name": "💼 Business Planning Agent (8001)",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "business_planning:app",
-          "--host", "0.0.0.0",
-          "--port", "8001"
-        ],
-        "cwd": "${workspaceFolder}/buisness_planning_agent",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-      {
-        "name": "🤝 Customer Service Agent (8002)",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "main:app",
-          "--host", "0.0.0.0",
-          "--port", "8002"
-        ],
-        "cwd": "${workspaceFolder}/customer_service_agent",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-      {
-        "name": "📢 Marketing Agent (8003)",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "rag:app",
-          "--host", "0.0.0.0",
-          "--port", "8003"
-        ],
-        "cwd": "${workspaceFolder}/marketing_agent",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-      {
-        "name": "🧠 Mental Agent (8004)",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "main:app",
-          "--host", "0.0.0.0",
-          "--port", "8004"
-        ],
-        "cwd": "${workspaceFolder}/mental_agent",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-      {
-        "name": "⚡ Task Automation Agent (8005)",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "main:app",
-          "--host", "0.0.0.0",
-          "--port", "8005"
-        ],
-        "cwd": "${workspaceFolder}/task_agent",
-        "envFile": "${workspaceFolder}/unified_agent_system/.env",
-        "justMyCode": false
-      },
-    ],
-    "compounds": [
-        {
-          "name": "🚀 모든 에이전트 디버깅",
-          "configurations": [
-            "🧠 Unified Agent System",
-            "💼 Business Planning Agent (8001)",
-            "🤝 Customer Service Agent (8002)",
-            "📢 Marketing Agent (8003)",
-            "🧠 Mental Agent (8004)",
-            "⚡ Task Automation Agent (8005)"
-          ],
-          "stopAll": true
-        }
-    ]
-  }
-  
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🧠 Unified Agent System",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "main",
+      "cwd": "${workspaceFolder}/unified_agent_system",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "💼 Business Planning Agent (8001)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "business_planning:app",
+        "--host", "0.0.0.0",
+        "--port", "8001",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/buisness_planning_agent",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "🤝 Customer Service Agent (8002)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8002",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/customer_service_agent",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "📢 Marketing Agent (8003)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "rag:app",
+        "--host", "0.0.0.0",
+        "--port", "8003",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/marketing_agent",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "🧠 Mental Agent (8004)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8004",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/mental_agent",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "⚡ Task Automation Agent (8005)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8005",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/task_agent",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🚀 모든 에이전트 디버깅",
+      "configurations": [
+        "🧠 Unified Agent System",
+        "💼 Business Planning Agent (8001)",
+        "🤝 Customer Service Agent (8002)",
+        "📢 Marketing Agent (8003)",
+        "🧠 Mental Agent (8004)",
+        "⚡ Task Automation Agent (8005)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

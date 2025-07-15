@@ -9,9 +9,23 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from fastapi import APIRouter, HTTPException, Depends, status
+from sqlalchemy.orm import Session
 
 from .models import AgentType, RoutingDecision, Priority, UnifiedRequest
 from .config import OPENAI_API_KEY, GEMINI_API_KEY, get_system_config
+import sys
+import os
+
+# 공통 모듈 경로 추가
+# sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+# 템플릿 관련 imports 추가
+from shared_modules.database import DatabaseManager
+import shared_modules.queries
+from .models import (
+    TemplateCreate, TemplateUpdate, TemplateResponse, 
+    TemplateListResponse, TemplateOperationResponse
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,3 +287,238 @@ REASONING: 창업 관련 질문으로 비즈니스 플래닝 에이전트가 적
         # 신뢰도순 정렬
         recommendations.sort(key=lambda x: x['confidence'], reverse=True)
         return recommendations[:top_k]
+    
+# FastAPI 라우터 생성
+template_router = APIRouter(prefix="/templates", tags=["templates"])
+
+# 데이터베이스 의존성
+def get_db():
+    """데이터베이스 세션 의존성"""
+    db_manager = DatabaseManager()
+    db = db_manager.get_session()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def get_current_user_id(db: Session = Depends(get_db)) -> int:
+    """현재 사용자 ID 반환 (실제 구현에서는 JWT 토큰에서 추출)"""
+    # TODO: JWT 토큰 파싱 로직으로 교체 필요
+    # 임시로 테스트용 user_id 반환
+    return 1
+
+@template_router.get("/", response_model=TemplateListResponse)
+async def get_user_templates(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """사용자 템플릿 목록 조회 (기본 + 커스텀)"""
+    try:
+        logger.info(f"사용자 {user_id} 템플릿 목록 조회 시작")
+        
+        templates_data = queries.get_user_templates_with_defaults(db, user_id)
+        
+        templates = []
+        for template_data in templates_data:
+            template = TemplateResponse(
+                template_id=template_data["template_id"],
+                user_id=template_data["user_id"],
+                title=template_data["title"],
+                content=template_data["content"],
+                template_type=template_data["template_type"],
+                channel_type=template_data["channel_type"],
+                content_type=template_data.get("content_type"),
+                created_at=template_data["created_at"],
+                is_custom=template_data["is_custom"]
+            )
+            templates.append(template)
+        
+        logger.info(f"사용자 {user_id} 템플릿 {len(templates)}개 조회 완료")
+        
+        return TemplateListResponse(
+            templates=templates,
+            total_count=len(templates)
+        )
+        
+    except Exception as e:
+        logger.error(f"템플릿 목록 조회 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="템플릿 목록을 불러오는데 실패했습니다."
+        )
+
+@template_router.put("/{template_id}", response_model=TemplateOperationResponse)
+async def update_template(
+    template_id: int,
+    template_update: TemplateUpdate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """템플릿 수정"""
+    try:
+        logger.info(f"사용자 {user_id} 템플릿 {template_id} 수정 시작")
+        
+        # 1. 기존 템플릿 조회
+        existing_template = queries.get_template_with_ownership_check(db, template_id, user_id)
+        if not existing_template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="템플릿을 찾을 수 없습니다."
+            )
+        
+        # 2. 기본 템플릿 수정 시 커스텀 템플릿 생성
+        if not existing_template["is_custom"]:  # 기본 템플릿인 경우
+            logger.info(f"기본 템플릿 {template_id} 를 커스텀 템플릿으로 복사")
+            copied_template = queries.copy_default_template_to_user(db, user_id, template_id)
+            
+            if not copied_template:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="커스텀 템플릿 생성에 실패했습니다."
+                )
+            
+            template_id = copied_template["template_id"]
+        
+        # 3. 템플릿 업데이트
+        update_data = {k: v for k, v in template_update.dict().items() if v is not None}
+        if update_data:
+            success = queries.update_user_template(db, template_id, user_id, **update_data)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="템플릿 수정에 실패했습니다."
+                )
+        
+        # 4. 수정된 템플릿 조회
+        updated_template_data = queries.get_template_with_ownership_check(db, template_id, user_id)
+        updated_template = TemplateResponse(**updated_template_data)
+        
+        return TemplateOperationResponse(
+            success=True,
+            message="템플릿이 성공적으로 수정되었습니다.",
+            template=updated_template
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"템플릿 수정 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="템플릿 수정에 실패했습니다."
+        )
+
+@template_router.post("/", response_model=TemplateOperationResponse)
+async def create_template(
+    template: TemplateCreate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """새 커스텀 템플릿 생성"""
+    try:
+        logger.info(f"사용자 {user_id} 새 템플릿 생성: {template.title}")
+        
+        template_obj = queries.create_template_message(
+            db=db,
+            user_id=user_id,
+            template_type=template.template_type,
+            channel_type=template.channel_type,
+            title=template.title,
+            content=template.content,
+            content_type=template.content_type
+        )
+        
+        if not template_obj:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="템플릿 생성에 실패했습니다."
+            )
+        
+        created_template = TemplateResponse(
+            template_id=template_obj.template_id,
+            user_id=template_obj.user_id,
+            title=template_obj.title,
+            content=template_obj.content,
+            template_type=template_obj.template_type,
+            channel_type=template_obj.channel_type,
+            content_type=template_obj.content_type,
+            created_at=template_obj.created_at,
+            is_custom=True
+        )
+        
+        return TemplateOperationResponse(
+            success=True,
+            message="템플릿이 성공적으로 생성되었습니다.",
+            template=created_template
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"템플릿 생성 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="템플릿 생성에 실패했습니다."
+        )
+
+@template_router.delete("/{template_id}", response_model=TemplateOperationResponse)
+async def delete_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """커스텀 템플릿 삭제"""
+    try:
+        logger.info(f"사용자 {user_id} 템플릿 {template_id} 삭제 시작")
+        
+        template_data = queries.get_template_with_ownership_check(db, template_id, user_id)
+        if not template_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="템플릿을 찾을 수 없습니다."
+            )
+        
+        if not template_data["is_custom"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="기본 템플릿은 삭제할 수 없습니다."
+            )
+        
+        success = queries.delete_user_template(db, template_id, user_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="템플릿 삭제에 실패했습니다."
+            )
+        
+        return TemplateOperationResponse(
+            success=True,
+            message="템플릿이 성공적으로 삭제되었습니다."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"템플릿 삭제 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="템플릿 삭제에 실패했습니다."
+        )
+
+# ==================== 메인 라우터 생성 ====================
+
+def create_api_router():
+    """모든 라우터를 포함하는 메인 API 라우터 생성"""
+    main_router = APIRouter()
+    
+    # 템플릿 라우터 등록
+    main_router.include_router(template_router)
+    
+    # 다른 라우터들도 여기에 추가
+    # main_router.include_router(user_router)
+    # main_router.include_router(chat_router)
+    
+    return main_router
+
+# main.py에서 사용할 라우터
+api_router = create_api_router()
