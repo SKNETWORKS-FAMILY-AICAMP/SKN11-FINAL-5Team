@@ -97,7 +97,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # 서버 설정  
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8080"))
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
 
 # 로깅 설정

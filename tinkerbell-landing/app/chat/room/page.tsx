@@ -26,14 +26,14 @@ import {
 // 에이전트 포트 매핑
 const getAgentPort = (agent: string) => {
   const portMap: { [key: string]: number } = {
-    unified_agent: 8000,
+    unified_agent: 8080,
     planner: 8001,
     marketing: 8002,
     crm: 8003,
     task: 8004,
     mentalcare: 8005,
   }
-  return portMap[agent] || 8000
+  return portMap[agent] || 8080
 }
 
 // 에이전트 아이콘 매핑

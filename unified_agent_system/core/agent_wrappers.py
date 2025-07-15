@@ -74,7 +74,10 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
         try:
             # 비즈니스 플래닝 에이전트 API 형식에 맞게 변환
             payload = {
-                "question": request.message
+                "user_id": request.user_id,
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -83,7 +86,7 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=result.get("response", "응답을 받지 못했습니다."),  # answer를 response로 변경
                 confidence=0.85,  # 기본값
                 sources=result.get("sources", ""),
                 metadata={
@@ -118,9 +121,9 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
             # 고객 서비스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "conversation_id": request.conversation_id or 1,
-                "question": request.message,
-                "history": request.history
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -162,8 +165,9 @@ class MarketingAgentWrapper(BaseAgentWrapper):
             # 마케팅 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "question": request.message,
-                "conversation_id": request.conversation_id
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -207,8 +211,9 @@ class MentalHealthAgentWrapper(BaseAgentWrapper):
             # 멘탈 헬스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "conversation_id": request.conversation_id or 1,
-                "message": request.message
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -251,10 +256,10 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
         try:
             # 업무 자동화 에이전트 API 형식에 맞게 변환
             payload = {
-                "user_id": str(request.user_id),
+                "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "entrepreneur"  # 기본 페르소나
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)

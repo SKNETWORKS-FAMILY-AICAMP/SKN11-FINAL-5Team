@@ -7,9 +7,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState, useEffect } from "react"
 import { Search, Menu, Target, TrendingUp, Users, Zap, Heart, User } from "lucide-react"
+import { agentApi } from "@/app/api/agent"
 
 const agents = [
   {
@@ -42,22 +43,93 @@ const agents = [
 
 export default function ChatMainPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [input, setInput] = useState("")
+  const [user, setUser] = useState<any>(null)
 
-  const handleSearch = (e: React.FormEvent) => {
+  // OAuth 콜백 후 사용자 정보 처리
+  useEffect(() => {
+    const userId = searchParams.get('user_id')
+    const provider = searchParams.get('provider')
+    const email = searchParams.get('email')
+    const username = searchParams.get('username')
+    const error = searchParams.get('error')
+
+    if (error) {
+      alert('로그인에 실패했습니다. 다시 시도해주세요.')
+      router.push('/login')
+      return
+    }
+
+    if (userId && provider) {
+      const userData = {
+        user_id: parseInt(userId),
+        provider,
+        email: email || '',
+        username: username || ''
+      }
+      
+      // localStorage에 사용자 정보 저장
+      localStorage.setItem('user', JSON.stringify(userData))
+      setUser(userData)
+      
+      console.log('로그인 성공:', userData)
+      
+      // URL에서 쇼리 파라미터 제거 (보안)
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, document.title, newUrl)
+    } else {
+      // 기존 localStorage에서 사용자 정보 로드
+      const savedUser = localStorage.getItem('user')
+      if (savedUser) {
+        try {
+          setUser(JSON.parse(savedUser))
+        } catch (e) {
+          console.error('사용자 정보 파싱 오류:', e)
+          localStorage.removeItem('user')
+        }
+      }
+    }
+  }, [searchParams, router])
+
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     const encoded = encodeURIComponent(input.trim())
     if (encoded) {
-      router.push(`/chat/room?agent=unified_agent&question=${encoded}`)
+      try {
+        const result = await agentApi.createConversation(user?.user_id || 3)
+        if (result.success) {
+          router.push(`/chat/room?agent=unified_agent&question=${encoded}`)
+        }
+      } catch (error) {
+        console.error("대화 세션 생성 실패:", error)
+        alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+      }
     }
   }
 
-  const handleAgentClick = (agentId: string) => {
-    router.push(`/chat/room?agent=${agentId}`)
+  const handleAgentClick = async (agentId: string) => {
+    try {
+      const result = await agentApi.createConversation(user?.user_id || 3)
+      if (result.success) {
+        router.push(`/chat/room?agent=${agentId}`)
+      }
+    } catch (error) {
+      console.error("대화 세션 생성 실패:", error)
+      alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+    }
   }
 
-  const handleQuickStart = () => {
-    router.push(`/chat/room?agent=unified_agent`)
+  const handleQuickStart = async () => {
+    try {
+      const result = await agentApi.createConversation(user?.user_id || 3)
+      if (result.success) {
+        router.push(`/chat/room?agent=unified_agent`)
+      }
+    } catch (error) {
+      console.error("대화 세션 생성 실패:", error)
+      alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+    }
   }
 
   return (
@@ -75,13 +147,39 @@ export default function ChatMainPage() {
             />
             <span className="text-xl font-bold text-gray-900">TinkerBell</span>
           </Link>
+          
+          {/* 사용자 정보 또는 로그인 링크 */}
           <div className="flex items-center space-x-4">
-            <Link href="/mypage" className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-              <User className="h-4 w-4 text-green-600" />
-            </Link>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Menu className="w-5 h-5 text-gray-700" />
-            </button>
+            {user ? (
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <User className="w-4 h-4 text-green-600" />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {user.username || user.email || '사용자'}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    localStorage.removeItem('user')
+                    setUser(null)
+                    router.push('/login')
+                  }}
+                  className="text-sm"
+                >
+                  로그아웃
+                </Button>
+              </div>
+            ) : (
+              <Link href="/login">
+                <Button variant="outline" size="sm" className="text-sm">
+                  로그인
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </nav>
@@ -170,10 +268,18 @@ export default function ChatMainPage() {
                 key={index}
                 variant="outline"
                 className="h-auto p-4 text-left justify-start bg-white hover:bg-green-50 border-gray-200 hover:border-green-300 transition-all"
-                onClick={() => {
-                  setInput(example)
-                  const encoded = encodeURIComponent(example)
-                  router.push(`/chat/room?agent=unified_agent&question=${encoded}`)
+                onClick={async () => {
+                  try {
+                    const result = await agentApi.createConversation(user?.user_id || 3)
+                    if (result.success) {
+                      setInput(example)
+                      const encoded = encodeURIComponent(example)
+                      router.push(`/chat/room?agent=unified_agent&question=${encoded}`)
+                    }
+                  } catch (error) {
+                    console.error("대화 세션 생성 실패:", error)
+                    alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+                  }
                 }}
               >
                 <span className="text-gray-700 text-sm leading-relaxed">"{example}"</span>

@@ -17,7 +17,7 @@ from typing import Dict, Any, List
 from models import UserQuery, AutomationRequest
 from utils import TaskAgentLogger, TaskAgentResponseFormatter
 from agent import TaskAgent
-import config
+from config import config
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

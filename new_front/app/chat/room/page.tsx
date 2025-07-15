@@ -18,6 +18,17 @@ interface Message {
   text: string
 }
 
+interface ConversationMessage {
+  role: "user" | "agent"
+  content: string
+}
+
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: string
+}
+
 interface FeedbackModalProps {
   rating: number
   setRating: (rating: number) => void
@@ -49,7 +60,9 @@ function FeedbackModal({
             <span
               key={num}
               onClick={() => setRating(num)}
-              className={`cursor-pointer text-2xl ${rating >= num ? "text-yellow-400" : "text-gray-300"}`}
+              className={`cursor-pointer text-2xl transition-colors duration-200 ${rating >= num ? "text-yellow-400" : "text-gray-300"} hover:text-yellow-300`}
+              onMouseEnter={() => setRating(num)}
+              onMouseLeave={() => setRating(rating)}
             >
               ★
             </span>
@@ -257,31 +270,40 @@ export default function ChatRoomPage() {
 
   // 초기 설정
   useEffect(() => {
-    startNewConversation(agent)
-    if (initialQuestion) {
-      setUserInput(initialQuestion)
-      setTimeout(() => {
-        const form = document.querySelector("form")
-        if (form) {
-          form.dispatchEvent(new Event("submit", { bubbles: true }))
+    const initializeChat = async () => {
+      try {
+        await startNewConversation(agent)
+        if (initialQuestion) {
+          setUserInput(initialQuestion)
+          setTimeout(() => {
+            const form = document.querySelector("form")
+            if (form) {
+              form.dispatchEvent(new Event("submit", { bubbles: true }))
+            }
+          }, 100)
         }
-      }, 100)
+      } catch (error) {
+        console.error("초기화 실패:", error)
+        alert("채팅 초기화에 실패했습니다. 페이지를 새로고침해주세요.")
+      }
     }
-  }, [])
+    initializeChat()
+  }, [agent, initialQuestion])
 
   const loadPreviousChat = async (chatId: number) => {
     try {
       const result = await agentApi.getConversationMessages(chatId)
-      if (result.status === "success" && result.data.messages) {
-        setMessages(
-          result.data.messages.map((msg) => ({
-            sender: msg.role === "user" ? "user" : "agent",
-            text: msg.content,
-          }))
-        )
-        setConversationId(chatId)
-        setCurrentChatId(chatId)
+      if (!result.success || !result.data?.messages) {
+        throw new Error(result.error || "메시지를 불러올 수 없습니다")
       }
+      setMessages(
+        result.data.messages.map((msg: ConversationMessage) => ({
+          sender: msg.role === "user" ? "user" : "agent",
+          text: msg.content,
+        }))
+      )
+      setConversationId(chatId)
+      setCurrentChatId(chatId)
     } catch (error) {
       console.error("이전 채팅 로드 실패:", error)
     }
@@ -290,20 +312,47 @@ export default function ChatRoomPage() {
   const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
     try {
       const result = await agentApi.createConversation(userId)
-      if (result.status === "success") {
-        setConversationId(result.data.conversation_id)
-        setMessages([])
-        setUserInput("")
-        setAgentType(newAgent)
+      if (!result.success) {
+        throw new Error(result.error || "대화 세션 생성에 실패했습니다")
       }
+      if (!result.data?.conversationId) {
+        throw new Error("대화 세션 ID를 받지 못했습니다")
+      }
+      setConversationId(result.data.conversationId)
+      setMessages([])
+      setUserInput("")
+      setAgentType(newAgent)
+      setCurrentChatId(null)
     } catch (error) {
       console.error("대화 세션 생성 실패:", error)
+      throw error
     }
   }
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userInput.trim() || !conversationId) return
+    if (!userInput.trim()) return
+    
+    let currentConversationId = conversationId
+    if (!currentConversationId) {
+      try {
+        const result = await agentApi.createConversation(userId)
+        if (!result.success) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        currentConversationId = result.data?.conversationId || null
+        if (!currentConversationId) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        setConversationId(currentConversationId)
+      } catch (error) {
+        console.error("대화 세션 생성 실패:", error)
+        alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+        return
+      }
+    }
 
     const currentInput = userInput
     setUserInput("")
@@ -313,31 +362,31 @@ export default function ChatRoomPage() {
     }
 
     const userMessage: Message = { sender: "user", text: currentInput }
-    setMessages((prev) => [...prev, userMessage])
+    setMessages((prev: Message[]) => [...prev, userMessage])
 
     try {
-      const result = await agentApi.sendQuery(userId, conversationId, currentInput, agentType)
-
-      if (result.success && result.data) {
-        const agentMessage: Message = {
-          sender: "agent",
-          text: result.data.answer,
-        }
-        setMessages((prev) => [...prev, agentMessage])
-      } else {
-        const agentMessage: Message = {
-          sender: "agent",
-          text: "죄송합니다. 답변을 가져오지 못했어요.",
-        }
-        setMessages((prev) => [...prev, agentMessage])
+      if (!currentConversationId) {
+        throw new Error("대화 세션이 없습니다")
       }
+      
+      const result = await agentApi.sendQuery(userId, currentConversationId, currentInput, agentType)
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "응답을 받지 못했습니다")
+      }
+      
+      const agentMessage: Message = {
+        sender: "agent",
+        text: result.data.answer,
+      }
+        setMessages((prev: Message[]) => [...prev, agentMessage])
     } catch (error) {
       console.error("응답 실패:", error)
       const agentMessage: Message = {
         sender: "agent",
         text: "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
       }
-      setMessages((prev) => [...prev, agentMessage])
+      setMessages((prev: Message[]) => [...prev, agentMessage])
     }
   }
 
@@ -351,22 +400,64 @@ export default function ChatRoomPage() {
     }
   }
 
-  const handleExampleClick = (text: string) => {
+  const handleExampleClick = async (text: string) => {
     setUserInput(text)
-    setTimeout(() => {
-      const form = document.querySelector("form")
-      if (form) {
-        form.dispatchEvent(new Event("submit", { bubbles: true }))
+    let currentConversationId = conversationId
+    if (!currentConversationId) {
+      try {
+        const result = await agentApi.createConversation(userId)
+        if (!result.success) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        currentConversationId = result.data?.conversationId || null
+        if (!currentConversationId) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        setConversationId(currentConversationId)
+      } catch (error) {
+        console.error("대화 세션 생성 실패:", error)
+        alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+        return
       }
-    }, 0)
+    }
+    
+    try {
+      if (!currentConversationId) {
+        throw new Error("대화 세션이 없습니다")
+      }
+
+      const result = await agentApi.sendQuery(userId, currentConversationId, text, agentType)
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "메시지 전송에 실패했습니다")
+      }
+
+      const userMessage: Message = { sender: "user", text }
+      const agentMessage: Message = {
+        sender: "agent",
+        text: result.data.answer,
+      }
+      setMessages((prev: Message[]) => [...prev, userMessage, agentMessage])
+      setUserInput("")
+    } catch (error) {
+      console.error("응답 실패:", error)
+      alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+    }
   }
 
-  const handleSidebarSelect = (type: string) => {
-    if (type === "home") {
-      router.push("/chat")
-    } else {
+  const handleSidebarSelect = async (type: string) => {
+    try {
+      if (type === "home") {
+        router.push("/chat")
+        return
+      }
+      
+      await startNewConversation(type as AgentType)
       router.push(`/chat/room?agent=${type}`)
-      startNewConversation(type as AgentType)
+    } catch (error) {
+      console.error("에이전트 변경 실패:", error)
+      alert("에이전트 변경에 실패했습니다. 다시 시도해주세요.")
     }
   }
 
@@ -375,7 +466,7 @@ export default function ChatRoomPage() {
 
     try {
       const result = await agentApi.sendFeedback(userId, conversationId, rating, comment, category)
-      if (result.status === "success") {
+      if (result.success) {
         alert("피드백이 등록되었습니다!")
       } else {
         alert("피드백 전송에 실패했습니다.")

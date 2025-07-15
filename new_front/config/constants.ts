@@ -1,9 +1,9 @@
 // API 기본 URL 설정
-export const API_BASE_URL = 'http://localhost:8000'
+export const API_BASE_URL = 'http://localhost:8080'
 
 // 에이전트 포트 매핑
 export const AGENT_PORTS = {
-  unified_agent: 8000,
+  unified_agent: 8080,
   planner: 8001,
   marketing: 8002,
   crm: 8003,

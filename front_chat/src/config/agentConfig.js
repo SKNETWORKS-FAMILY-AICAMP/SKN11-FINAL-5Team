@@ -1,5 +1,5 @@
 export const AGENT_PORT_MAP = {
-  unified_agent: 8000,
+  unified_agent: 8080,
   planner: 8001,
   crm: 8002,
   marketing: 8003,
