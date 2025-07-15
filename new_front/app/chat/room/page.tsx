@@ -13,6 +13,20 @@ import { Send, Menu, User } from "lucide-react"
 import { agentApi } from "@/app/api/agent"
 import { AGENT_CONFIG, type AgentType } from "@/config/constants"
 
+
+const getAgentPort = (agent: string): number => {
+  const portMap: { [key: string]: number } = {
+    unified_agent: 8000,
+    planner: 8001,
+    marketing: 8002,
+    crm: 8003,
+    task: 8004,
+    mentalcare: 8005,
+  }
+  return portMap[agent] || 8000
+}
+
+
 interface Message {
   sender: "user" | "agent"
   text: string
@@ -107,7 +121,7 @@ function Sidebar({
   onNewChat: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
-
+  
   const menuItems = [
     {
       icon: "/icons/3D_새채팅.png",
@@ -217,6 +231,7 @@ export default function ChatRoomPage() {
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
 
+  const [agentType, setAgentType] = useState<AgentType>(agent)
   const [userId] = useState(3) // 실제 구현시 로그인 사용자 ID 사용
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -276,7 +291,7 @@ export default function ChatRoomPage() {
   }, [])
 
 
-  // PDF 다운로드 함수
+  // PDF 다운로드 함수 _ original
   async function downloadLeanCanvasPdf() {
     const previewDiv = document.getElementById('lean-canvas-preview');
     if (!previewDiv) {
@@ -574,6 +589,7 @@ export default function ChatRoomPage() {
         />
       )}
     </div>
+  </div>
   )
 }
   

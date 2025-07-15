@@ -14,6 +14,10 @@ import { useState } from "react"
 import { User, LogOut, CreditCard, FileText, HelpCircle, MessageSquare } from "lucide-react"
 import { useReportList } from "@/hooks/useReport"
 import { useMemo } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useEffect } from "react"
+
+
 
 export default function MyPage() {
   const [activeTab, setActiveTab] = useState("profile")
@@ -34,6 +38,72 @@ export default function MyPage() {
 
   const showReports = activeTab === "report"
   const { list: reports = [], loading: reportLoading, error: reportError } = useReportList(reportParams, showReports)
+
+    
+  const [selectedReport, setSelectedReport] = useState<any>(null)
+  const [htmlPreview, setHtmlPreview] = useState<string>("")
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+
+  
+  const openPreview = async (report_id: number) => {
+    try {
+      const res = await fetch(`http://localhost:8001/reports/${report_id}`)
+      const result = await res.json()
+
+      if (res.ok && result.success) {
+        const report = result.data
+        const contentJson = report.content_data || {}
+        const title = report.title
+
+        let finalHtml = ""
+
+        // 템플릿 HTML 가져오기
+        if (title) {
+          const templateRes = await fetch(`http://localhost:8001/lean_canvas/${encodeURIComponent(title)}`)
+          const templateHtml = await templateRes.text()
+
+          finalHtml = templateHtml
+          
+          finalHtml = finalHtml.replace(
+            /<div class="download-section[^"]*">[\s\S]*?<\/div>/g,
+            ""
+          )
+
+          // contentJson 삽입
+          try {
+            const contentObj = typeof contentJson === "string" ? JSON.parse(contentJson) : contentJson
+
+            Object.entries(contentObj).forEach(([key, value]) => {
+              const safeValue = String(value).trim()
+
+              // <textarea name="key"> 치환
+              finalHtml = finalHtml.replace(
+                new RegExp(`(<textarea[^>]*name="${key}"[^>]*>)[\\s\\S]*?(</textarea>)`, "g"),
+                `$1${safeValue}$2`
+              )
+
+              // <div class="preview-textarea"> 치환 (주의: 여러 preview가 있을 경우 다 덮일 수 있음)
+              finalHtml = finalHtml.replace(
+                new RegExp(`(<div[^>]*class="preview-textarea"[^>]*>)[\\s\\S]*?(</div>)`, "g"),
+                `$1${safeValue}$2`
+              )
+            })
+          } catch (err) {
+            console.warn("⚠️ content JSON 파싱 실패", err)
+          }
+        }
+
+        setHtmlPreview(finalHtml || "<p>내용 없음</p>")
+        setSelectedReport(report)
+        setIsPreviewOpen(true)
+      } else {
+        alert("리포트를 불러오지 못했습니다.")
+      }
+    } catch (e) {
+      alert("오류 발생: " + e)
+    }
+  }
+
 
 
   const menuItems = [
@@ -280,6 +350,7 @@ export default function MyPage() {
             )}
 
             {activeTab === "report" && (
+            <>
               <Card className="border-0 shadow-lg bg-white">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -308,25 +379,74 @@ export default function MyPage() {
                           <p className="font-semibold text-gray-800">{report.title}</p>
                           <p className="text-sm text-gray-500">생성일: {new Date(report.created_at).toLocaleDateString()}</p>
                         </div>
-                        {report.file_url ? (
-                          <a
-                            href={`http://localhost:8001${report.file_url}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <div className="flex gap-2">
+                          {report.file_url ? (
+                            <a
+                              href={`http://localhost:8001${report.file_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                            </a>
+                          ) : (
+                            <span className="text-sm text-yellow-600">생성 중...</span>
+                          )}
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openPreview(report.report_id)}
                           >
-                            <Button variant="outline" size="sm">다운로드</Button>
-                          </a>
-                        ) : (
-                          <span className="text-sm text-yellow-600">생성 중...</span>
-                        )}
+                            보기
+                          </Button>
+                        </div>
                       </div>
                     ))}
-
-                    
                   </div>
                 </CardContent>
               </Card>
-            )}
+              
+              <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+                <DialogContent className="max-w-[1400px] w-full h-[80vh] overflow-auto">
+                  <DialogHeader>
+                    <DialogTitle>{selectedReport?.title || "리포트 보기"}</DialogTitle>
+                  </DialogHeader>
+                  <div
+                    dangerouslySetInnerHTML={{ __html: htmlPreview }}
+                    className="prose max-w-none"
+                  />
+                  <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="default"
+                    className="mt-4 bg-green-600 hover:bg-green-700"
+                    onClick={async () => {
+                      const res = await fetch("http://localhost:8001/report/pdf/create", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          html: htmlPreview, // 개인화된 HTML
+                          form_data: selectedReport?.content_data || {}, // 혹시 form_data도 보내려면
+                        }),
+                      })
+
+                      const data = await res.json()
+                      if (res.ok && data.file_id) {
+                        const link = document.createElement("a")
+                        link.href = `http://localhost:8001/report/pdf/download/${data.file_id}`
+                        link.download = `report_${data.file_id}.pdf`
+                        link.click()
+                      } else {
+                        alert("PDF 생성에 실패했습니다.")
+                      }
+                    }}
+                  >
+                    PDF 다운로드
+                  </Button>
+
+                </div>
+                </DialogContent>
+              </Dialog>
+            </>
+            )} 
 
             {activeTab === "support" && (
               <Card className="border-0 shadow-lg bg-white">

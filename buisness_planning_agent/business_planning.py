@@ -29,6 +29,7 @@ from shared_modules import (
     get_recent_messages,
     get_template_by_title,
     get_report_by_id,
+    create_report,
     get_db_dependency,
     get_user_reports,
     insert_message_raw,
@@ -448,10 +449,10 @@ def preview_template(title: str):
     """린캔버스 템플릿 미리보기 - 공통 모듈 활용"""
     try:
         # sanitize_filename으로 안전한 파일명 보장
-        safe_title = sanitize_filename(title)
+        #safe_title = sanitize_filename(title)
         
         # 공통 모듈의 DB 함수로 템플릿 조회
-        template = get_template_by_title(safe_title)
+        template = get_template_by_title(title)
         html = template["content"] if template else "<p>템플릿 없음</p>"
         
         return Response(content=html, media_type="text/html")
@@ -571,14 +572,33 @@ from fastapi.responses import StreamingResponse, JSONResponse
 #     file_id = save_pdf_to_temp(pdf_bytes)
 #     return JSONResponse({"file_id": file_id})
 
+class PdfCreateRequest(BaseModel):
+    html: str
+    form_data: Optional[Dict[str, str]] = None
 
 ## db에 저장하려 하는데 안들어감 
 @app.post("/report/pdf/create")
-async def create_pdf_from_html_api(data: dict = Body(...)):
-    html = data.get("html", "<p>내용 없음</p>")
+async def create_pdf_from_html_api(data: PdfCreateRequest,
+    db: Session = Depends(get_db_dependency),):
+    html = data.html or "<p>내용 없음</p>"
+    form_data = data.form_data or {}
+
     try:
         pdf_bytes = generate_pdf_from_html(html)
         file_id = save_pdf_to_temp(pdf_bytes)
+        file_url = f"/report/pdf/download/{file_id}"  # 상대경로로 저장
+
+        report = create_report(
+            db=db,
+            user_id=1,  # ✅ 실제 로그인 사용자 ID로 교체 필요
+            conversation_id=153,
+            report_type="린캔버스",
+            title="린 캔버스_common",
+            content_data=form_data,  # JSON으로 저장
+            file_url=file_url,
+        )
+        if not report:
+            raise Exception("DB 저장 실패")
         return JSONResponse({"file_id": file_id})
     except Exception as e:
         logger.error(f"PDF 생성 실패: {e}")

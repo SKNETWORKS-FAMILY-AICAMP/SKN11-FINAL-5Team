@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+ <html lang="ko">
+ <head>
+   <meta charset="UTF-8" />
+   <title>Lean Canvas | 3-3-2 구조</title>
+   <style>
+     body {
+       font-family: sans-serif;
+       margin: 40px;
+       background: #046BBF;
+       min-height: 100vh;
+     }
+     .canvas-container {
+       max-width: 1200px;
+       margin: 0 auto;
+       background: #046BBF;
+       border-radius: 20px;
+       padding: 30px;
+     }
+     .canvas-title {
+       text-align: center;
+       padding: 20px;
+       color: white;
+       font-size: 28px;
+       font-weight: bold;
+       margin-bottom: 30px;
+     }
+     .canvas-grid {
+       display: grid;
+       grid-template-rows: 1fr 1fr 1fr;
+       gap: 20px;
+       min-height: 600px;
+       margin-bottom: 30px;
+     }
+     .row-1, .row-2 {
+       display: grid;
+       grid-template-columns: 1fr 1fr 1fr;
+       gap: 20px;
+     }
+     .row-3 {
+       display: grid;
+       grid-template-columns: 1fr 1fr;
+       gap: 20px;
+     }
+     .box {
+       background: #F2CB05;
+       padding: 25px;
+       border-radius: 20px;
+       display: flex;
+       flex-direction: column;
+       box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+     }
+     .box-header {
+       display: flex;
+       align-items: center;
+       margin-bottom: 15px;
+     }
+     .box-number {
+       background: #333;
+       color: white;
+       width: 35px;
+       height: 35px;
+       border-radius: 50%;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       font-weight: bold;
+       margin-right: 15px;
+       font-size: 16px;
+     }
+     .box-title {
+       font-size: 18px;
+       font-weight: bold;
+       color: #333;
+       margin: 0;
+     }
+     .box-subtitle {
+       font-size: 13px;
+       color: #555;
+       margin-top: 3px;
+       line-height: 1.3;
+     }
+     .textarea-wrapper {
+       position: relative;
+     }
+     textarea, .preview-textarea {
+       border: 2px solid #333;
+       border-radius: 12px;
+       padding: 15px;
+       font-size: 14px;
+       line-height: 1.5;
+       min-height: 120px;
+       font-family: inherit;
+       background: rgba(255,255,255,0.9);
+       color: #333;
+       white-space: pre-wrap;
+       width: 90%;
+     }
+     textarea {
+       resize: vertical;
+     }
+     .preview-textarea {
+       display: none;
+     }
+     textarea:focus {
+       outline: none;
+       border-color: #046BBF;
+       box-shadow: 0 0 0 3px rgba(4, 107, 191, 0.2);
+       background: white;
+     }
+     .download-section {
+       display: flex;
+       justify-content: center;
+       margin-top: 20px;
+     }
+     .download-button {
+       padding: 18px 40px;
+       background: #F22233;
+       color: white;
+       border: none;
+       border-radius: 20px;
+       font-size: 18px;
+       font-weight: bold;
+       cursor: pointer;
+       transition: all 0.3s;
+       box-shadow: 0 6px 20px rgba(242, 34, 51, 0.3);
+     }
+     .download-button:hover {
+       background: #d01e2b;
+       transform: translateY(-3px);
+       box-shadow: 0 8px 25px rgba(242, 34, 51, 0.4);
+     }
+   </style>
+ </head>
+ <body>
+ 
+ <div class="canvas-container" id="capture-area">
+   <h1 class="canvas-title">Lean Canvas - 1인 네일샵 사업 모델</h1>
+   <form id="leanCanvasForm">
+     <div class="canvas-grid">
+       <div class="row-1">
+         <!-- 1. 문제 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">1</div>
+             <div>
+               <div class="box-title">문제 Problem</div>
+               <div class="box-subtitle">가장 중요한 문제 3가지 대안</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="problem">
+• 대형 업체와의 경쟁에서 개인화가 어려움
+• 고객과의 신뢰 구축에 시간 소요
+• 제한된 자원으로 마케팅/운영 부담</textarea>
+             <div class="preview-textarea">
+• 대형 업체와의 경쟁에서 개인화가 어려움
+• 고객과의 신뢰 구축에 시간 소요
+• 제한된 자원으로 마케팅/운영 부담</div>
+           </div>
+         </div>
+ 
+         <!-- 2. 솔루션 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">2</div>
+             <div>
+               <div class="box-title">아이디어 Solution</div>
+               <div class="box-subtitle">문제 해결을 위한 3가지 대안</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="solution">
+• 1:1 맞춤 서비스 제공
+• 개인 브랜드 및 스토리텔링 강화
+• 자동화 도구/디지털 툴로 운영 효율화</textarea>
+             <div class="preview-textarea">
+• 1:1 맞춤 서비스 제공
+• 개인 브랜드 및 스토리텔링 강화
+• 자동화 도구/디지털 툴로 운영 효율화</div>
+           </div>
+         </div>
+ 
+         <!-- 3. 가치 제안 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">3</div>
+             <div>
+               <div class="box-title">가치 Unique Value Proposition</div>
+               <div class="box-subtitle">차별성을 설명하는 메시지</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="unique_value_proposition">"나만의 브랜드, 나만의 가치"
+               
+• 1:1 맞춤형 상담과 서비스
+• 고객과의 신뢰 기반 맞춤형 경험 제공</textarea>
+             <div class="preview-textarea">"나만의 브랜드, 나만의 가치"
+• 1:1 맞춤형 상담과 서비스
+• 고객과의 신뢰 기반 맞춤형 경험 제공</div>
+           </div>
+         </div>
+       </div>
+ 
+       <div class="row-2">
+         <!-- 4. 핵심 지표 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">4</div>
+             <div>
+               <div class="box-title">핵심활동 Key Metrics</div>
+               <div class="box-subtitle">검증이 필요한 항목</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="key_metrics">
+• 월 방문/이용 고객 수
+• 고객 유지율 및 후기
+• 평균 서비스 단가
+• SNS/콘텐츠 도달률</textarea>
+             <div class="preview-textarea">
+• 월 방문/이용 고객 수
+• 고객 유지율 및 후기
+• 평균 서비스 단가
+• SNS/콘텐츠 도달률</div>
+           </div>
+         </div>
+ 
+         <!-- 5. 경쟁우위 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">5</div>
+             <div>
+               <div class="box-title">관계 Unfair Advantage</div>
+               <div class="box-subtitle">쉽게 복제할 수 없는 강점</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="unfair_advantage">
+• 나만의 전문성(콘텐츠, 노하우)
+• 고객과의 신뢰 관계
+• 나만의 브랜딩/커뮤니티</textarea>
+             <div class="preview-textarea">
+• 나만의 전문성(콘텐츠, 노하우)
+• 고객과의 신뢰 관계
+• 나만의 브랜딩/커뮤니티</div>
+           </div>
+         </div>
+ 
+         <!-- 6. 고객 세그먼트 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">6</div>
+             <div>
+               <div class="box-title">고객 Customer Segments</div>
+               <div class="box-subtitle">타겟 고객</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="customer_segments">
+• 내가 해결할 수 있는 문제를 가진 고객군
+• 커뮤니티를 통해 입소문 가능한 고객층</textarea>
+             <div class="preview-textarea">
+• 내가 해결할 수 있는 문제를 가진 고객군
+• 커뮤니티를 통해 입소문 가능한 고객층</div>
+           </div>
+         </div>
+       </div>
+ 
+       <div class="row-3">
+         <!-- 7. 비용 구조 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">7</div>
+             <div>
+               <div class="box-title">비용 구조 Cost Structure</div>
+               <div class="box-subtitle">주요 비용 항목</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="cost_structure">
+• 임대/장비/온라인 서비스 운영비
+• 마케팅/광고비
+• 인건비 및 유지비</textarea>
+             <div class="preview-textarea">
+• 임대/장비/온라인 서비스 운영비
+• 마케팅/광고비
+• 인건비 및 유지비</div>
+           </div>
+         </div>
+ 
+         <!-- 9. 수익원 -->
+         <div class="box">
+           <div class="box-header">
+             <div class="box-number">9</div>
+             <div>
+               <div class="box-title">수익원 Revenue Streams</div>
+               <div class="box-subtitle">수익 창출 모델</div>
+             </div>
+           </div>
+           <div class="textarea-wrapper">
+             <textarea name="revenue_streams">
+• 서비스 수익(컨설팅, 제품, 교육 등)
+• 구독 모델/패키지 판매
+• 협업/광고/스폰서 수익</textarea>
+             <div class="preview-textarea">
+• 서비스 수익(컨설팅, 제품, 교육 등)
+• 구독 모델/패키지 판매
+• 협업/광고/스폰서 수익</div>
+           </div>
+         </div>
+       </div>
+ </div>
+   </form>
+   <div class="download-section hide-in-preview">
+    <button type="button" class="download-button" id="downloadBtn">pdf 다운로드</button>
+  </div>
+ </div>
+ <script>
+  async function downloadLeanCanvasPdf() {
+    const captureArea = document.getElementById('capture-area');
+    if (!captureArea) {
+      alert("캡처할 영역을 찾을 수 없습니다.");
+      return;
+    }
+
+    const textareas = captureArea.querySelectorAll('textarea');
+    const formData = {};
+
+    textareas.forEach(textarea => {
+      const wrapper = textarea.closest('.textarea-wrapper');
+      const preview = wrapper.querySelector('.preview-textarea');
+      if (preview) {
+        const val = textarea.value;
+        preview.textContent = val;
+        textarea.style.display = 'none';
+        preview.style.display = 'block';
+      }
+      formData[textarea.name] = textarea.value;
+    });
+
+    const html = captureArea.innerHTML;
+
+    const res = await fetch('http://localhost:8001/report/pdf/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html, form_data: formData }),
+    });
+
+    const { file_id } = await res.json();
+    window.location.href = `http://localhost:8001/report/pdf/download/${file_id}`;
+  }
+
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const button = document.getElementById('downloadBtn');
+    if (button) {
+      button.addEventListener('click', downloadLeanCanvasPdf);
+    }
+  });
+</script>
+ </body>
+ </html>
+
+
+
+ 
