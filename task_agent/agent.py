@@ -3,16 +3,19 @@ Task Agent 핵심 에이전트 v4
 공통 모듈을 활용한 업무지원 에이전트
 """
 
-import sys
 import os
+import sys
+import json
 import logging
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../unified_agent_system"))
 
-from models import UserQuery, QueryResponse, AutomationRequest, AutomationResponse, PersonaType, IntentType
+from models import UserQuery, AutomationRequest, AutomationResponse, PersonaType, IntentType
+from core.models import UnifiedResponse, AgentType, RoutingDecision, Priority
 from llm_handler import TaskAgentLLMHandler
 from rag import TaskAgentRAGManager
 from automation import AutomationManager
@@ -43,7 +46,7 @@ class TaskAgent:
             logger.error(f"Task Agent 초기화 실패: {e}")
             raise
 
-    async def process_query(self, query: UserQuery, conversation_history: List[Dict] = None) -> QueryResponse:
+    async def process_query(self, query: UserQuery, conversation_history: List[Dict] = None) -> UnifiedResponse:
         """사용자 쿼리 처리"""
         try:
             TaskAgentLogger.log_user_interaction(
@@ -64,7 +67,26 @@ class TaskAgent:
                     action="cache_hit",
                     details=f"cache_key: {cache_key}"
                 )
-                return QueryResponse(**cached_response)
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    confidence=cached_response.get("confidence", 0.8),
+                    reasoning="Cached response",
+                    keywords=[],
+                    priority=Priority.MEDIUM
+                )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    response=cached_response.get("response", ""),
+                    confidence=cached_response.get("confidence", 0.8),
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata=cached_response.get("metadata", {}),
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[]                    
+                )
             
             # 의도 분석
             intent_analysis = await self.llm_handler.analyze_intent(
@@ -104,13 +126,19 @@ class TaskAgent:
                     query, intent_analysis, conversation_history
                 )
             
-            # 캐시 저장
-            self.cache_manager.set_conversation_context(cache_key, response.dict())
+            # 캐시 저장 - UnifiedResponse 형식으로 변환
+            cache_data = {
+                "response": response.response,
+                "confidence": response.confidence,
+                "metadata": response.metadata,
+                "routing_decision": response.routing_decision.dict() if response.routing_decision else None
+            }
+            self.cache_manager.set_conversation_context(cache_key, cache_data)
             
             TaskAgentLogger.log_user_interaction(
                 user_id=query.user_id,
                 action="query_processing_completed",
-                details=f"response_length: {len(response.response)}"
+                details=f"response_length: {len(response.response)}, intent: {response.metadata.get('intent', 'unknown')}"
             )
             
             return response
@@ -123,17 +151,30 @@ class TaskAgent:
                 details=f"error: {str(e)}"
             )
             
-            return QueryResponse(
-                status="error",
+            # UnifiedResponse 형식으로 에러 응답 생성
+            routing_decision = RoutingDecision(
+                agent_type=AgentType.TASK_AUTOMATION,
+                confidence=0.0,
+                reasoning="Error occurred during processing",
+                keywords=[],
+                priority=Priority.MEDIUM
+            )
+            
+            return UnifiedResponse(
+                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                agent_type=AgentType.TASK_AUTOMATION,
                 response="죄송합니다. 요청을 처리하는 중에 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-                conversation_id=query.conversation_id or "",
-                intent=IntentType.GENERAL_INQUIRY,
-                urgency="medium",
-                confidence=0.0
+                confidence=0.0,
+                routing_decision=routing_decision,
+                sources=None,
+                metadata={"error": str(e)},
+                processing_time=0.0,
+                timestamp=datetime.now(),
+                alternatives=[]
             )
 
     async def _handle_consultation_workflow(self, query: UserQuery, intent_analysis: Dict, 
-                                          conversation_history: List[Dict] = None) -> QueryResponse:
+                                          conversation_history: List[Dict] = None) -> UnifiedResponse:
         """상담 워크플로우 처리"""
         try:
             # 지식 검색
@@ -157,15 +198,30 @@ class TaskAgent:
             # 후속 액션 생성
             actions = self._generate_follow_up_actions(intent_analysis["intent"], query.persona)
             
-            return QueryResponse(
-                status="success",
-                response=response_text,
-                conversation_id=query.conversation_id or "",
-                intent=intent_analysis["intent"],
-                urgency=intent_analysis.get("urgency", "medium"),
+            # UnifiedResponse 형식으로 응답 생성
+            routing_decision = RoutingDecision(
+                agent_type=AgentType.TASK_AUTOMATION,
                 confidence=intent_analysis.get("confidence", 0.5),
-                actions=actions,
-                sources=search_result.sources
+                reasoning=f"Intent: {intent_analysis['intent']}",
+                keywords=intent_analysis.get("keywords", []),
+                priority=Priority.MEDIUM
+            )
+            
+            return UnifiedResponse(
+                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                agent_type=AgentType.TASK_AUTOMATION,
+                response=response_text,
+                confidence=intent_analysis.get("confidence", 0.5),
+                routing_decision=routing_decision,
+                sources=search_result.sources if search_result else None,
+                metadata={
+                    "actions": actions,
+                    "intent": intent_analysis["intent"],
+                    "persona": query.persona.value
+                },
+                processing_time=0.0,
+                timestamp=datetime.now(),
+                alternatives=[]
             )
             
         except Exception as e:
@@ -246,7 +302,7 @@ class TaskAgent:
             return False
     
     async def _provide_automation_format(self, query: UserQuery, automation_type: str, 
-                                       intent_analysis: Dict) -> QueryResponse:
+                                       intent_analysis: Dict) -> UnifiedResponse:
         """자동화 타입에 따른 포맷 제공"""
         try:
             # 자동화 타입에 따른 포맷 제공
@@ -258,26 +314,40 @@ class TaskAgent:
             
             full_response = context_message + template
             
-            return QueryResponse(
-                status="format_provided",
-                response=full_response,
-                conversation_id=query.conversation_id or "",
-                intent=intent_analysis["intent"],
-                urgency=intent_analysis.get("urgency", "medium"),
+            routing_decision = RoutingDecision(
+                agent_type=AgentType.TASK_AUTOMATION,
                 confidence=intent_analysis.get("confidence", 0.8),
-                actions=[{
-                    "type": "automation_format_provided",
-                    "data": {"automation_type": automation_type},
-                    "description": f"{automation_type} 자동화 포맷이 제공되었습니다."
-                }]
+                reasoning=f"Providing automation format for: {automation_type}",
+                keywords=intent_analysis.get("keywords", []),
+                priority=Priority.MEDIUM
             )
+            
+            return UnifiedResponse(
+                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                agent_type=AgentType.TASK_AUTOMATION,
+                response=full_response,
+                confidence=intent_analysis.get("confidence", 0.8),
+                routing_decision=routing_decision,
+                sources=None,
+                metadata={
+                    "automation_type": automation_type,
+                    "intent": intent_analysis["intent"],
+                    "actions": [{
+                        "type": "automation_format_provided",
+                        "data": {"automation_type": automation_type},
+                        "description": f"{automation_type} 자동화 포맷이 제공되었습니다."
+                    }]
+                },
+                processing_time=0.0,
+                timestamp=datetime.now(),
+                alternatives=[])
             
         except Exception as e:
             logger.error(f"자동화 포맷 제공 실패: {e}")
             return self._create_fallback_response(query, intent_analysis)
     
     async def _save_automation_task(self, query: UserQuery, intent_analysis: Dict,
-                                  conversation_history: List[Dict] = None) -> QueryResponse:
+                                  conversation_history: List[Dict] = None) -> UnifiedResponse:
         """포맷에 맞는 데이터를 DB에 저장"""
         try:
             # 대화 이력에서 자동화 타입 추출
@@ -288,13 +358,25 @@ class TaskAgent:
                 automation_type = await self.llm_handler.classify_automation_intent(query.message)
             
             if not automation_type:
-                return QueryResponse(
-                    status="error",
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    confidence=0.3,
+                    reasoning="자동화 타입 파악 실패",
+                    keywords=[],
+                    priority="medium"
+                )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
                     response="자동화 타입을 파악할 수 없습니다. 다시 시도해주세요.",
-                    conversation_id=query.conversation_id or "",
-                    intent=intent_analysis["intent"],
-                    urgency="medium",
-                    confidence=0.3
+                    confidence=0.3,
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata={"intent": intent_analysis["intent"]},
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[]
                 )
             
             # 정보 추출
@@ -304,13 +386,25 @@ class TaskAgent:
             )
             
             if not extracted_info or not self._validate_extracted_info(extracted_info, automation_type):
-                return QueryResponse(
-                    status="error",
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    confidence=0.4,
+                    reasoning="필수 정보 누락",
+                    keywords=[],
+                    priority="medium"
+                )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
                     response="제공해주신 정보가 부족합니다. 필수 정보를 모두 입력해주세요.",
-                    conversation_id=query.conversation_id or "",
-                    intent=intent_analysis["intent"],
-                    urgency="medium",
-                    confidence=0.4
+                    confidence=0.4,
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata={"intent": intent_analysis["intent"]},
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[]
                 )
             
             # 자동화 작업 생성 및 DB 저장
@@ -329,33 +423,57 @@ class TaskAgent:
             success_message += f"제목: {automation_request.title}\n\n"
             success_message += "자동화 작업이 예약된 시간에 실행됩니다."
             
-            return QueryResponse(
-                status="success",
-                response=success_message,
-                conversation_id=query.conversation_id or "",
-                intent=intent_analysis["intent"],
-                urgency=intent_analysis.get("urgency", "medium"),
+            routing_decision = RoutingDecision(
+                agent_type=AgentType.TASK_AUTOMATION,
                 confidence=intent_analysis.get("confidence", 0.9),
-                actions=[{
-                    "type": "automation_saved",
-                    "data": {
-                        "task_id": automation_response.task_id,
-                        "automation_type": automation_type,
-                        "title": automation_request.title
-                    },
-                    "description": "자동화 작업이 DB에 저장되었습니다."
-                }]
+                reasoning="자동화 작업 저장 성공",
+                keywords=[automation_type],
+                priority=intent_analysis.get("urgency", "medium")
+            )
+            
+            return UnifiedResponse(
+                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                agent_type=AgentType.TASK_AUTOMATION,
+                response=success_message,
+                confidence=intent_analysis.get("confidence", 0.9),
+                routing_decision=routing_decision,
+                sources=None,
+                metadata={
+                    "intent": intent_analysis["intent"],
+                    "task_id": automation_response.task_id,
+                    "automation_type": automation_type,
+                    "title": automation_request.title,
+                    "action": "automation_saved"
+                },
+                processing_time=0.0,
+                timestamp=datetime.now(),
+                alternatives=[]
             )
             
         except Exception as e:
             logger.error(f"자동화 작업 저장 실패: {e}")
-            return QueryResponse(
-                status="error",
+            routing_decision = RoutingDecision(
+                agent_type=AgentType.TASK_AUTOMATION,
+                confidence=0.3,
+                reasoning="자동화 작업 저장 실패",
+                keywords=[],
+                priority="medium"
+            )
+            
+            return UnifiedResponse(
+                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                agent_type=AgentType.TASK_AUTOMATION,
                 response="자동화 작업 저장 중 오류가 발생했습니다. 다시 시도해주세요.",
-                conversation_id=query.conversation_id or "",
-                intent=intent_analysis["intent"],
-                urgency="medium",
-                confidence=0.3
+                confidence=0.3,
+                routing_decision=routing_decision,
+                sources=None,
+                metadata={
+                    "intent": intent_analysis["intent"],
+                    "error": str(e)
+                },
+                processing_time=0.0,
+                timestamp=datetime.now(),
+                alternatives=[]
             )
     
     def _extract_automation_type_from_history(self, conversation_history: List[Dict] = None) -> str:
@@ -386,7 +504,7 @@ class TaskAgent:
             return None
 
     async def _handle_automation_workflow(self, query: UserQuery, automation_type: str, 
-                                        intent_analysis: Dict, conversation_history: List[Dict] = None) -> QueryResponse:
+                                        intent_analysis: Dict, conversation_history: List[Dict] = None) -> UnifiedResponse:
         """자동화 워크플로우 처리 (기존 로직 유지 - 호환성을 위해)"""
         try:
             # 정보 추출
@@ -406,44 +524,86 @@ class TaskAgent:
                 
                 automation_response = await self.automation_manager.create_automation_task(automation_request)
                 
-                return QueryResponse(
-                    status="success",
-                    response=automation_response.message,
-                    conversation_id=query.conversation_id or "",
-                    intent=intent_analysis["intent"],
-                    urgency=intent_analysis.get("urgency", "medium"),
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
                     confidence=intent_analysis.get("confidence", 0.5),
-                    actions=[{
-                        "type": "automation_created",
-                        "data": {"task_id": automation_response.task_id},
-                        "description": "자동화 작업이 생성되었습니다."
-                    }]
+                    reasoning="자동화 작업 생성 성공",
+                    keywords=[automation_type],
+                    priority=intent_analysis.get("urgency", "medium")
+                )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    response=automation_response.message,
+                    confidence=intent_analysis.get("confidence", 0.5),
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata={
+                        "intent": intent_analysis["intent"],
+                        "task_id": automation_response.task_id,
+                        "automation_type": automation_type,
+                        "action": "automation_created"
+                    },
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[]
                 )
             else:
                 # 템플릿 제공
                 template = self._get_automation_template(automation_type)
-                return QueryResponse(
-                    status="template_needed",
-                    response=template,
-                    conversation_id=query.conversation_id or "",
-                    intent=intent_analysis["intent"],
-                    urgency=intent_analysis.get("urgency", "medium"),
-                    confidence=intent_analysis.get("confidence", 0.3)
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    confidence=intent_analysis.get("confidence", 0.3),
+                    reasoning="템플릿 제공 필요",
+                    keywords=[automation_type],
+                    priority=intent_analysis.get("urgency", "medium")
                 )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    response=template,
+                    confidence=intent_analysis.get("confidence", 0.3),
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata={
+                        "intent": intent_analysis["intent"],
+                        "automation_type": automation_type,
+                        "action": "template_provided"
+                    },
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[])
                 
         except Exception as e:
             logger.error(f"자동화 워크플로우 처리 실패: {e}")
             return self._create_fallback_response(query, intent_analysis)
 
-    def _create_fallback_response(self, query: UserQuery, intent_analysis: Dict) -> QueryResponse:
+    def _create_fallback_response(self, query: UserQuery, intent_analysis: Dict) -> UnifiedResponse:
         """백업 응답 생성"""
-        return QueryResponse(
-            status="fallback",
+        routing_decision = RoutingDecision(
+            agent_type=AgentType.TASK_AUTOMATION,
+            confidence=0.3,
+            reasoning="의도 파악 실패",
+            keywords=[],
+            priority=intent_analysis.get("urgency", "medium")
+        )
+        
+        return UnifiedResponse(
+            conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+            agent_type=AgentType.TASK_AUTOMATION,
             response=f"{query.persona.value} 관련 업무를 도와드리고 싶지만, 현재 시스템에 일시적인 문제가 있습니다. 좀 더 구체적으로 말씀해주시면 더 나은 도움을 드릴 수 있습니다.",
-            conversation_id=query.conversation_id or "",
-            intent=intent_analysis.get("intent", IntentType.GENERAL_INQUIRY),
-            urgency=intent_analysis.get("urgency", "medium"),
-            confidence=0.3
+            confidence=0.3,
+            routing_decision=routing_decision,
+            sources=None,
+            metadata={
+                "intent": intent_analysis.get("intent", IntentType.GENERAL_INQUIRY),
+                "action": "fallback"
+            },
+            processing_time=0.0,
+            timestamp=datetime.now(),
+            alternatives=[]
         )
 
     def _validate_extracted_info(self, extracted_info: Dict[str, Any], automation_type: str) -> bool:

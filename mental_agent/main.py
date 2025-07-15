@@ -32,7 +32,8 @@ from shared_modules import (
     format_conversation_history,
     get_current_timestamp,
     save_or_update_phq9_result,
-    get_latest_phq9_by_user
+    get_latest_phq9_by_user,
+    create_mental_response  # 표준 응답 생성 함수 추가
 )
 
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request, Body
@@ -434,19 +435,18 @@ async def process_user_query(request: UserQuery):
         except Exception as e:
             logger.warning(f"에이전트 메시지 저장 실패: {e}")
 
-        # 5. 통일된 응답 생성
-        response_data = {
-            "conversation_id": conversation_id,
-            "topics": ["mental_health"],
-            "answer": result["answer"],
-            "sources": result.get("sources", ""),
-            "retrieval_used": result.get("retrieval_used", False),
-            "response_type": result.get("type", "normal"),
-            "analysis": result.get("analysis", {}),
-            "phq9_suggested": result.get("phq9_suggested", False),
-            "emergency_contacts": result.get("emergency_contacts", []),
-            "timestamp": get_current_timestamp()
-        }
+        # 5. 표준 응답 생성
+        response_data = create_mental_response(
+            conversation_id=conversation_id,
+            answer=result["answer"],
+            topics=result.get("topics", ["mental_health"]),
+            sources=result.get("sources", ""),
+            analysis=result.get("analysis", {}),
+            phq9_suggested=result.get("phq9_suggested", False),
+            emergency_contacts=result.get("emergency_contacts", []),
+            retrieval_used=result.get("retrieval_used", False),
+            response_type=result.get("type", "normal")
+        )
 
         return create_success_response(response_data)
         

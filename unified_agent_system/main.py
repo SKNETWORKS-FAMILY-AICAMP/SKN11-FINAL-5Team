@@ -1113,17 +1113,62 @@ async def root():
     """
 
 
-@app.post("/query", response_model=UnifiedResponse)
+def map_frontend_agent_to_backend(frontend_agent: str) -> Optional[AgentType]:
+    """프론트엔드 에이전트 타입을 백엔드 AgentType으로 매핑"""
+    agent_mapping = {
+        "unified_agent": None,  # 통합 에이전트는 라우팅에 맡김
+        "planner": AgentType.BUSINESS_PLANNING,
+        "marketing": AgentType.MARKETING,
+        "crm": AgentType.CUSTOMER_SERVICE,
+        "task": AgentType.TASK_AUTOMATION,
+        "mentalcare": AgentType.MENTAL_HEALTH
+    }
+    return agent_mapping.get(frontend_agent)
+
+
+@app.post("/query")
 async def process_query(request: UnifiedRequest):
     """통합 질의 처리"""
     try:
         logger.info(f"사용자 {request.user_id}: {request.message[:50]}...")
         
+        # 프론트엔드 에이전트 타입을 백엔드 타입으로 매핑
+        if request.preferred_agent and isinstance(request.preferred_agent, str):
+            mapped_agent = map_frontend_agent_to_backend(request.preferred_agent)
+            request.preferred_agent = mapped_agent
+        
+        # 대화 세션이 없으면 생성
+        if not request.conversation_id:
+            with get_session_context() as db:
+                conversation = create_conversation(db, request.user_id)
+                request.conversation_id = conversation.conversation_id
+        
+        # 사용자 메시지 저장
+        with get_session_context() as db:
+            create_message(
+                db, 
+                request.conversation_id, 
+                "user", 
+                "unified", 
+                request.message
+            )
+        
         workflow = get_workflow()
         response = await workflow.process_request(request)
         
+        # 에이전트 응답 저장
+        with get_session_context() as db:
+            create_message(
+                db,
+                response.conversation_id,
+                "agent",
+                response.agent_type.value,
+                response.response
+            )
+        
         logger.info(f"응답 완료: {response.agent_type} (신뢰도: {response.confidence:.2f})")
         
+        # UnifiedResponse를 직접 반환 (FastAPI가 자동으로 JSON 직렬화)
         return response
         
     except Exception as e:
@@ -1133,28 +1178,6 @@ async def process_query(request: UnifiedRequest):
 
 
 # ===== 대화 관리 API =====
-
-@app.get("/conversations/{user_id}")
-async def get_user_conversations(user_id: int):
-    """사용자의 대화 세션 목록 조회"""
-    try:
-        with get_session_context() as db:
-            from shared_modules.queries import get_user_conversations as get_conversations_query
-            conversations = get_conversations_query(db, user_id, visible_only=True)
-            
-            conversation_list = []
-            for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None
-                })
-            
-            return create_success_response(data=conversation_list)
-            
-    except Exception as e:
-        logger.error(f"대화 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/conversations/{conversation_id}/messages")
 async def get_conversation_messages(conversation_id: int, limit: int = 50):

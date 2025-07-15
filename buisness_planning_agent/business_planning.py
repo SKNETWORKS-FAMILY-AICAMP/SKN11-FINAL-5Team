@@ -5,6 +5,7 @@ Business Planning Agent - 공통 모듈 최대 활용 버전
 
 import sys
 import os
+import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -34,8 +35,12 @@ from shared_modules import (
     create_error_response,
     format_conversation_history,
     sanitize_filename,
-    get_current_timestamp
+    get_current_timestamp,
+    create_business_response  # 표준 응답 생성 함수 추가
 )
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '../unified_agent_system'))
+from core.models import UnifiedResponse, RoutingDecision, AgentType
 
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.chains import RetrievalQA
@@ -375,6 +380,7 @@ class UserQuery(BaseModel):
 async def process_user_query(request: UserQuery):
     """사용자 쿼리 처리 - 공통 모듈들 최대 활용"""
     try:
+        start_time = time.time()
         logger.info(f"쿼리 처리 시작 - user_id: {request.user_id}")
         
         user_question = request.message
@@ -400,8 +406,26 @@ async def process_user_query(request: UserQuery):
         
         # 3. 린캔버스 요청 분기 처리
         if "린캔버스" in user_question:
-            result = business_service.handle_lean_canvas_request(user_question)
-            return create_success_response(result)
+            lean_canvas_result = business_service.handle_lean_canvas_request(user_question)
+            response_data = UnifiedResponse(
+                conversation_id=conversation_id,
+                agent_type=AgentType.BUSINESS_PLANNING,
+                response=lean_canvas_result["content"],
+                confidence=0.9,  # 린캔버스는 높은 신뢰도
+                routing_decision=RoutingDecision(
+                    agent_type=AgentType.BUSINESS_PLANNING,
+                    confidence=0.9,
+                    reasoning="린캔버스 템플릿 요청",
+                    keywords=["린캔버스", lean_canvas_result["title"]]
+                ),
+                sources=None,
+                metadata={
+                    "type": "lean_canvas",
+                    "template_title": lean_canvas_result["title"]
+                },
+                processing_time=time.time() - start_time
+            )
+            return create_success_response(response_data)
 
         # 4. 일반 RAG 쿼리 처리
         result = await business_service.run_rag_query(
@@ -422,15 +446,13 @@ async def process_user_query(request: UserQuery):
         except Exception as e:
             logger.warning(f"에이전트 메시지 저장 실패: {e}")
 
-        # 6. 응답 생성 - 공통 모듈의 유틸리티 활용
-        response_data = {
-            "conversation_id": conversation_id,
-            "topics": result.get("topics", []),
-            "answer": result["answer"],
-            "sources": result.get("sources", ""),
-            "retrieval_used": result.get("retrieval_used", False),
-            "timestamp": get_current_timestamp()
-        }
+        # 6. 응답 생성 - 표준 응답 구조 사용
+        response_data = create_business_response(
+            conversation_id=conversation_id,
+            answer=result["answer"],
+            topics=result.get("topics", []),
+            sources=result.get("sources", "")
+        )
 
         return create_success_response(response_data)
         

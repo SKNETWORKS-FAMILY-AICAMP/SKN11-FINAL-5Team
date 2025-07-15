@@ -88,7 +88,7 @@ export const agentApi = {
           user_id: userId,
           conversation_id: conversationId,
           message: message,
-          agent_type: agentType
+          preferred_agent: agentType
         })
       })
 
@@ -97,19 +97,61 @@ export const agentApi = {
       }
 
       const data = await response.json()
+      
+      // 백엔드가 UnifiedResponse 모델을 직접 반환하는 경우
+      if (data.conversation_id !== undefined) {
+        return {
+          success: true,
+          data: {
+            conversationId: data.conversation_id,
+            agentType: data.agent_type,
+            answer: data.response, // 백엔드의 'response' 필드를 'answer'로 매핑
+            confidence: data.confidence,
+            routingDecision: data.routing_decision,
+            sources: data.sources,
+            metadata: data.metadata,
+            processingTime: data.processing_time,
+            timestamp: data.timestamp,
+            alternatives: data.alternatives?.map((alt: any) => ({
+              agentType: alt.agent_type,
+              response: alt.response,
+              confidence: alt.confidence,
+              sources: alt.sources,
+              metadata: alt.metadata,
+              processingTime: alt.processing_time
+            })) || []
+          }
+        }
+      }
+      
+      // 표준 응답 구조인 경우
       if (!data.success) {
         return {
           success: false,
           error: data.error || '메시지 전송에 실패했습니다'
         }
       }
+      
       return {
         success: true,
         data: {
-          answer: data.data.response,
+          conversationId: data.data.conversation_id,
           agentType: data.data.agent_type,
+          answer: data.data.response, // 백엔드의 'response' 필드를 'answer'로 매핑
           confidence: data.data.confidence,
-          sources: data.data.sources
+          routingDecision: data.data.routing_decision,
+          sources: data.data.sources,
+          metadata: data.data.metadata,
+          processingTime: data.data.processing_time,
+          timestamp: data.data.timestamp,
+          alternatives: data.data.alternatives?.map((alt: any) => ({
+            agentType: alt.agent_type,
+            response: alt.response,
+            confidence: alt.confidence,
+            sources: alt.sources,
+            metadata: alt.metadata,
+            processingTime: alt.processing_time
+          })) || []
         }
       }
     } catch (error) {
@@ -119,8 +161,6 @@ export const agentApi = {
         error: '메시지 전송에 실패했습니다'
       }
     }
-
-
   },
 
   sendFeedback: async (userId: number, conversationId: number, rating: number, comment: string, category: string) => {

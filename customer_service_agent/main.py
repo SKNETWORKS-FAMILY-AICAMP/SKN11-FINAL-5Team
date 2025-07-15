@@ -35,7 +35,8 @@ from shared_modules import (
     create_error_response,
     format_conversation_history,
     sanitize_filename,
-    get_current_timestamp
+    get_current_timestamp,
+    create_customer_response  # 표준 응답 생성 함수 추가
 )
 
 from shared_modules.utils import get_or_create_conversation_session
@@ -429,17 +430,16 @@ async def process_user_query(request: UserQuery):
         except Exception as e:
             logger.warning(f"에이전트 메시지 저장 실패: {e}")
 
-        # 5. 통일된 응답 생성
-        response_data = {
-            "conversation_id": conversation_id,
-            "topics": result.get("topics", []),
-            "answer": result["answer"],
-            "sources": result.get("sources", ""),
-            "retrieval_used": result.get("retrieval_used", False),
-            "inquiry_type": result.get("inquiry_type", ""),
-            "business_type": result.get("business_type", ""),
-            "timestamp": get_current_timestamp()
-        }
+        # 5. 표준 응답 생성
+        response_data = create_customer_response(
+            conversation_id=conversation_id,
+            answer=result["answer"],
+            topics=result.get("topics", []),
+            sources=result.get("sources", ""),
+            inquiry_type=result.get("inquiry_type", ""),
+            business_type=result.get("business_type", ""),
+            retrieval_used=result.get("retrieval_used", False)
+        )
 
         return create_success_response(response_data)
         
