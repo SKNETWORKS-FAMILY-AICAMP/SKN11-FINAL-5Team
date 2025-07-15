@@ -44,8 +44,8 @@ from shared_modules import (
     create_error_response,
     create_template_message,
     update_template_message,
-    delete_template_message,
-    get_current_timestamp
+    get_current_timestamp,
+    get_user_templates_with_defaults
 )
 from core.models import (
     UnifiedRequest, UnifiedResponse, HealthCheck, 
@@ -60,6 +60,7 @@ from shared_modules.database import get_session_context as unified_get_session_c
 from shared_modules.auth import verify_token_and_get_user_id
 from shared_modules.queries import get_conversation_history, get_user_by_id
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
+from shared_modules import delete_template_message as delete_template_db
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -134,9 +135,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static 파일 등록 (이미지/파일 제공용)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 
 # ===== 공통 대화 관리 API =====
 
@@ -154,7 +152,7 @@ async def create_conversation_endpoint(req: ConversationCreate):
             "is_new": session_info["is_new"]
         }
         
-        return create_success_response(response_data)
+        return unified_create_success_response(response_data)
         
     except Exception as e:
         logger.error(f"대화 세션 생성 오류: {e}")
@@ -874,12 +872,12 @@ async def preview_template(template_id: int):
     #     return create_error_response("템플릿 목록 조회에 실패했습니다", "TEMPLATE_LIST_ERROR")
 
 @app.get("/api/v1/templates")
-async def get_user_templates(user_id: int = Depends(verify_token_and_get_user_id)):
+async def get_user_templates_with_defaults(user_id: int = Depends(verify_token_and_get_user_id)):
     """사용자 템플릿 목록 조회"""
     try:
         with get_session_context() as db:
             # 사용자별 템플릿 조회 로직
-            templates = get_user_templates(db, user_id)
+            templates = get_user_templates_with_defaults(db, user_id)
             
             return create_success_response({
                 "templates": templates,
@@ -910,10 +908,10 @@ async def update_existing_template(template_id: int, payload: Dict[str, Any], us
         return create_error_response("템플릿 수정에 실패했습니다", "TEMPLATE_UPDATE_ERROR")
     
 @app.delete("/api/v1/templates/{template_id}")
-async def delete_template(template_id: int, user_id: int = Depends(verify_token_and_get_user_id)):
+async def delete_template_db(template_id: int, user_id: int = Depends(verify_token_and_get_user_id)):
     try:
         with get_session_context() as db:
-            delete_template(db, template_id, user_id)
+            delete_template_db(db, template_id, user_id)
             return create_success_response({"message": "템플릿이 삭제되었습니다."})
     except Exception as e:
         logger.error(f"템플릿 삭제 오류: {e}")
@@ -1272,38 +1270,38 @@ async def process_query(request: UnifiedRequest):
 
 # ===== 대화 관리 API =====
 
-@app.get("/conversations/{user_id}")
-async def get_user_conversations(user_id: int):
-    """사용자의 대화 세션 목록 조회"""
-    try:
-        with get_session_context() as db:
-            from shared_modules.queries import get_user_conversations as get_conversations_query
-            conversations = get_conversations_query(db, user_id, visible_only=True)
+# @app.get("/conversations/{user_id}")
+# async def get_user_conversations(user_id: int):
+#     """사용자의 대화 세션 목록 조회"""
+#     try:
+#         with get_session_context() as db:
+#             from shared_modules.queries import get_user_conversations as get_conversations_query
+#             conversations = get_conversations_query(db, user_id, visible_only=True)
             
-            conversation_list = []
-            for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None
-                })
+#             conversation_list = []
+#             for conv in conversations:
+#                 conversation_list.append({
+#                     "conversation_id": conv.conversation_id,
+#                     "started_at": conv.started_at.isoformat() if conv.started_at else None,
+#                     "ended_at": conv.ended_at.isoformat() if conv.ended_at else None
+#                 })
             
-            return create_success_response(data=conversation_list)
+#             return create_success_response(data=conversation_list)
             
-    except Exception as e:
-        logger.error(f"대화 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"대화 목록 조회 실패: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/conversations/{conversation_id}/messages")
-async def get_conversation_messages(conversation_id: int, limit: int = 50):
-    """대화의 메시지 목록 조회"""
-    try:
-        history = await get_conversation_history(conversation_id, limit)
-        return create_success_response(data=history)
+# @app.get("/conversations/{conversation_id}/messages")
+# async def get_conversation_messages(conversation_id: int, limit: int = 50):
+#     """대화의 메시지 목록 조회"""
+#     try:
+#         history = await get_conversation_history(conversation_id, limit)
+#         return create_success_response(data=history)
         
-    except Exception as e:
-        logger.error(f"메시지 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"메시지 목록 조회 실패: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 # ===== 시스템 관리 API ===== 
 
