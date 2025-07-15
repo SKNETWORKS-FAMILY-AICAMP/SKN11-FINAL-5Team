@@ -6,14 +6,17 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Depends, APIRouter, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conint
 import uvicorn
 import sys
 import os
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+from shared_modules.utils import FeedbackCreate
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -39,18 +42,23 @@ from shared_modules import (
     get_current_timestamp
 )
 
-from core.models import (
+from unified_agent_system.core.models import (
     UnifiedRequest, UnifiedResponse, HealthCheck, 
     AgentType, RoutingDecision
 )
-from core.workflow import get_workflow
-from core.config import (
+from unified_agent_system.core.workflow import get_workflow
+from unified_agent_system.core.config import (
     SERVER_HOST, SERVER_PORT, DEBUG_MODE, 
     LOG_LEVEL, LOG_FORMAT
 )
 from shared_modules.database import get_session_context as unified_get_session_context
+from shared_modules.database import get_db
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
+from shared_modules.db_models import FAQ, Feedback
+
+
+router = APIRouter()
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -89,6 +97,12 @@ class AutomationRequest(BaseModel):
     user_id: int
     task_type: str
     parameters: Dict[str, Any] = {}
+    
+class FeedbackCreate(BaseModel):
+    user_id: int
+    conversation_id: int | None = None
+    rating: conint(ge=1, le=5)
+    comment: str | None = None 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -800,7 +814,68 @@ async def test_system():
         "accuracy": accuracy,
         "total_tests": len(results)
     }
+    
 
+@router.post("/feedback", status_code=201)
+def create_feedback(feedback: FeedbackCreate, db: Session = Depends(get_db)):
+    new_feedback = Feedback(
+        user_id=feedback.user_id,
+        conversation_id=feedback.conversation_id,
+        rating=feedback.rating,
+        comment=feedback.comment,
+        created_at=datetime.now(timezone.utc)
+    )
+    db.add(new_feedback)
+    db.commit()
+    return {"success": True, "message": "피드백이 등록되었습니다"}
+
+@router.get("/faq")
+def get_faq_list(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1),
+    db: Session = Depends(get_db)
+):
+    query = db.query(FAQ)
+
+    if category:
+        query = query.filter(FAQ.category == category)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(FAQ.question.ilike(search_term))
+
+    total = query.count()
+    faqs = query.offset((page - 1) * limit).limit(limit).all()
+
+    # FAQ 카테고리 목록 추출 (distinct)
+    categories = db.query(FAQ.category).distinct().all()
+    categories = [c[0] for c in categories]
+
+    return {
+        "success": True,
+        "data": {
+            "faqs": [
+                {
+                    "faq_id": f.faq_id,
+                    "category": f.category,
+                    "question": f.question,
+                    "answer": f.answer,
+                    "view_count": f.view_count,
+                    "is_helpful": f.is_helpful
+                } for f in faqs
+            ],
+            "categories": categories,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total
+            }
+        }
+    }
+
+from subscription import router as subscription_router
+app.include_router(subscription_router, prefix="/subscription")
 
 if __name__ == "__main__":
     uvicorn.run(

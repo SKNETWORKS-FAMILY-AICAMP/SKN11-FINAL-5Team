@@ -145,6 +145,8 @@ class Subscription(Base):
     monthly_fee = Column(DECIMAL(10, 2), nullable=False)
     start_date = Column(TIMESTAMP, nullable=False)
     end_date = Column(TIMESTAMP, nullable=True)
+    tid = Column(String(64), nullable=True)
+    sid = Column(String(64), nullable=True)
     
     # 관계
     user = relationship("User", back_populates="subscriptions")
