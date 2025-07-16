@@ -12,6 +12,10 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from chromadb import PersistentClient
 
 from config import settings
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -214,7 +218,7 @@ class VectorDBManager:
                         "category": mapping["category"],
                         "topic": mapping["topic"],
                         "source": ", ".join(mapping["source"]) if isinstance(mapping["source"], list) else mapping["source"],
-                        "last_updated": datetime.now().isoformat()
+                        "last_updated": utc_to_kst(datetime.now()).isoformat()
                     }
                     metadatas.append(metadata)
                 

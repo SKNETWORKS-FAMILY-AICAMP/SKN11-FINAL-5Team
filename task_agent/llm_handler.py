@@ -9,8 +9,10 @@ import json
 import logging
 from typing import Dict, Any, Optional, List
 
-# 공통 모듈 경로 추가
-sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
 
 from llm_utils import get_llm_manager, LLMManager
 from env_config import get_config
@@ -220,7 +222,7 @@ class TaskAgentLLMHandler:
     def _get_current_time(self) -> str:
         """현재 시간 반환"""
         from datetime import datetime
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return utc_to_kst(datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
 
     def _fallback_intent_analysis(self, message: str) -> Dict[str, Any]:
         """백업 의도 분석"""

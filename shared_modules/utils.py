@@ -6,7 +6,7 @@
 import logging
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
 from shared_modules import (
@@ -206,7 +206,7 @@ def get_current_timestamp(format_string: str = "%Y%m%d_%H%M%S") -> str:
     Returns:
         str: 포맷팅된 시간 문자열
     """
-    return datetime.now().strftime(format_string)
+    return utc_to_kst(datetime.now()).strftime(format_string)
 
 def ensure_directory_exists(directory_path: str) -> bool:
     """
@@ -349,7 +349,7 @@ def create_error_response(error_message: str, error_code: str = None) -> Dict[st
     response = {
         "success": False,
         "error": error_message,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": utc_to_kst(datetime.now()).isoformat()
     }
     
     if error_code:
@@ -370,7 +370,7 @@ def create_success_response(data: Any = None, message: str = None) -> Dict[str, 
     """
     response = {
         "success": True,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": utc_to_kst(datetime.now()).isoformat()
     }
     
     if data is not None:
@@ -416,3 +416,11 @@ class PromptTemplate:
         import re
         variables = re.findall(r'\{(\w+)\}', self.template)
         return list(set(variables))
+
+def utc_to_kst(utc_dt: datetime) -> datetime:
+    if utc_dt.tzinfo is None:
+        # UTC 정보가 없는 naive datetime이면 UTC로 간주
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+    kst = timezone(timedelta(hours=9))
+    return utc_dt.astimezone(kst)
+

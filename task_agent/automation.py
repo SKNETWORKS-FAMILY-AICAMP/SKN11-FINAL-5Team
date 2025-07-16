@@ -19,7 +19,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
   # 공통 모듈의 DB 모델들
 from models import AutomationRequest, AutomationResponse, AutomationStatus, AutomationTaskType
 from database import get_db_session
-from utils import TaskAgentLogger, create_success_response, create_error_response
+from utils import TaskAgentLogger, create_success_response, create_error_response, utc_to_kst
 
 # 자동화 작업 서비스들 import
 from automation_task.email_service import EmailService
@@ -253,7 +253,7 @@ class TaskAgentAutomationManager:
             await self.db_helper.update_automation_task_status(
                 task_id, 
                 AutomationStatus.PROCESSING.value,
-                executed_at=datetime.now()
+                executed_at=utc_to_kst(datetime.now())
             )
             
             # 작업 실행
@@ -600,7 +600,7 @@ class TaskAgentAutomationManager:
                     # "sns_service": bool(self.sns_service),
                     "reminder_service": bool(self.reminder_service)
                 },
-                "timestamp": datetime.now().isoformat()
+                "timestamp": utc_to_kst(datetime.now()).isoformat()
             })
             
             return stats

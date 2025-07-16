@@ -16,7 +16,7 @@ import sys
 import os
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
-from shared_modules.utils import FeedbackCreate
+
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -52,7 +52,6 @@ from unified_agent_system.core.config import (
     LOG_LEVEL, LOG_FORMAT
 )
 from shared_modules.database import get_session_context as unified_get_session_context
-from shared_modules.database import get_db
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from shared_modules.db_models import FAQ, Feedback
@@ -97,12 +96,7 @@ class AutomationRequest(BaseModel):
     user_id: int
     task_type: str
     parameters: Dict[str, Any] = {}
-    
-class FeedbackCreate(BaseModel):
-    user_id: int
-    conversation_id: int | None = None
-    rating: conint(ge=1, le=5)
-    comment: str | None = None 
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -814,20 +808,6 @@ async def test_system():
         "accuracy": accuracy,
         "total_tests": len(results)
     }
-    
-
-@router.post("/feedback", status_code=201)
-def create_feedback(feedback: FeedbackCreate, db: Session = Depends(get_db)):
-    new_feedback = Feedback(
-        user_id=feedback.user_id,
-        conversation_id=feedback.conversation_id,
-        rating=feedback.rating,
-        comment=feedback.comment,
-        created_at=datetime.now(timezone.utc)
-    )
-    db.add(new_feedback)
-    db.commit()
-    return {"success": True, "message": "피드백이 등록되었습니다"}
 
 @router.get("/faq")
 def get_faq_list(
@@ -835,7 +815,7 @@ def get_faq_list(
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1),
-    db: Session = Depends(get_db)
+    db: Session = Depends(unified_get_session_context)
 ):
     query = db.query(FAQ)
 
@@ -874,8 +854,10 @@ def get_faq_list(
         }
     }
 
-from subscription import router as subscription_router
+from regular_subscription import router as subscription_router
 app.include_router(subscription_router, prefix="/subscription")
+from feedback import router as feedback_router
+app.include_router(feedback_router, prefix="/feedback")
 
 if __name__ == "__main__":
     uvicorn.run(

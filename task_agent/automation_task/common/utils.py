@@ -24,7 +24,8 @@ from utils import (
     get_current_timestamp,
     ensure_directory_exists,
     create_success_response,
-    create_error_response
+    create_error_response,
+    utc_to_kst
 )
 
 logger = logging.getLogger(__name__)
@@ -245,7 +246,7 @@ class AutomationDateTimeUtils:
     def get_next_business_day(dt: datetime = None) -> datetime:
         """다음 영업일 반환"""
         if dt is None:
-            dt = datetime.now()
+            dt = utc_to_kst(datetime.now())
         
         # 다음 날부터 시작
         next_day = dt + timedelta(days=1)
@@ -260,7 +261,7 @@ class AutomationDateTimeUtils:
     @staticmethod
     def calculate_delay_until(target_time: datetime) -> float:
         """지정된 시간까지의 지연 시간 계산 (초 단위)"""
-        now = datetime.now()
+        now = utc_to_kst(datetime.now())
         if target_time <= now:
             return 0
         
@@ -382,7 +383,7 @@ class AutomationDataUtils:
                             timestamp: Optional[datetime] = None) -> Dict[str, Any]:
         """웹훅 페이로드 구성"""
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = utc_to_kst(datetime.now())
         
         return {
             "event_type": event_type,
@@ -403,7 +404,7 @@ class AutomationResponseUtils:
             "task_id": task_id,
             "status": status,
             "message": message,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_to_kst(datetime.now()).isoformat()
         }
         
         if data:
@@ -422,7 +423,7 @@ class AutomationResponseUtils:
             "notification_type": notification_type,
             "success": success,
             "message": message,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_to_kst(datetime.now()).isoformat()
         }
         
         if recipient:

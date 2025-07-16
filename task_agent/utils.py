@@ -24,7 +24,8 @@ from shared_modules.utils import (
     validate_email,
     create_error_response,
     create_success_response,
-    PromptTemplate
+    PromptTemplate,
+    utc_to_kst
 )
 from shared_modules.logging_utils import setup_logging
 
@@ -32,7 +33,7 @@ from shared_modules.logging_utils import setup_logging
 
 def generate_task_id(prefix: str = "task") -> str:
     """작업 ID 생성"""
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    timestamp = utc_to_kst(datetime.now()).strftime("%Y%m%d%H%M%S")
     unique_id = uuid.uuid4().hex[:8]
     return f"{prefix}_{timestamp}_{unique_id}"
 
@@ -101,7 +102,7 @@ class TaskAgentResponseFormatter:
             "confidence": confidence,
             "actions": actions or [],
             "sources": sources or [],
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_to_kst(datetime.now()).isoformat()
         }
     
     @staticmethod
@@ -116,7 +117,7 @@ class TaskAgentResponseFormatter:
             "task_id": task_id,
             "status": status,
             "message": message,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_to_kst(datetime.now()).isoformat()
         }
         
         if scheduled_time:
@@ -170,7 +171,7 @@ class TaskAgentCacheManager:
         """캐시에서 항목 조회"""
         if key in cache_dict:
             value, timestamp = cache_dict[key]
-            if (datetime.now() - timestamp).seconds < self._ttl:
+            if (utc_to_kst(datetime.now()) - timestamp).seconds < self._ttl:
                 return value
             else:
                 del cache_dict[key]
@@ -178,11 +179,11 @@ class TaskAgentCacheManager:
     
     def _set_cached_item(self, cache_dict: Dict, key: str, value: Any):
         """캐시에 항목 저장"""
-        cache_dict[key] = (value, datetime.now())
+        cache_dict[key] = (value, utc_to_kst(datetime.now()))
     
     def cleanup_expired(self) -> int:
         """만료된 캐시 정리"""
-        now = datetime.now()
+        now = utc_to_kst(datetime.now())
         expired_count = 0
         
         # 일반 캐시 정리
@@ -216,7 +217,7 @@ class TaskAgentCacheManager:
             "general_cache_size": len(self._cache),
             "conversation_cache_size": len(self._conversation_cache),
             "ttl_seconds": self._ttl,
-            "last_cleanup": datetime.now().isoformat()
+            "last_cleanup": utc_to_kst(datetime.now()).isoformat()
         }
 
 # ===== Task Agent 전용 텍스트 처리 =====
@@ -248,7 +249,7 @@ def parse_time_expression(text: str) -> Optional[datetime]:
     import re
     from datetime import datetime, timedelta
     
-    now = datetime.now()
+    now = utc_to_kst(datetime.now())
     text_lower = text.lower()
     
     # 오늘/내일/모레 패턴

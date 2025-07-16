@@ -10,6 +10,11 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import logging
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +32,7 @@ class AuthManager:
             "state": state,
             "platform": platform,
             "user_id": user_id,
-            "created_at": datetime.now()
+            "created_at": utc_to_kst(datetime.now())
         }
         
         return state
@@ -51,7 +56,7 @@ class AuthManager:
         """토큰 저장"""
         try:
             key = f"token_{user_id}_{platform}"
-            token_data["stored_at"] = datetime.now().isoformat()
+            token_data["stored_at"] = utc_to_kst(datetime.now()).isoformat()
             self.tokens_storage[key] = token_data
             
             # 토큰을 JSON 파일로도 저장 (백업용)
@@ -104,7 +109,7 @@ class AuthManager:
             if expires_in and stored_at:
                 stored_time = datetime.fromisoformat(stored_at)
                 expiry_time = stored_time + timedelta(seconds=expires_in)
-                return datetime.now() < expiry_time
+                return utc_to_kst(datetime.now()) < expiry_time
             
             return True  # 만료 정보가 없으면 유효한 것으로 간주
             

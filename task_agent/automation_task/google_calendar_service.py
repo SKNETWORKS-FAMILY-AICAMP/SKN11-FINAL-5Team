@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 # Google Calendar API 스코프
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 
 class GoogleCalendarService:
     """Google Calendar API 서비스 클래스 (공용 모듈 사용)"""
@@ -186,7 +191,7 @@ class GoogleCalendarService:
                     "access_token": token_data.get("access_token"),
                     "expires_in": token_data.get("expires_in"),
                     "token_type": token_data.get("token_type", "Bearer"),
-                    "stored_at": datetime.now().isoformat()
+                    "stored_at": utc_to_kst(datetime.now()).isoformat()
                 }
                 
                 # 새 refresh_token이 있으면 업데이트

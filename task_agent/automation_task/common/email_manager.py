@@ -15,6 +15,11 @@ from email.utils import formataddr
 from typing import Dict, List, Any, Optional
 import logging
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 try:
     import boto3
     from botocore.exceptions import ClientError
@@ -347,7 +352,7 @@ class EmailManager:
                            additional_info: Optional[str] = None) -> str:
         """기본 HTML 이메일 템플릿 생성"""
         from datetime import datetime
-        current_time = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
+        current_time = utc_to_kst(datetime.now()).strftime("%Y년 %m월 %d일 %H:%M")
         
         html_template = f"""
         <!DOCTYPE html>

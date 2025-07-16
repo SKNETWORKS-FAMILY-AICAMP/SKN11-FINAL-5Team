@@ -22,10 +22,10 @@ import config
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
-
-# 공통 모듈 경로 추가
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
 
 # 공통 모듈 import
 from shared_modules import (
@@ -242,7 +242,7 @@ async def get_system_status():
         base_status = {
             "service": "TinkerBell Task Agent v4",
             "version": "4.0.0",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utc_to_kst(datetime.now()).isoformat(),
             "environment": {
                 "openai_configured": bool(config.OPENAI_API_KEY),
                 "google_configured": bool(config.GOOGLE_API_KEY),
@@ -268,7 +268,7 @@ async def get_system_status():
             "service": "TinkerBell Task Agent v4",
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_to_kst(datetime.now()).isoformat()
         }
 
 # ===== 에러 핸들러 =====

@@ -16,6 +16,8 @@ import shared_modules.db_models as db_models
 engine = DatabaseManager().engine
 logger = logging.getLogger(__name__)
 
+from utils import utc_to_kst
+
 # -------------------
 # User 관련 함수 (새 DDL 스키마 적용)
 # -------------------
@@ -222,7 +224,7 @@ def create_conversation(db: Session, user_id: int):
         # 2. Conversation 객체 생성
         conversation = db_models.Conversation(
             user_id=actual_user_id,
-            started_at=datetime.now(),
+            started_at=utc_to_kst(datetime.now()),
             is_visible=True
         )
         logger.info(f"[create_conversation] Conversation 객체 생성됨")
@@ -275,7 +277,7 @@ def end_conversation(db: Session, conversation_id: int) -> bool:
             db_models.Conversation.conversation_id == conversation_id
         ).first()
         if conversation:
-            conversation.ended_at = datetime.now()
+            conversation.ended_at = utc_to_kst(datetime.now())
             db.commit()
             return True
         return False
@@ -400,7 +402,7 @@ def get_average_rating(db: Session, user_id: int = None) -> float:
 def save_or_update_phq9_result(db: Session, user_id: int, score: int, level: int):
     """PHQ9 결과 저장/업데이트 (level은 Integer)"""
     try:
-        now = datetime.now()
+        now = utc_to_kst(datetime.now())
         result = db.query(db_models.PHQ9Result).filter_by(user_id=user_id).first()
         if result:
             result.score = score
@@ -504,7 +506,7 @@ def create_subscription(db: Session, user_id: int, plan_type: str, monthly_fee: 
 def get_user_subscription(db: Session, user_id: int):
     """사용자의 활성 구독 조회"""
     try:
-        now = datetime.now()
+        now = utc_to_kst(datetime.now())
         return db.query(db_models.Subscription).filter(
             db_models.Subscription.user_id == user_id,
             db_models.Subscription.start_date <= now,
@@ -521,7 +523,7 @@ def cancel_subscription(db: Session, subscription_id: int) -> bool:
             db_models.Subscription.subscription_id == subscription_id
         ).first()
         if subscription:
-            subscription.end_date = datetime.now()
+            subscription.end_date = utc_to_kst(datetime.now())
             db.commit()
             return True
         return False
@@ -678,7 +680,7 @@ def update_task_status(db: Session, task_id: int, status: str, executed_at: date
             if executed_at:
                 task.executed_at = executed_at
             elif status in ['COMPLETED', 'FAILED']:
-                task.executed_at = datetime.now()
+                task.executed_at = utc_to_kst(datetime.now())
             db.commit()
             return True
         return False

@@ -8,8 +8,8 @@ import os
 import logging
 from typing import List, Optional, Dict, Any
 
-# 공통 모듈 경로 추가
-sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
 
 from vector_utils import get_vector_manager, VectorStoreManager
 from langchain_core.documents import Document
@@ -283,7 +283,7 @@ class TaskAgentRAGManager:
     def _get_current_timestamp(self) -> str:
         """현재 타임스탬프 반환"""
         from datetime import datetime
-        return datetime.now().isoformat()
+        return utc_to_kst(datetime.now()).isoformat()
     
     def get_collection_stats(self) -> Dict[str, Any]:
         """컬렉션 통계 반환"""

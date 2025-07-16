@@ -14,8 +14,13 @@
 __version__ = "1.0.0"
 __author__ = "SKN11-FINAL-5Team"
 
+import os
+import sys
+
 from core.workflow import UnifiedAgentWorkflow
 from core.models import UnifiedRequest, UnifiedResponse, AgentType
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 __all__ = [
     "UnifiedAgentWorkflow",

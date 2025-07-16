@@ -12,6 +12,11 @@ from .email_manager import get_email_manager
 from .config_manager import get_config_manager
 from .db_helper import get_db_helper
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,7 +91,7 @@ class NotificationManager:
                 "message": message,
                 "urgency": urgency,
                 "type": "reminder",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": utc_to_kst(datetime.now()).isoformat(),
                 "read": False
             }
             
@@ -274,7 +279,7 @@ class NotificationManager:
                 "summary": "리마인더 알림",
                 "sections": [{
                     "activityTitle": "📋 업무 리마인더",
-                    "activitySubtitle": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "activitySubtitle": utc_to_kst(datetime.now()).strftime("%Y-%m-%d %H:%M"),
                     "activityImage": None,
                     "facts": [],
                     "markdown": True,

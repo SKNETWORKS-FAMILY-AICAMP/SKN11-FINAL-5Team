@@ -19,7 +19,7 @@ from automation import AutomationManager
 from utils import task_cache, generate_conversation_id, TaskAgentLogger, TaskAgentResponseFormatter
 
 # 공통 모듈 import
-from utils import create_success_response, create_error_response
+from utils import create_success_response, create_error_response, utc_to_kst
 
 logger = logging.getLogger(__name__)
 
@@ -664,7 +664,7 @@ class TaskAgent:
             return {
                 "agent_version": "4.0.0",
                 "status": "healthy",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": utc_to_kst(datetime.now()).isoformat(),
                 "components": {
                     "llm_handler": llm_status,
                     "rag_manager": rag_status,
@@ -682,7 +682,7 @@ class TaskAgent:
                 "agent_version": "4.0.0",
                 "status": "error", 
                 "error": str(e),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": utc_to_kst(datetime.now()).isoformat()
             }
 
     async def cleanup_resources(self):

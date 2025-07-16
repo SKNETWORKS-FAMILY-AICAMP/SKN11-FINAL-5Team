@@ -12,6 +12,11 @@ from shared_modules.database import get_session, engine
 from shared_modules.db_models import User, Conversation, Message, AutomationTask
 from shared_modules.env_config import get_config
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 logger = logging.getLogger(__name__)
 
 class AutomationDatabaseHelper:
@@ -223,7 +228,7 @@ class AutomationDatabaseHelper:
                 "message": message,
                 "success": success,
                 "error_message": error_message,
-                "created_at": datetime.now()
+                "created_at": utc_to_kst(datetime.now())
             })
             
             session.commit()
