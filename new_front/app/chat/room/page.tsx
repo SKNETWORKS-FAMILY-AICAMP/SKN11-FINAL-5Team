@@ -224,6 +224,15 @@ const exampleQuestions = [
   },
 ]
 
+function extractBodyInnerHtml(fullHtml: string): string {
+  const bodyMatch = fullHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/im);
+  return bodyMatch ? bodyMatch[1] : fullHtml;
+}
+
+function isHtmlContent(content: string): boolean {
+  return /<!doctype html|<html|<body/i.test(content.trim());
+}
+
 export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -238,6 +247,7 @@ export default function ChatRoomPage() {
 
   // html린캐버스
   const [leanCanvasHtml, setLeanCanvasHtml] = useState<string | null>(null)
+  const [showCanvasPopup, setShowCanvasPopup] = useState(false)
 
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -295,6 +305,12 @@ export default function ChatRoomPage() {
 
 
   // PDF 다운로드 함수 _ original
+  useEffect(() => {
+      const handler = () => setShowCanvasPopup(true);
+      window.addEventListener('openLeanCanvasPopup', handler);
+      return () => window.removeEventListener('openLeanCanvasPopup', handler);
+    }, []);
+
   async function downloadLeanCanvasPdf() {
     const previewDiv = document.getElementById('lean-canvas-preview');
     if (!previewDiv) {
@@ -330,38 +346,6 @@ export default function ChatRoomPage() {
     }
   }
 
-  const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
-    try {
-      const result = await agentApi.createConversation(userId)
-      if (result.status === "success") {
-        setConversationId(result.data.conversation_id)
-        setMessages([])
-        setUserInput("")
-        setAgentConfig({
-          type: newAgent,
-          port: getAgentPort(newAgent),
-        })
-      }
-    } catch (error) {
-      console.error("대화 세션 생성 실패:", error)
-  const loadPreviousChat = async (chatId: number) => {
-    try {
-      const result = await agentApi.getConversationMessages(chatId)
-      if (!result.success || !result.data?.messages) {
-        throw new Error(result.error || "메시지를 불러올 수 없습니다")
-      }
-      setMessages(
-        result.data.messages.map((msg: ConversationMessage) => ({
-          sender: msg.role === "user" ? "user" : "agent",
-          text: msg.content,
-        }))
-      )
-      setConversationId(chatId)
-      setCurrentChatId(chatId)
-    } catch (error) {
-      console.error("이전 채팅 로드 실패:", error)
-    }
-  }
 
   const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
     try {
@@ -429,11 +413,31 @@ export default function ChatRoomPage() {
         throw new Error(result.error || "응답을 받지 못했습니다")
       }
       
-      const agentMessage: Message = {
-        sender: "agent",
-        text: result.data.answer,
+      console.log("result.data", result.data)
+      if (result.data?.answer) {
+        const answer = result.data.answer.trim();
+
+        if (isHtmlContent(answer)) {
+          // const cleanHtml = extractBodyInnerHtml(answer);
+          // setLeanCanvasHtml(cleanHtml);
+          setLeanCanvasHtml(result.data.answer);
+
+          const agentMessage: Message = {
+            sender: "agent",
+            text: "[Lean Canvas] 도착! 클릭하여 수정 및 다운로드 가능합니다.",
+          };
+          setMessages((prev) => [...prev, agentMessage]);
+        } else {
+          const agentMessage: Message = {
+            sender: "agent",
+            text: result.data.answer,
+          };
+          setMessages((prev) => [...prev, agentMessage]);
+        }
       }
-        setMessages((prev: Message[]) => [...prev, agentMessage])
+
+
+                
     } catch (error) {
       console.error("응답 실패:", error)
       const agentMessage: Message = {
@@ -572,23 +576,6 @@ export default function ChatRoomPage() {
           </>
         )}
 
-        {leanCanvasHtml && (
-          <div className="mb-4">
-            <div
-              id="lean-canvas-preview"
-              className="border rounded-lg p-4 bg-white mb-2"
-              dangerouslySetInnerHTML={{ __html: leanCanvasHtml }}
-            />
-            <Button
-              type="button"
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mt-2"
-              onClick={downloadLeanCanvasPdf}
-            >
-              PDF 다운로드
-            </Button>
-          </div>
-        )}
-
 
         {/* 채팅 메시지 영역 */}
         <div className="flex-1 space-y-4 overflow-y-auto pb-24">
@@ -599,8 +586,8 @@ export default function ChatRoomPage() {
                   <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
                     <Image src="/3D_고양이.png" width={36} height={36} alt="사용자" className="rounded-full" />
                   </div>
-                  <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
-                    <div className="bg-green-100 text-green-900 px-4 py-3 rounded-2xl shadow-md word-break-break-word whitespace-pre-wrap leading-relaxed">
+                  <div className="inline-block max-w-[90%] p-0.5">
+                    <div className="bg-green-100 text-green-900 px-4 py-3 rounded-2xl shadow-md whitespace-pre-wrap leading-relaxed">
                       {msg.text}
                     </div>
                   </div>
@@ -616,17 +603,81 @@ export default function ChatRoomPage() {
                       className="rounded-full"
                     />
                   </div>
-                  <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
+                  <div className="inline-block max-w-[90%] p-0.5">
                     <div className="bg-white text-gray-800 px-4 py-3 rounded-2xl shadow-md whitespace-pre-wrap leading-relaxed">
-                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                      {msg.text === "[Lean Canvas] 도착! 클릭하여 수정 및 다운로드 가능합니다." ? (
+                        <>
+                          <div className="space-y-2">
+                            <div>📦 <strong>Lean Canvas</strong>가 도착했습니다.</div>
+                            <Button onClick={() => {
+                              const newWindow = window.open("", "_blank", "width=1200,height=800");
+                              if (newWindow && leanCanvasHtml) {
+                                newWindow.document.write(`
+                                  <!DOCTYPE html>
+                                  <html lang="ko">
+                                  <head>
+                                    <meta charset="UTF-8" />
+                                    <title>Lean Canvas 미리보기</title>
+                                      <style>
+                                        html, body {
+                                          margin: 0;
+                                          padding: 0;
+                                          width: 100vw;
+                                          height: 100vh;
+                                          overflow-x: hidden;
+                                          background: #046BBF;
+                                        }
+                                      </style>
+                                  </head>
+                                  <body>
+                                    ${leanCanvasHtml}
+                                  </body>
+                                  </html>
+                                `);
+                                newWindow.document.close();
+                              }
+                            }}>
+                              미리보기 팝업 열기
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <ReactMarkdown>{msg.text}</ReactMarkdown>
+                      )}
+
+
                     </div>
                   </div>
                 </div>
               )}
             </div>
           ))}
+
           <div ref={scrollRef} />
         </div>
+        
+
+        {showCanvasPopup && leanCanvasHtml && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded shadow-lg max-w-[90%] max-h-[90%] overflow-auto">
+              <iframe
+                srcDoc={leanCanvasHtml}
+                title="Lean Canvas Preview"
+                style={{
+                  width: "90%",
+                  height: "80vh",
+                  border: "none",
+                  borderRadius: "12px",
+                }}
+                sandbox="allow-scripts allow-downloads allow-modals"
+              />
+              <div className="text-right mt-4">
+                <Button onClick={() => setShowCanvasPopup(false)}>닫기</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* 입력 영역 */}
         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-green-50 via-green-50">
@@ -670,7 +721,6 @@ export default function ChatRoomPage() {
         />
       )}
     </div>
-  </div>
   )
 }
 

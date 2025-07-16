@@ -17,6 +17,8 @@ import { useMemo } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useEffect } from "react"
 
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
 
 
 export default function MyPage() {
@@ -43,6 +45,57 @@ export default function MyPage() {
   const [selectedReport, setSelectedReport] = useState<any>(null)
   const [htmlPreview, setHtmlPreview] = useState<string>("")
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+
+  // PDF 다운로드용 임시 DOM 영역 생성
+const createPreviewDOM = (html: string) => {
+  const tempDiv = document.createElement("div")
+  tempDiv.innerHTML = html
+  tempDiv.style.position = "absolute"
+  tempDiv.style.left = "-9999px"
+  tempDiv.id = "preview-temp"
+  document.body.appendChild(tempDiv)
+  return tempDiv
+}
+
+const removePreviewDOM = () => {
+  const existing = document.getElementById("preview-temp")
+  if (existing) document.body.removeChild(existing)
+}
+
+const downloadAsPdf = async () => {
+  removePreviewDOM() // 혹시 남아있던 이전 DOM 제거
+  const tempDOM = createPreviewDOM(htmlPreview)
+
+  const textareas = tempDOM.querySelectorAll("textarea")
+  const formData: Record<string, string> = {}
+
+  textareas.forEach((textarea) => {
+    const value = textarea.value
+    const wrapper = textarea.closest(".textarea-wrapper")
+    const preview = wrapper?.querySelector(".preview-textarea") as HTMLDivElement
+    if (preview) preview.textContent = value
+    textarea.style.display = "none"
+    preview.style.display = "block"
+    formData[textarea.name] = value
+  })
+
+  const canvas = await html2canvas(tempDOM, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: null,
+  })
+
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "px",
+    format: [canvas.width, canvas.height],
+  })
+  const imgData = canvas.toDataURL("image/png")
+  pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height)
+  pdf.save("lean-canvas.pdf")
+
+  removePreviewDOM()
+}
 
   
   const openPreview = async (report_id: number) => {
@@ -76,18 +129,22 @@ export default function MyPage() {
             Object.entries(contentObj).forEach(([key, value]) => {
               const safeValue = String(value).trim()
 
-              // <textarea name="key"> 치환
+              // <textarea name="key"> 치환 
               finalHtml = finalHtml.replace(
                 new RegExp(`(<textarea[^>]*name="${key}"[^>]*>)[\\s\\S]*?(</textarea>)`, "g"),
                 `$1${safeValue}$2`
               )
-
+              
+              
               // <div class="preview-textarea"> 치환 (주의: 여러 preview가 있을 경우 다 덮일 수 있음)
               finalHtml = finalHtml.replace(
                 new RegExp(`(<div[^>]*class="preview-textarea"[^>]*>)[\\s\\S]*?(</div>)`, "g"),
                 `$1${safeValue}$2`
               )
             })
+
+            // textarea 태그 제거 
+            
           } catch (err) {
             console.warn("⚠️ content JSON 파싱 실패", err)
           }
@@ -415,7 +472,7 @@ export default function MyPage() {
                     className="prose max-w-none"
                   />
                   <div className="mt-4 flex justify-end">
-                  <Button
+                  {/* <Button
                     variant="default"
                     className="mt-4 bg-green-600 hover:bg-green-700"
                     onClick={async () => {
@@ -440,8 +497,14 @@ export default function MyPage() {
                     }}
                   >
                     PDF 다운로드
+                  </Button> */}
+                  <Button
+                    variant="default"
+                    className="mt-4 bg-green-600 hover:bg-green-700"
+                    onClick={downloadAsPdf}
+                  >
+                    PDF 다운로드
                   </Button>
-
                 </div>
                 </DialogContent>
               </Dialog>

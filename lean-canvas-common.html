@@ -316,9 +316,15 @@
     <button type="button" class="download-button" id="downloadBtn">pdf 다운로드</button>
   </div>
  </div>
- <script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+  const { jsPDF } = window.jspdf;
+
   async function downloadLeanCanvasPdf() {
     const captureArea = document.getElementById('capture-area');
+    const downloadBtn = document.getElementById('downloadBtn');
+
     if (!captureArea) {
       alert("캡처할 영역을 찾을 수 없습니다.");
       return;
@@ -326,42 +332,77 @@
 
     const textareas = captureArea.querySelectorAll('textarea');
     const formData = {};
+    textareas.forEach(textarea => {
+      const wrapper = textarea.closest('.textarea-wrapper');
+      const preview = wrapper.querySelector('.preview-textarea');
+      preview.textContent = textarea.value;
+      textarea.style.display = 'none';
+      preview.style.display = 'block';
+      formData[textarea.name] = textarea.value;
+    });
+
+    if (downloadBtn) downloadBtn.style.visibility = 'hidden';
+
+    const canvas = await html2canvas(captureArea, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: null
+    });
+
+    if (downloadBtn) downloadBtn.style.visibility = 'visible';
+
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const imgData = canvas.toDataURL('image/png');
+
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'px',
+      format: [canvasWidth, canvasHeight]
+    });
+
+    pdf.addImage(imgData, 'PNG', 0, 0, canvasWidth, canvasHeight);
+    pdf.save('lean-canvas.pdf');
+
+    const style = document.querySelector('style')?.innerText || '';
+    const html = `
+      <html lang="ko">
+        <head>
+          <meta charset="UTF-8">
+          <style>${style}</style>
+        </head>
+        <body>${captureArea.innerHTML}</body>
+      </html>
+    `;
+
+    try {
+      await fetch('http://localhost:8001/report/pdf/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, form_data: formData }),
+      });
+    } catch (e) {
+      console.error('서버 전송 실패:', e);
+    }
 
     textareas.forEach(textarea => {
       const wrapper = textarea.closest('.textarea-wrapper');
       const preview = wrapper.querySelector('.preview-textarea');
-      if (preview) {
-        const val = textarea.value;
-        preview.textContent = val;
-        textarea.style.display = 'none';
-        preview.style.display = 'block';
-      }
-      formData[textarea.name] = textarea.value;
+      textarea.style.display = 'block';
+      preview.style.display = 'none';
     });
-
-    const html = captureArea.innerHTML;
-
-    const res = await fetch('http://localhost:8001/report/pdf/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html, form_data: formData }),
-    });
-
-    const { file_id } = await res.json();
-    window.location.href = `http://localhost:8001/report/pdf/download/${file_id}`;
   }
 
-
-  document.addEventListener('DOMContentLoaded', function () {
+  document.addEventListener('DOMContentLoaded', () => {
     const button = document.getElementById('downloadBtn');
     if (button) {
       button.addEventListener('click', downloadLeanCanvasPdf);
     }
   });
 </script>
+
+
  </body>
  </html>
 
 
-
- 

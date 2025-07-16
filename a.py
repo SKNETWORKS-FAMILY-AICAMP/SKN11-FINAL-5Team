@@ -44,7 +44,7 @@ from shared_modules import get_session_context
 from shared_modules.queries import create_template_message
 
 # === 설정 ===
-html_file_path = "C:/TinkerBell/lean-canvas-common.html"
+html_file_path = "C:/TinkerBell/SKN11-FINAL-5Team/lean-canvas-common.html"
 user_id = 3
 title = "린 캔버스_common"
 channel_type = "EMAIL"  # 반드시 대문자여야 함

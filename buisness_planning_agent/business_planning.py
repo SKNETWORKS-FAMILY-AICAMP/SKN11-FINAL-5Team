@@ -600,7 +600,7 @@ class PdfCreateRequest(BaseModel):
     html: str
     form_data: Optional[Dict[str, str]] = None
 
-## db에 저장하려 하는데 안들어감 
+## db에 저장이 버튼누ㄹ를때마다 되니까 분리해야함 
 @app.post("/report/pdf/create")
 async def create_pdf_from_html_api(data: PdfCreateRequest,
     db: Session = Depends(get_db_dependency),):
