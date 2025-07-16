@@ -96,7 +96,7 @@ class AutomationRequest(BaseModel):
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행되는 라이프사이클 함수"""
     # 시작 시
-    logger.info("통합 에이전트 시스템 시작")
+    logger.info("통합 에이전트 시스템 시작 (블로그 워크플로우 통합)")
     workflow = get_workflow()
     
     # 에이전트 상태 확인
@@ -194,6 +194,32 @@ async def get_conversation_messages(conversation_id: int, limit: int = 50):
     except Exception as e:
         logger.error(f"메시지 목록 조회 실패: {e}")
         return create_error_response("메시지 목록 조회에 실패했습니다", "MESSAGE_LIST_ERROR")
+
+# ===== 블로그 마케팅 워크플로우 API =====
+
+class BlogMarketingRequest(BaseModel):
+    user_id: int
+    conversation_id: int
+    base_keyword: str
+
+@app.post("/blog/marketing/execute")
+async def execute_blog_marketing(request: BlogMarketingRequest):
+    """블로그 마케팅 워크플로우 실행"""
+    try:
+        workflow = get_workflow()
+        
+        unified_request = UnifiedRequest(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+            message=f"블로그 마케팅: {request.base_keyword}"
+        )
+        
+        response = await workflow.process_request(unified_request)
+        return create_success_response(response.dict())
+        
+    except Exception as e:
+        logger.error(f"블로그 마케팅 워크플로우 실행 실패: {e}")
+        return create_error_response("블로그 마케팅 워크플로우 실행에 실패했습니다", "BLOG_MARKETING_ERROR")
 
 # ===== 사용자 관리 API =====
 import requests
@@ -928,7 +954,7 @@ async def handle_emergency(req: EmergencyRequest):
     except Exception as e:
         logger.error(f"긴급상황 처리 오류: {e}")
         return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
-
+    
 # ===== 업무지원 전용 API (예시) =====
 # 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다
 
@@ -1105,8 +1131,22 @@ async def root():
             <p><span class="endpoint">GET /docs</span> - API 문서</p>
             <p><span class="endpoint">GET /test-ui</span> - 웹 테스트 인터페이스</p>
             
+            <h3>📝 블로그 마케팅 자동화 API</h3>
+            <p><span class="endpoint">POST /blog/workflow/execute</span> - A2A 블로그 워크플로우 실행</p>
+            <p><span class="endpoint">GET /blog/contents/scheduled</span> - 예약된 콘텐츠 목록</p>
+            <p><span class="endpoint">POST /blog/contents/{id}/publish</span> - 콘텐츠 발행</p>
+            
             <h2>📊 시스템 상태</h2>
-            <p class="status">✅ 서비스 정상 운영 중</p>
+            <p class="status">✅ 서비스 정상 운영 중 (블로그 A2A 워크플로우 통합)</p>
+            
+            <h3>✨ 새로운 기능</h3>
+            <ul>
+                <li>🔄 Task Agent ↔ Marketing Agent A2A 통신</li>
+                <li>🔑 네이버 API 기반 키워드 추천</li>
+                <li>✍️ 병렬 콘텐츠 생성</li>
+                <li>📅 자동 발행 스케줄링</li>
+                <li>💾 데이터베이스 자동 저장</li>
+            </ul>
         </div>
     </body>
     </html>

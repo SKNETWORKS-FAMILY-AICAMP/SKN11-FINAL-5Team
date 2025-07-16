@@ -305,7 +305,34 @@ class TaskAgent:
                                        intent_analysis: Dict) -> UnifiedResponse:
         """자동화 타입에 따른 포맷 제공"""
         try:
-            # 자동화 타입에 따른 포맷 제공
+            # publish_sns 타입인 경우 마케팅 페이지로 리다이렉션
+            if automation_type == "publish_sns":
+                routing_decision = RoutingDecision(
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    confidence=1.0,
+                    reasoning="Redirecting to marketing page for SNS publishing",
+                    keywords=["marketing", "sns"],
+                    priority=Priority.HIGH
+                )
+                
+                return UnifiedResponse(
+                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+                    agent_type=AgentType.TASK_AUTOMATION,
+                    response="SNS 마케팅 기능을 이용하시려면 마케팅 페이지로 이동해주세요.\n\n[마케팅 페이지로 이동하기](/marketing)",
+                    confidence=1.0,
+                    routing_decision=routing_decision,
+                    sources=None,
+                    metadata={
+                        "redirect": "/marketing",
+                        "automation_type": automation_type,
+                        "intent": intent_analysis["intent"]
+                    },
+                    processing_time=0.0,
+                    timestamp=datetime.now(),
+                    alternatives=[]
+                )
+            
+            # 다른 자동화 타입에 대한 기존 로직
             template = self._get_automation_template(automation_type)
             
             # 사용자 컨텍스트에 맞는 안내 메시지 추가
@@ -486,7 +513,7 @@ class TaskAgent:
             automation_types = {
                 "schedule_calendar": ["일정", "캘린더", "회의", "예약"],
                 "send_email": ["이메일", "메일", "발송"],
-                "publish_sns": ["SNS", "소셜", "게시", "트위터", "페이스북"],
+                "publish_sns": ["SNS", "소셜", "게시", "블로그", "인스타그램","포스팅", "컨텐츠", "키워드", "마케팅"],
                 "send_reminder": ["리마인더", "알림", "알려주기"],
                 "send_message": ["메시지", "슬랙", "Slack", "팀즈", "Teams"]
             }
@@ -615,12 +642,12 @@ class TaskAgent:
                 return bool(extracted_info.get("to_emails") and 
                           extracted_info.get("subject") and 
                           extracted_info.get("body"))
-            elif automation_type == "publish_sns":
-                return bool(extracted_info.get("platform") and extracted_info.get("content"))
             elif automation_type == "send_reminder":
                 return bool(extracted_info.get("title") and extracted_info.get("remind_time"))
             elif automation_type == "send_message":
                 return bool(extracted_info.get("platform") and extracted_info.get("content"))
+            elif automation_type == "blog_marketing":
+                return bool(extracted_info.get("base_keyword"))
             else:
                 return True  # 기타 타입은 기본적으로 통과
         except Exception as e:
@@ -649,11 +676,6 @@ class TaskAgent:
                 if recipients:
                     return f"이메일 발송: {subject} (to: {len(recipients)}명)"
                 return f"이메일 발송: {subject}"
-            elif automation_type == "publish_sns":
-                content = extracted_info.get('content', '')
-                platform = extracted_info.get('platform', 'SNS')
-                preview = content[:30] + "..." if len(content) > 30 else content
-                return f"{platform} 발행: {preview}"
             elif automation_type == "send_reminder":
                 return f"리마인더: {extracted_info.get('title', '제목 없음')}"
             elif automation_type == "send_message":
@@ -710,18 +732,6 @@ class TaskAgent:
 • 첨부파일: [파일 경로] (선택사항)
 
 예시: "john@company.com에게 '월간 보고서' 제목으로 보고서 첨부해서 보내줘"
-""",
-            
-            "publish_sns": """
-📱 **SNS 발행을 위한 정보를 알려주세요:**
-
-• 플랫폼: [Twitter, Facebook, Instagram, LinkedIn 등]
-• 내용: [게시물 내용]
-• 예약시간: [YYYY-MM-DD HH:MM] (선택사항)
-• 해시태그: [#태그1 #태그2] (선택사항)
-• 이미지: [이미지 경로] (선택사항)
-
-예시: "트위터에 '새로운 프로젝트 출시!' 내용으로 #프로젝트 #출시 태그와 함께 게시"
 """,
             
             "send_reminder": """
