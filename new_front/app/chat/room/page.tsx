@@ -14,7 +14,9 @@ import { agentApi } from "@/app/api/agent"
 import { AGENT_CONFIG, type AgentType } from "@/config/constants"
 
 
-const getAgentPort = (agent: string): number => {
+// 에이전트 포트 매핑
+const getAgentPort = (agent: string) => {
+
   const portMap: { [key: string]: number } = {
     unified_agent: 8000,
     planner: 8001,
@@ -25,7 +27,6 @@ const getAgentPort = (agent: string): number => {
   }
   return portMap[agent] || 8000
 }
-
 
 interface Message {
   sender: "user" | "agent"
@@ -334,7 +335,10 @@ export default function ChatRoomPage() {
         setConversationId(result.data.conversation_id)
         setMessages([])
         setUserInput("")
-        setAgentType(newAgent)
+        setAgentConfig({
+          type: newAgent,
+          port: getAgentPort(newAgent),
+        })
       }
     } catch (error) {
       console.error("대화 세션 생성 실패:", error)
@@ -592,7 +596,7 @@ export default function ChatRoomPage() {
   </div>
   )
 }
-  
+
 
 // 목표
 // 린캔버스 답변이 올 때만 미리보기와 PDF 다운로드 버튼이 자동으로 노출되고, 
