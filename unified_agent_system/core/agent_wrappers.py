@@ -37,7 +37,20 @@ class BaseAgentWrapper(ABC):
                 headers={"Content-Type": "application/json"}
             )
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            
+            # create_success_response로 래핑된 응답인 경우 data 부분만 추출
+            if isinstance(result, dict) and "success" in result and "data" in result:
+                if result.get("success"):
+                    return result["data"]
+                else:
+                    # 에러 응답인 경우
+                    error_msg = result.get("error", "알 수 없는 오류")
+                    raise Exception(f"Agent error: {error_msg}")
+            
+            # 직접 응답인 경우 그대로 반환
+            return result
+            
         except httpx.TimeoutException:
             logger.error(f"{self.agent_type} 타임아웃")
             raise Exception(f"{self.agent_type} 응답 시간 초과")
@@ -51,7 +64,16 @@ class BaseAgentWrapper(ABC):
     async def health_check(self) -> bool:
         """에이전트 상태 확인"""
         try:
-            health_url = self.config.endpoint.replace("/agent/query", "/health")
+            # 다양한 health endpoint 패턴 지원
+            health_url = self.config.endpoint
+            if "/agent/query" in health_url:
+                health_url = health_url.replace("/agent/query", "/health")
+            elif "/query" in health_url:
+                health_url = health_url.replace("/query", "/health")
+            else:
+                # 기본 health endpoint 추가
+                health_url = health_url.rstrip('/') + "/health"
+            
             response = await self.client.get(health_url, timeout=5)
             return response.status_code == 200
         except Exception:
@@ -74,7 +96,10 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
         try:
             # 비즈니스 플래닝 에이전트 API 형식에 맞게 변환
             payload = {
-                "question": request.message,
+                "user_id": request.user_id,
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -83,7 +108,7 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=result.get("response") or result.get("answer", "응답을 받지 못했습니다."),
                 confidence=0.85,  # 기본값
                 sources=result.get("sources", ""),
                 metadata={
@@ -118,9 +143,9 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
             # 고객 서비스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "conversation_id": request.conversation_id or 1,
-                "question": request.message,
-                "history": request.history
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -129,7 +154,7 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=result.get("answer") or result.get("response", "응답을 받지 못했습니다."),
                 confidence=0.85,
                 sources="",  # 고객 서비스 에이전트는 sources를 따로 반환하지 않음
                 metadata={
@@ -162,8 +187,9 @@ class MarketingAgentWrapper(BaseAgentWrapper):
             # 마케팅 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "question": request.message,
-                "conversation_id": request.conversation_id
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -172,7 +198,7 @@ class MarketingAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("answer", "응답을 받지 못했습니다."),
+                response=result.get("answer") or result.get("response", "응답을 받지 못했습니다."),
                 confidence=0.85,
                 sources=result.get("sources", ""),
                 metadata={
@@ -207,8 +233,9 @@ class MentalHealthAgentWrapper(BaseAgentWrapper):
             # 멘탈 헬스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
-                "conversation_id": request.conversation_id or 1,
-                "message": request.message
+                "conversation_id": request.conversation_id,
+                "message": request.message,
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -217,7 +244,7 @@ class MentalHealthAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("response", "응답을 받지 못했습니다."),
+                response=result.get("response") or result.get("answer", "응답을 받지 못했습니다."),
                 confidence=0.9,  # 멘탈 헬스는 높은 신뢰도
                 sources="",
                 metadata={
@@ -251,10 +278,10 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
         try:
             # 업무 자동화 에이전트 API 형식에 맞게 변환
             payload = {
-                "user_id": str(request.user_id),
+                "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "entrepreneur"  # 기본 페르소나
+                "persona": "common"  # 기본 페르소나 설정
             }
             
             result = await self._make_request(payload)
@@ -263,7 +290,7 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
             
             return AgentResponse(
                 agent_type=self.agent_type,
-                response=result.get("response", "응답을 받지 못했습니다."),
+                response=result.get("response") or result.get("answer", "응답을 받지 못했습니다."),
                 confidence=0.85,
                 sources="",
                 metadata={

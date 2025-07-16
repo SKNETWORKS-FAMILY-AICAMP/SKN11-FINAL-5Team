@@ -78,9 +78,9 @@ class UnifiedAgentWorkflow:
             # 처리 시간 계산
             processing_time = time.time() - start_time
             
-            if final_state.final_response:
-                final_state.final_response.processing_time = processing_time
-                return final_state.final_response
+            if final_state["final_response"]:
+                final_state["final_response"].processing_time = processing_time
+                return final_state["final_response"]
             else:
                 # 오류 상황
                 return UnifiedResponse(

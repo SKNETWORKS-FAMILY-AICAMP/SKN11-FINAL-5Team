@@ -17,7 +17,7 @@ from typing import Dict, Any, List
 from models import UserQuery, AutomationRequest
 from utils import TaskAgentLogger, TaskAgentResponseFormatter
 from agent import TaskAgent
-import config
+from config import config
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +37,8 @@ from shared_modules import (
     get_recent_messages,
     get_session_context,
     insert_message_raw,
-    get_current_timestamp
+    get_current_timestamp,
+    create_task_response  # 표준 응답 생성 함수 추가
 )
 from shared_modules.utils import get_or_create_conversation_session
 from shared_modules.logging_utils import setup_logging
@@ -74,12 +75,23 @@ async def get_conversation_history(conversation_id: int, limit: int = 10) -> Lis
             
             history = []
             for msg in reversed(messages):  # 시간순 정렬
-                history.append({
-                    "role": "user" if msg["sender_type"] == "user" else "assistant",
-                    "content": msg["content"],
-                    "timestamp": msg["created_at"].isoformat() if msg.get("created_at") else None,
-                    "agent_type": msg.get("agent_type")
-                })
+                # Handle both dict and object types
+                if isinstance(msg, dict):
+                    # If msg is a dictionary
+                    history.append({
+                        "role": "user" if msg.get("sender_type") == "user" else "assistant",
+                        "content": msg.get("content", ""),
+                        "timestamp": msg.get("created_at").isoformat() if msg.get("created_at") else None,
+                        "agent_type": msg.get("agent_type")
+                    })
+                else:
+                    # If msg is an object (ORM model)
+                    history.append({
+                        "role": "user" if getattr(msg, "sender_type", None) == "user" else "assistant",
+                        "content": getattr(msg, "content", ""),
+                        "timestamp": getattr(msg, "created_at", None).isoformat() if getattr(msg, "created_at", None) else None,
+                        "agent_type": getattr(msg, "agent_type", None)
+                    })
             
             return history
     except Exception as e:
@@ -194,19 +206,35 @@ async def process_user_query(query: UserQuery):
         TaskAgentLogger.log_user_interaction(
             user_id=query.user_id,
             action="query_completed",
-            details=f"conversation_id: {conversation_id}, intent: {response.intent}"
+            details=f"conversation_id: {conversation_id}, intent: {response.metadata.get('intent', 'unknown')}"
         )
         
-        # 7. 통일된 응답 생성
-        response_data = {
-            "conversation_id": conversation_id,
-            "topics": [response.intent] if hasattr(response, 'intent') else [],
-            "answer": response.response,
-            "sources": getattr(response, 'sources', ""),
-            "retrieval_used": getattr(response, 'retrieval_used', False),
-            "response_type": getattr(response, 'response_type', "normal"),
-            "timestamp": get_current_timestamp()
+        # 7. 표준 응답 생성
+        # First, get all attributes we want to exclude
+        excluded_keys = {
+            'response', 'conversation_id', 'topics', 'sources', 
+            'intent', 'urgency', 'actions', 'automation_created', 'response_type'
         }
+        
+        # Get additional attributes from response, excluding the ones we handle explicitly
+        additional_attrs = {}
+        if hasattr(response, 'dict') and callable(response.dict):
+            additional_attrs = {
+                k: v for k, v in response.dict().items() 
+                if k not in excluded_keys
+            }
+        
+        response_data = create_task_response(
+            conversation_id=conversation_id,
+            answer=response.response or "",
+            topics=[response.metadata.get('intent', 'general_inquiry')],
+            sources=getattr(response, 'sources', "") or "",
+            intent=response.metadata.get('intent', 'general_inquiry') or 'general_inquiry',
+            urgency=getattr(response, 'urgency', 'medium') or 'medium',
+            actions=getattr(response, 'actions', []) or [],
+            automation_created=getattr(response, 'automation_created', False) or False,
+            **additional_attrs
+        )
         
         return create_success_response(response_data)
         

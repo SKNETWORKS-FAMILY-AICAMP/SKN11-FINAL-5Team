@@ -71,7 +71,7 @@ class EnvironmentConfig:
         
         # 서버 설정
         self.HOST = os.getenv("HOST", "0.0.0.0")
-        self.PORT = self._get_int_env("PORT", 8000)
+        self.PORT = self._get_int_env("PORT", 8080)
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         
         # 기타 설정

@@ -13,24 +13,20 @@ import { Send, Menu, User } from "lucide-react"
 import { agentApi } from "@/app/api/agent"
 import { AGENT_CONFIG, type AgentType } from "@/config/constants"
 
-
-// 에이전트 포트 매핑
-const getAgentPort = (agent: string) => {
-
-  const portMap: { [key: string]: number } = {
-    unified_agent: 8000,
-    planner: 8001,
-    marketing: 8002,
-    crm: 8003,
-    task: 8004,
-    mentalcare: 8005,
-  }
-  return portMap[agent] || 8000
-}
-
 interface Message {
   sender: "user" | "agent"
   text: string
+}
+
+interface ConversationMessage {
+  role: "user" | "agent"
+  content: string
+}
+
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: string
 }
 
 interface FeedbackModalProps {
@@ -64,7 +60,9 @@ function FeedbackModal({
             <span
               key={num}
               onClick={() => setRating(num)}
-              className={`cursor-pointer text-2xl ${rating >= num ? "text-yellow-400" : "text-gray-300"}`}
+              className={`cursor-pointer text-2xl transition-colors duration-200 ${rating >= num ? "text-yellow-400" : "text-gray-300"} hover:text-yellow-300`}
+              onMouseEnter={() => setRating(num)}
+              onMouseLeave={() => setRating(rating)}
             >
               ★
             </span>
@@ -232,15 +230,11 @@ export default function ChatRoomPage() {
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
 
-  const [agentType, setAgentType] = useState<AgentType>(agent)
   const [userId] = useState(3) // 실제 구현시 로그인 사용자 ID 사용
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState("")
-  const [agentConfig, setAgentConfig] = useState({
-    type: agent,
-    port: getAgentPort(agent),
-  })
+  const [agentType, setAgentType] = useState<AgentType>(agent)
 
   // html린캐버스
   const [leanCanvasHtml, setLeanCanvasHtml] = useState<string | null>(null)
@@ -279,17 +273,25 @@ export default function ChatRoomPage() {
 
   // 초기 설정
   useEffect(() => {
-    startNewConversation(agent)
-    if (initialQuestion) {
-      setUserInput(initialQuestion)
-      setTimeout(() => {
-        const form = document.querySelector("form")
-        if (form) {
-          form.dispatchEvent(new Event("submit", { bubbles: true }))
+    const initializeChat = async () => {
+      try {
+        await startNewConversation(agent)
+        if (initialQuestion) {
+          setUserInput(initialQuestion)
+          setTimeout(() => {
+            const form = document.querySelector("form")
+            if (form) {
+              form.dispatchEvent(new Event("submit", { bubbles: true }))
+            }
+          }, 100)
         }
-      }, 100)
+      } catch (error) {
+        console.error("초기화 실패:", error)
+        alert("채팅 초기화에 실패했습니다. 페이지를 새로고침해주세요.")
+      }
     }
-  }, [])
+    initializeChat()
+  }, [agent, initialQuestion])
 
 
   // PDF 다운로드 함수 _ original
@@ -342,12 +344,69 @@ export default function ChatRoomPage() {
       }
     } catch (error) {
       console.error("대화 세션 생성 실패:", error)
+  const loadPreviousChat = async (chatId: number) => {
+    try {
+      const result = await agentApi.getConversationMessages(chatId)
+      if (!result.success || !result.data?.messages) {
+        throw new Error(result.error || "메시지를 불러올 수 없습니다")
+      }
+      setMessages(
+        result.data.messages.map((msg: ConversationMessage) => ({
+          sender: msg.role === "user" ? "user" : "agent",
+          text: msg.content,
+        }))
+      )
+      setConversationId(chatId)
+      setCurrentChatId(chatId)
+    } catch (error) {
+      console.error("이전 채팅 로드 실패:", error)
+    }
+  }
+
+  const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
+    try {
+      const result = await agentApi.createConversation(userId)
+      if (!result.success) {
+        throw new Error(result.error || "대화 세션 생성에 실패했습니다")
+      }
+      if (!result.data?.conversationId) {
+        throw new Error("대화 세션 ID를 받지 못했습니다")
+      }
+      setConversationId(result.data.conversationId)
+      setMessages([])
+      setUserInput("")
+      setAgentType(newAgent)
+      setCurrentChatId(null)
+    } catch (error) {
+      console.error("대화 세션 생성 실패:", error)
+      throw error
     }
   }
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userInput.trim() || !conversationId) return
+    if (!userInput.trim()) return
+    
+    let currentConversationId = conversationId
+    if (!currentConversationId) {
+      try {
+        const result = await agentApi.createConversation(userId)
+        if (!result.success) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        currentConversationId = result.data?.conversationId || null
+        if (!currentConversationId) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        setConversationId(currentConversationId)
+      } catch (error) {
+        console.error("대화 세션 생성 실패:", error)
+        alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+        return
+      }
+    }
 
     const currentInput = userInput
     setUserInput("")
@@ -357,37 +416,31 @@ export default function ChatRoomPage() {
     }
 
     const userMessage: Message = { sender: "user", text: currentInput }
-    setMessages((prev) => [...prev, userMessage])
+    setMessages((prev: Message[]) => [...prev, userMessage])
 
     try {
-      const result = await agentApi.sendQuery(userId, conversationId, currentInput, agentType)
-
-       if (result.success && result.data && result.data.type === "lean_canvas") {
-          setLeanCanvasHtml(result.data.content); // 린캔버스 HTML만 따로 저장
-        } else {
-          setLeanCanvasHtml(null); // 린캔버스가 아니면 미리보기 숨김
-        }
-
-      if (result.success && result.data) {
-        const agentMessage: Message = {
-          sender: "agent",
-          text: result.data.answer,
-        }
-        setMessages((prev) => [...prev, agentMessage])
-      } else {
-        const agentMessage: Message = {
-          sender: "agent",
-          text: "죄송합니다. 답변을 가져오지 못했어요.",
-        }
-        setMessages((prev) => [...prev, agentMessage])
+      if (!currentConversationId) {
+        throw new Error("대화 세션이 없습니다")
       }
+      
+      const result = await agentApi.sendQuery(userId, currentConversationId, currentInput, agentType)
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "응답을 받지 못했습니다")
+      }
+      
+      const agentMessage: Message = {
+        sender: "agent",
+        text: result.data.answer,
+      }
+        setMessages((prev: Message[]) => [...prev, agentMessage])
     } catch (error) {
       console.error("응답 실패:", error)
       const agentMessage: Message = {
         sender: "agent",
         text: "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
       }
-      setMessages((prev) => [...prev, agentMessage])
+      setMessages((prev: Message[]) => [...prev, agentMessage])
     }
   }
 
@@ -402,22 +455,64 @@ export default function ChatRoomPage() {
     }
   }
 
-  const handleExampleClick = (text: string) => {
+  const handleExampleClick = async (text: string) => {
     setUserInput(text)
-    setTimeout(() => {
-      const form = document.querySelector("form")
-      if (form) {
-        form.dispatchEvent(new Event("submit", { bubbles: true }))
+    let currentConversationId = conversationId
+    if (!currentConversationId) {
+      try {
+        const result = await agentApi.createConversation(userId)
+        if (!result.success) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        currentConversationId = result.data?.conversationId || null
+        if (!currentConversationId) {
+          alert("채팅 세션을 생성할 수 없습니다. 다시 시도해주세요.")
+          return
+        }
+        setConversationId(currentConversationId)
+      } catch (error) {
+        console.error("대화 세션 생성 실패:", error)
+        alert("채팅 시작에 실패했습니다. 다시 시도해주세요.")
+        return
       }
-    }, 0)
+    }
+    
+    try {
+      if (!currentConversationId) {
+        throw new Error("대화 세션이 없습니다")
+      }
+
+      const result = await agentApi.sendQuery(userId, currentConversationId, text, agentType)
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "메시지 전송에 실패했습니다")
+      }
+
+      const userMessage: Message = { sender: "user", text }
+      const agentMessage: Message = {
+        sender: "agent",
+        text: result.data.answer,
+      }
+      setMessages((prev: Message[]) => [...prev, userMessage, agentMessage])
+      setUserInput("")
+    } catch (error) {
+      console.error("응답 실패:", error)
+      alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+    }
   }
 
-  const handleSidebarSelect = (type: string) => {
-    if (type === "home") {
-      router.push("/chat")
-    } else {
+  const handleSidebarSelect = async (type: string) => {
+    try {
+      if (type === "home") {
+        router.push("/chat")
+        return
+      }
+      
+      await startNewConversation(type as AgentType)
       router.push(`/chat/room?agent=${type}`)
-      startNewConversation(type as AgentType)
+    } catch (error) {
+      console.error("에이전트 변경 실패:", error)
+      alert("에이전트 변경에 실패했습니다. 다시 시도해주세요.")
     }
   }
 
@@ -426,7 +521,7 @@ export default function ChatRoomPage() {
 
     try {
       const result = await agentApi.sendFeedback(userId, conversationId, rating, comment, category)
-      if (result.status === "success") {
+      if (result.success) {
         alert("피드백이 등록되었습니다!")
       } else {
         alert("피드백 전송에 실패했습니다.")
@@ -501,19 +596,9 @@ export default function ChatRoomPage() {
             <div key={idx} className={`flex items-start ${idx === 0 && msg.sender === "user" ? "mt-6" : ""}`}>
               {msg.sender === "user" ? (
                 <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2">
-                  {/* 고양이 아이콘 */}
-                  {/* <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
-                    <Image
-                      src="/3D_고양이.png"
-                      width={36}
-                      height={36}
-                      alt="사용자"
-                      className="rounded-full"
-                    />
-
-                  </div> */}
-
-                  {/* 유저 말풍선 */}
+                  <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
+                    <Image src="/3D_고양이.png" width={36} height={36} alt="사용자" className="rounded-full" />
+                  </div>
                   <div className="inline-block max-w-[90%] overflow-wrap-break-word word-break-break-word p-0.5">
                     <div className="bg-green-100 text-green-900 px-4 py-3 rounded-2xl shadow-md word-break-break-word whitespace-pre-wrap leading-relaxed">
                       {msg.text}
@@ -542,43 +627,35 @@ export default function ChatRoomPage() {
           ))}
           <div ref={scrollRef} />
         </div>
-        
-        {/* 입력창 */}
-        <form
-          className="absolute bottom-4 left-8 right-8 bg-white shadow-lg rounded-2xl px-4 py-3 flex flex-col space-y-2 border border-gray-200"
-          onSubmit={handleSend}
-        >
-          <Textarea
-            ref={textareaRef}
-            placeholder="추가 질문하기 ..."
-            value={userInput}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSend(e)
-              }
-            }}
-            rows={1}
-            className="w-full min-h-[40px] max-h-[120px] bg-white text-sm px-3 py-2 rounded-lg border-none outline-none resize-none overflow-y-auto focus:ring-0 focus:border-none transition-colors"
-            style={{ lineHeight: "1.5" }}
-          />
 
-          <div className="flex justify-end items-center">
-            {/* <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-gray-500 hover:text-red-600 text-xs"
-              onClick={() => setShowFeedbackModal(true)}
+        {/* 입력 영역 */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-green-50 via-green-50">
+          <form onSubmit={handleSend} className="flex space-x-2">
+            <Textarea
+              ref={textareaRef}
+              value={userInput}
+              onChange={handleInputChange}
+              placeholder="메시지를 입력하세요..."
+              className="flex-1 resize-none overflow-hidden rounded-xl border-2 border-gray-200 focus:border-green-400 shadow-lg"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend(e)
+                }
+              }}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="h-full aspect-square rounded-xl bg-green-600 hover:bg-green-700 shadow-lg"
+              disabled={!userInput.trim()}
             >
-              대화 끝내기
-            </Button> */}
-            <Button type="submit" size="sm" className="w-8 h-8 bg-green-600 hover:bg-green-700 rounded-full p-0">
-              <Send className="w-4 h-4 text-white" />
+              <Send className="h-5 w-5" />
             </Button>
-          </div>
-        </form>
+          </form>
+        </div>
+      </div>
 
       {showFeedbackModal && (
         <FeedbackModal

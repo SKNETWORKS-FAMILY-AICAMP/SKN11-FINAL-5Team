@@ -6,11 +6,13 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+import requests
 import uvicorn
 import sys
 import os
@@ -119,7 +121,7 @@ app = FastAPI(
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://192.168.0.200:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -194,6 +196,495 @@ async def get_conversation_messages(conversation_id: int, limit: int = 50):
         return create_error_response("메시지 목록 조회에 실패했습니다", "MESSAGE_LIST_ERROR")
 
 # ===== 사용자 관리 API =====
+import requests
+from fastapi import Request
+from sqlalchemy.orm import Session
+
+# 소셜 로그인 인증 URL 생성 엔드포인트
+@app.get("/auth/{provider}")
+async def get_auth_url(provider: str, request: Request, intent: str = "login"):
+    """소셜 로그인 인증 URL 생성"""
+    try:
+        # intent를 세션에 저장하여 콜백에서 사용
+        import uuid
+        state = str(uuid.uuid4())
+        
+        # 메모리에 intent 정보 저장 (실제 운영 환경에서는 Redis 등 사용 권장)
+        if not hasattr(app, 'social_sessions'):
+            app.social_sessions = {}
+        app.social_sessions[state] = {
+            'intent': intent,
+            'provider': provider
+        }
+        
+        if provider == "google":
+            auth_url = (
+                "https://accounts.google.com/o/oauth2/v2/auth?"
+                f"client_id={os.getenv('GOOGLE_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('GOOGLE_REDIRECT_URI')}&"
+                "response_type=code&"
+                "scope=openid email profile&"
+                f"state={state}"
+            )
+        elif provider == "kakao":
+            auth_url = (
+                "https://kauth.kakao.com/oauth/authorize?"
+                f"client_id={os.getenv('KAKAO_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('KAKAO_REDIRECT_URI')}&"
+                "response_type=code&"
+                f"state={state}"
+            )
+        elif provider == "naver":
+            auth_url = (
+                "https://nid.naver.com/oauth2.0/authorize?"
+                f"client_id={os.getenv('NAVER_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('NAVER_REDIRECT_URI')}&"
+                "response_type=code&"
+                f"state={state}"
+            )
+        else:
+            return create_error_response("지원하지 않는 소셜 로그인 제공자입니다", "INVALID_PROVIDER")
+        
+        return create_success_response({"auth_url": auth_url})
+        
+    except Exception as e:
+        logger.error(f"인증 URL 생성 오류: {e}")
+        return create_error_response("인증 URL 생성에 실패했습니다", "AUTH_URL_ERROR")
+
+# 회원가입용 소셜 로그인 인증 URL 생성 엔드포인트
+@app.post("/auth/{provider}")
+async def get_signup_auth_url(provider: str, request: Request, body: dict = Body(...)):
+    """소셜 회원가입 인증 URL 생성"""
+    try:
+        intent = body.get('intent', 'signup')
+        user_data = body.get('user_data', {})
+        
+        # state 생성 및 세션 저장
+        import uuid
+        state = str(uuid.uuid4())
+        
+        if not hasattr(app, 'social_sessions'):
+            app.social_sessions = {}
+        app.social_sessions[state] = {
+            'intent': intent,
+            'provider': provider,
+            'user_data': user_data
+        }
+        
+        if provider == "google":
+            auth_url = (
+                "https://accounts.google.com/o/oauth2/v2/auth?"
+                f"client_id={os.getenv('GOOGLE_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('GOOGLE_REDIRECT_URI')}&"
+                "response_type=code&"
+                "scope=openid email profile&"
+                f"state={state}"
+            )
+        elif provider == "kakao":
+            auth_url = (
+                "https://kauth.kakao.com/oauth/authorize?"
+                f"client_id={os.getenv('KAKAO_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('KAKAO_REDIRECT_URI')}&"
+                "response_type=code&"
+                f"state={state}"
+            )
+        elif provider == "naver":
+            auth_url = (
+                "https://nid.naver.com/oauth2.0/authorize?"
+                f"client_id={os.getenv('NAVER_CLIENT_ID')}&"
+                f"redirect_uri={os.getenv('NAVER_REDIRECT_URI')}&"
+                "response_type=code&"
+                f"state={state}"
+            )
+        else:
+            return create_error_response("지원하지 않는 소셜 로그인 제공자입니다", "INVALID_PROVIDER")
+        
+        return create_success_response({"auth_url": auth_url})
+        
+    except Exception as e:
+        logger.error(f"회원가입 인증 URL 생성 오류: {e}")
+        return create_error_response("인증 URL 생성에 실패했습니다", "AUTH_URL_ERROR")
+
+# 구글 소셜 로그인
+@app.get("/login/oauth2/code/google")
+async def google_login(request: Request, code: str, state: str = None):
+    try:
+        # state로 세션 정보 조회
+        session_info = None
+        if state and hasattr(app, 'social_sessions') and state in app.social_sessions:
+            session_info = app.social_sessions.pop(state)  # 사용 후 삭제
+        
+        intent = session_info.get('intent', 'login') if session_info else 'login'
+        user_data = session_info.get('user_data', {}) if session_info else {}
+        
+        token_url = "https://oauth2.googleapis.com/token"
+        data = {
+            "code": code,
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI"),
+            "grant_type": "authorization_code",
+        }
+        resp = requests.post(token_url, data=data)
+        if not resp.ok:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=google_token_failed")
+
+        token_info = resp.json()
+        access_token = token_info["access_token"]
+        refresh_token = token_info.get("refresh_token")
+
+        userinfo = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        ).json()
+        
+        provider = "google"
+        social_id = userinfo["id"]
+        email = userinfo.get("email")
+        nickname = userinfo.get("name", "")
+        
+        with get_session_context() as db:
+            existing_user = get_user_by_social(db, provider, social_id)
+            
+            # intent에 따른 처리
+            if intent == 'login':
+                if existing_user:
+                    # 기존 사용자 - 로그인 처리
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email,
+                        "username": nickname
+                    }
+                else:
+                    # 계정이 없음 - 회원가입 페이지로 리디렉션
+                    from fastapi.responses import RedirectResponse
+                    from urllib.parse import urlencode
+                    signup_params = urlencode({
+                        "provider": provider,
+                        "social_id": social_id,
+                        "email": email or "",
+                        "username": nickname,
+                        "action": "signup_required"
+                    })
+                    return RedirectResponse(url=f"http://localhost:3000/signup?{signup_params}")
+                    
+            elif intent == 'signup':
+                if existing_user:
+                    # 이미 가입된 사용자 - 바로 로그인
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email,
+                        "username": nickname
+                    }
+                else:
+                    # 새 사용자 생성
+                    new_user = create_user_social(
+                        db, provider, social_id, email, nickname,
+                        access_token=access_token, refresh_token=refresh_token
+                    )
+                    
+                    # 추가 사용자 정보가 있으면 업데이트
+                    if user_data:
+                        # 여기에 추가 사용자 정보 처리 로직 추가 가능
+                        pass
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email,
+                        "username": nickname
+                    }
+        
+        # 성공 시 채팅 페이지로 리디렉션
+        from fastapi.responses import RedirectResponse
+        from urllib.parse import urlencode
+        query_params = urlencode(user_data_response)
+        return RedirectResponse(url=f"http://localhost:3000/chat?{query_params}")
+        
+    except Exception as e:
+        logger.error(f"구글 로그인 처리 중 오류: {e}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:3000/login?error=google_process_failed")
+
+# 카카오 소셜 로그인
+@app.get("/login/oauth2/code/kakao")
+def kakao_login(code: str, state: str = None):
+    try:
+        # state로 세션 정보 조회
+        session_info = None
+        if state and hasattr(app, 'social_sessions') and state in app.social_sessions:
+            session_info = app.social_sessions.pop(state)
+        
+        intent = session_info.get('intent', 'login') if session_info else 'login'
+        user_data = session_info.get('user_data', {}) if session_info else {}
+        
+        token_url = "https://kauth.kakao.com/oauth/token"
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": os.getenv("KAKAO_CLIENT_ID"),
+            "redirect_uri": os.getenv("KAKAO_REDIRECT_URI"),
+            "code": code,
+        }
+        resp = requests.post(token_url, data=data)
+        if not resp.ok:
+            logger.error(f"카카오 토큰 요청 실패: {resp.text}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=kakao_token_failed")
+            
+        token_json = resp.json()
+        if "error" in token_json:
+            logger.error(f"카카오 토큰 응답 오류: {token_json}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=kakao_token_error")
+            
+        access_token = token_json["access_token"]
+        refresh_token = token_json.get("refresh_token", None)
+
+        userinfo_resp = requests.get(
+            "https://kapi.kakao.com/v2/user/me",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        
+        if not userinfo_resp.ok:
+            logger.error(f"카카오 사용자 정보 요청 실패: {userinfo_resp.text}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=kakao_userinfo_failed")
+            
+        userinfo = userinfo_resp.json()
+        if "id" not in userinfo:
+            logger.error(f"카카오 사용자 정보 응답 오류: {userinfo}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=kakao_userinfo_error")
+            
+        provider = "kakao"
+        social_id = str(userinfo["id"])
+        kakao_account = userinfo.get("kakao_account", {})
+        email = kakao_account.get("email", None)
+        nickname = kakao_account.get("profile", {}).get("nickname", "")
+        
+        with get_session_context() as db:
+            existing_user = get_user_by_social(db, provider, social_id)
+            
+            # intent에 따른 처리
+            if intent == 'login':
+                if existing_user:
+                    # 기존 사용자 - 로그인 처리
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email or "",
+                        "username": nickname
+                    }
+                else:
+                    # 계정이 없음 - 회원가입 페이지로 리디렉션
+                    from fastapi.responses import RedirectResponse
+                    from urllib.parse import urlencode
+                    signup_params = urlencode({
+                        "provider": provider,
+                        "social_id": social_id,
+                        "email": email or "",
+                        "username": nickname,
+                        "action": "signup_required"
+                    })
+                    return RedirectResponse(url=f"http://localhost:3000/signup?{signup_params}")
+                    
+            elif intent == 'signup':
+                if existing_user:
+                    # 이미 가입된 사용자 - 바로 로그인
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email or "",
+                        "username": nickname
+                    }
+                else:
+                    # 새 사용자 생성
+                    new_user = create_user_social(
+                        db, provider, social_id, email, nickname,
+                        access_token=access_token,
+                        refresh_token=refresh_token
+                    )
+                    
+                    # 추가 사용자 정보가 있으면 업데이트
+                    if user_data:
+                        # 여기에 추가 사용자 정보 처리 로직 추가 가능
+                        pass
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": nickname
+                    }
+        
+        # 성공 시 채팅 페이지로 리디렉션
+        from fastapi.responses import RedirectResponse
+        from urllib.parse import urlencode
+        query_params = urlencode(user_data_response)
+        return RedirectResponse(url=f"http://localhost:3000/chat?{query_params}")
+        
+    except Exception as e:
+        logger.error(f"카카오 로그인 처리 중 오류: {e}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:3000/login?error=kakao_process_failed")
+
+# 네이버 소셜 로그인
+@app.get("/login/oauth2/code/naver")
+def naver_login(code: str, state: str):
+    try:
+        # state로 세션 정보 조회
+        session_info = None
+        if state and hasattr(app, 'social_sessions') and state in app.social_sessions:
+            session_info = app.social_sessions.pop(state)
+        
+        intent = session_info.get('intent', 'login') if session_info else 'login'
+        user_data = session_info.get('user_data', {}) if session_info else {}
+        
+        token_url = "https://nid.naver.com/oauth2.0/token"
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": os.getenv("NAVER_CLIENT_ID"),
+            "client_secret": os.getenv("NAVER_CLIENT_SECRET"),
+            "code": code,
+            "state": state,
+            "redirect_uri": os.getenv("NAVER_REDIRECT_URI")
+        }
+        resp = requests.post(token_url, data=data)
+        if not resp.ok:
+            logger.error(f"네이버 토큰 요청 실패: {resp.text}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=naver_token_failed")
+            
+        token_json = resp.json()
+        if "error" in token_json:
+            logger.error(f"네이버 토큰 응답 오류: {token_json}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=naver_token_error")
+            
+        access_token = token_json["access_token"]
+        refresh_token = token_json.get("refresh_token", None)
+
+        userinfo_resp = requests.get(
+            "https://openapi.naver.com/v1/nid/me",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        
+        if not userinfo_resp.ok:
+            logger.error(f"네이버 사용자 정보 요청 실패: {userinfo_resp.text}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=naver_userinfo_failed")
+            
+        userinfo_json = userinfo_resp.json()
+        if "resultcode" not in userinfo_json or userinfo_json["resultcode"] != "00":
+            logger.error(f"네이버 사용자 정보 응답 오류: {userinfo_json}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="http://localhost:3000/login?error=naver_userinfo_error")
+            
+        userinfo = userinfo_json["response"]
+        provider = "naver"
+        social_id = userinfo["id"]
+        email = userinfo.get("email", None)
+        nickname = userinfo.get("nickname", "")
+        
+        with get_session_context() as db:
+            existing_user = get_user_by_social(db, provider, social_id)
+            
+            # intent에 따른 처리
+            if intent == 'login':
+                if existing_user:
+                    # 기존 사용자 - 로그인 처리
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email or "",
+                        "username": nickname
+                    }
+                else:
+                    # 계정이 없음 - 회원가입 페이지로 리디렉션
+                    from fastapi.responses import RedirectResponse
+                    from urllib.parse import urlencode
+                    signup_params = urlencode({
+                        "provider": provider,
+                        "social_id": social_id,
+                        "email": email or "",
+                        "username": nickname,
+                        "action": "signup_required"
+                    })
+                    return RedirectResponse(url=f"http://localhost:3000/signup?{signup_params}")
+                    
+            elif intent == 'signup':
+                if existing_user:
+                    # 이미 가입된 사용자 - 바로 로그인
+                    existing_user.access_token = access_token
+                    if refresh_token:
+                        existing_user.refresh_token = refresh_token
+                    db.commit()
+                    
+                    user_data_response = {
+                        "user_id": existing_user.user_id,
+                        "provider": provider,
+                        "email": existing_user.email or "",
+                        "username": nickname
+                    }
+                else:
+                    # 새 사용자 생성
+                    new_user = create_user_social(
+                        db, provider, social_id, email, nickname,
+                        access_token=access_token,
+                        refresh_token=refresh_token
+                    )
+                    
+                    # 추가 사용자 정보가 있으면 업데이트
+                    if user_data:
+                        # 여기에 추가 사용자 정보 처리 로직 추가 가능
+                        pass
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": nickname
+                    }
+        
+        # 성공 시 채팅 페이지로 리디렉션
+        from fastapi.responses import RedirectResponse
+        from urllib.parse import urlencode
+        query_params = urlencode(user_data_response)
+        return RedirectResponse(url=f"http://localhost:3000/chat?{query_params}")
+        
+    except Exception as e:
+        logger.error(f"네이버 로그인 처리 중 오류: {e}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:3000/login?error=naver_process_failed")
+
 
 @app.post("/social_login")
 async def social_login(req: SocialLoginRequest):
@@ -622,17 +1113,62 @@ async def root():
     """
 
 
-@app.post("/query", response_model=UnifiedResponse)
+def map_frontend_agent_to_backend(frontend_agent: str) -> Optional[AgentType]:
+    """프론트엔드 에이전트 타입을 백엔드 AgentType으로 매핑"""
+    agent_mapping = {
+        "unified_agent": None,  # 통합 에이전트는 라우팅에 맡김
+        "planner": AgentType.BUSINESS_PLANNING,
+        "marketing": AgentType.MARKETING,
+        "crm": AgentType.CUSTOMER_SERVICE,
+        "task": AgentType.TASK_AUTOMATION,
+        "mentalcare": AgentType.MENTAL_HEALTH
+    }
+    return agent_mapping.get(frontend_agent)
+
+
+@app.post("/query")
 async def process_query(request: UnifiedRequest):
     """통합 질의 처리"""
     try:
         logger.info(f"사용자 {request.user_id}: {request.message[:50]}...")
         
+        # 프론트엔드 에이전트 타입을 백엔드 타입으로 매핑
+        if request.preferred_agent and isinstance(request.preferred_agent, str):
+            mapped_agent = map_frontend_agent_to_backend(request.preferred_agent)
+            request.preferred_agent = mapped_agent
+        
+        # 대화 세션이 없으면 생성
+        if not request.conversation_id:
+            with get_session_context() as db:
+                conversation = create_conversation(db, request.user_id)
+                request.conversation_id = conversation.conversation_id
+        
+        # 사용자 메시지 저장
+        with get_session_context() as db:
+            create_message(
+                db, 
+                request.conversation_id, 
+                "user", 
+                "unified", 
+                request.message
+            )
+        
         workflow = get_workflow()
         response = await workflow.process_request(request)
         
+        # 에이전트 응답 저장
+        with get_session_context() as db:
+            create_message(
+                db,
+                response.conversation_id,
+                "agent",
+                response.agent_type.value,
+                response.response
+            )
+        
         logger.info(f"응답 완료: {response.agent_type} (신뢰도: {response.confidence:.2f})")
         
+        # UnifiedResponse를 직접 반환 (FastAPI가 자동으로 JSON 직렬화)
         return response
         
     except Exception as e:
@@ -642,28 +1178,6 @@ async def process_query(request: UnifiedRequest):
 
 
 # ===== 대화 관리 API =====
-
-@app.get("/conversations/{user_id}")
-async def get_user_conversations(user_id: int):
-    """사용자의 대화 세션 목록 조회"""
-    try:
-        with get_session_context() as db:
-            from shared_modules.queries import get_user_conversations as get_conversations_query
-            conversations = get_conversations_query(db, user_id, visible_only=True)
-            
-            conversation_list = []
-            for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None
-                })
-            
-            return create_success_response(data=conversation_list)
-            
-    except Exception as e:
-        logger.error(f"대화 목록 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/conversations/{conversation_id}/messages")
 async def get_conversation_messages(conversation_id: int, limit: int = 50):

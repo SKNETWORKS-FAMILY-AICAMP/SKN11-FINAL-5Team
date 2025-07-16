@@ -161,7 +161,7 @@
             responseDiv.textContent = '⏳ 에이전트가 답변을 생성 중입니다...';
 
             try {
-                const response = await fetch('http://127.0.0.1:8000/agent/query', {
+                const response = await fetch('http://127.0.0.1:8080/agent/query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
