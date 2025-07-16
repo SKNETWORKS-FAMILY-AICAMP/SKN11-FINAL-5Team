@@ -599,6 +599,8 @@ from fastapi.responses import StreamingResponse, JSONResponse
 class PdfCreateRequest(BaseModel):
     html: str
     form_data: Optional[Dict[str, str]] = None
+    user_id: int                       
+    conversation_id: Optional[int] = None
 
 ## db에 저장이 버튼누ㄹ를때마다 되니까 분리해야함 
 @app.post("/report/pdf/create")
@@ -614,8 +616,8 @@ async def create_pdf_from_html_api(data: PdfCreateRequest,
 
         report = create_report(
             db=db,
-            user_id=1,  # ✅ 실제 로그인 사용자 ID로 교체 필요
-            conversation_id=153,
+            user_id=data.user_id,  # ✅ 실제 로그인 사용자 ID로 교체 필요
+            conversation_id=data.conversation_id,
             report_type="린캔버스",
             title="린 캔버스_common",
             content_data=form_data,  # JSON으로 저장

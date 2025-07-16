@@ -12,6 +12,8 @@ import Image from "next/image"
 import { Send, Menu, User } from "lucide-react"
 import { agentApi } from "@/app/api/agent"
 import { AGENT_CONFIG, type AgentType } from "@/config/constants"
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 interface Message {
   sender: "user" | "agent"
@@ -39,6 +41,8 @@ interface FeedbackModalProps {
   onClose: () => void
   onSubmit: () => void
 }
+
+
 
 function FeedbackModal({
   rating,
@@ -233,6 +237,61 @@ function isHtmlContent(content: string): boolean {
   return /<!doctype html|<html|<body/i.test(content.trim());
 }
 
+
+function LeanCanvasPopup({
+      html,
+      onClose,
+      onDownload,
+      iframeRef
+    }: {
+      html: string
+      onClose: () => void
+      onDownload: () => void
+      iframeRef: React.RefObject<HTMLIFrameElement>
+    }) {
+      //const iframeRef = useRef<HTMLIFrameElement>(null)
+
+      // 버튼 클릭 시 iframe 내부의 다운로드 버튼에 이벤트 연결 (optional)
+      useEffect(() => {
+        const iframe = iframeRef.current
+        if (!iframe) return
+
+        const onLoad = () => {
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+          if (!iframeDoc) return
+
+          const button = iframeDoc.getElementById("downloadBtn")
+          if (button) {
+            button.addEventListener("click", onDownload)
+          }
+        }
+
+        iframe.addEventListener("load", onLoad)
+        return () => iframe.removeEventListener("load", onLoad)
+      }, [html, onDownload])
+
+      return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded shadow-lg max-w-[90%] max-h-[90%] w-full h-full flex flex-col overflow-hidden">
+            <iframe
+              ref={iframeRef}
+              srcDoc={html}
+              title="Lean Canvas Preview"
+              style={{ width: "100%", flex: 1, border: "none", borderRadius: "12px" }}
+              sandbox="allow-same-origin allow-scripts allow-downloads allow-modals"            />
+            <div className="mt-4 flex justify-end space-x-2 p-4 bg-white shrink-0">
+              <Button onClick={onDownload} className="bg-green-600 hover:bg-green-700">
+                PDF 다운로드
+              </Button>
+              <Button onClick={onClose} variant="ghost">
+                닫기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
 export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -249,6 +308,7 @@ export default function ChatRoomPage() {
   const [leanCanvasHtml, setLeanCanvasHtml] = useState<string | null>(null)
   const [showCanvasPopup, setShowCanvasPopup] = useState(false)
 
+  
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [rating, setRating] = useState(0)
@@ -310,22 +370,103 @@ export default function ChatRoomPage() {
       window.addEventListener('openLeanCanvasPopup', handler);
       return () => window.removeEventListener('openLeanCanvasPopup', handler);
     }, []);
+    
+    const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  async function downloadLeanCanvasPdf() {
-    const previewDiv = document.getElementById('lean-canvas-preview');
-    if (!previewDiv) {
-      alert("미리보기 영역을 찾을 수 없습니다.");
-      return;
+    
+    
+    async function handleDownloadLeanCanvasPdf() {
+      if (!iframeRef.current) return;
+
+      const iframeDoc = iframeRef.current.contentDocument;
+      const captureArea = iframeDoc?.getElementById("capture-area");
+      const downloadBtn = iframeDoc?.getElementById("downloadBtn");
+
+      if (!captureArea) {
+        alert("캡처할 영역을 찾을 수 없습니다.");
+        return;
+      }
+
+      // 1. textarea → preview 전환 및 formData 수집
+      const textareas = captureArea.querySelectorAll("textarea");
+      const formData: Record<string, string> = {};
+      textareas.forEach((textarea: any) => {
+        const wrapper = textarea.closest(".textarea-wrapper");
+        const preview = wrapper?.querySelector(".preview-textarea") as HTMLElement;
+        preview.textContent = textarea.value;
+        textarea.style.display = "none";
+        preview.style.display = "block";
+        formData[textarea.name] = textarea.value;
+      });
+
+      if (downloadBtn) downloadBtn.style.visibility = "hidden";
+
+      // 2. 캡처 및 PDF 생성
+      const canvas = await html2canvas(captureArea, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: null,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+      });
+
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save("lean-canvas.pdf");
+
+      // pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+      // pdf.save("lean-canvas.pdf");
+
+      if (downloadBtn) downloadBtn.style.visibility = "visible";
+
+      // 3. 서버 전송
+      const style = iframeDoc?.querySelector("style")?.innerText || "";
+      const html = `
+        <html lang="ko">
+          <head><meta charset="UTF-8"><style>${style}</style></head>
+          <body>${captureArea.innerHTML}</body>
+        </html>
+      `;
+
+      try {
+        const res = await fetch("http://localhost:8001/report/pdf/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            html,
+            form_data: formData,
+            user_id: userId, // <- 상태에서 가져온 ID
+            conversation_id: conversationId,
+          }),
+        });
+
+        const result = await res.json();
+        if (result.file_id) {
+          console.log("서버에 저장 완료:", result.file_id);
+          // window.location.href = `/report/pdf/download/${result.file_id}`;  // 자동 다운로드 원할 시
+        } else {
+          alert("서버 저장 실패");
+        }
+      } catch (e) {
+        console.error("PDF 서버 전송 실패:", e);
+      }
+
+      // 4. 원상 복구
+      textareas.forEach((textarea: any) => {
+        const wrapper = textarea.closest(".textarea-wrapper");
+        const preview = wrapper?.querySelector(".preview-textarea") as HTMLElement;
+        textarea.style.display = "block";
+        preview.style.display = "none";
+      });
     }
-    const html = previewDiv.innerHTML;
-    const res = await fetch('http://localhost:8001/report/pdf/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html }),
-    });
-    const { file_id } = await res.json();
-    window.location.href = `http://localhost:8001/report/pdf/download/${file_id}`;
-  }
 
 
   const loadPreviousChat = async (chatId: number) => {
@@ -610,32 +751,7 @@ export default function ChatRoomPage() {
                           <div className="space-y-2">
                             <div>📦 <strong>Lean Canvas</strong>가 도착했습니다.</div>
                             <Button onClick={() => {
-                              const newWindow = window.open("", "_blank", "width=1200,height=800");
-                              if (newWindow && leanCanvasHtml) {
-                                newWindow.document.write(`
-                                  <!DOCTYPE html>
-                                  <html lang="ko">
-                                  <head>
-                                    <meta charset="UTF-8" />
-                                    <title>Lean Canvas 미리보기</title>
-                                      <style>
-                                        html, body {
-                                          margin: 0;
-                                          padding: 0;
-                                          width: 100vw;
-                                          height: 100vh;
-                                          overflow-x: hidden;
-                                          background: #046BBF;
-                                        }
-                                      </style>
-                                  </head>
-                                  <body>
-                                    ${leanCanvasHtml}
-                                  </body>
-                                  </html>
-                                `);
-                                newWindow.document.close();
-                              }
+                              setShowCanvasPopup(true); // 팝업
                             }}>
                               미리보기 팝업 열기
                             </Button>
@@ -655,27 +771,13 @@ export default function ChatRoomPage() {
 
           <div ref={scrollRef} />
         </div>
-        
-
         {showCanvasPopup && leanCanvasHtml && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded shadow-lg max-w-[90%] max-h-[90%] overflow-auto">
-              <iframe
-                srcDoc={leanCanvasHtml}
-                title="Lean Canvas Preview"
-                style={{
-                  width: "90%",
-                  height: "80vh",
-                  border: "none",
-                  borderRadius: "12px",
-                }}
-                sandbox="allow-scripts allow-downloads allow-modals"
-              />
-              <div className="text-right mt-4">
-                <Button onClick={() => setShowCanvasPopup(false)}>닫기</Button>
-              </div>
-            </div>
-          </div>
+          <LeanCanvasPopup
+            html={leanCanvasHtml}
+            onClose={() => setShowCanvasPopup(false)}
+            onDownload={handleDownloadLeanCanvasPdf}
+            iframeRef={iframeRef} 
+          />
         )}
 
 

@@ -31,7 +31,7 @@ export default function MyPage() {
     phone: "010-1234-5678",
   })
 
-  const userId = 1  // 실제론 로그인 정보에서 받아와야 함
+  const userId = 3  // 실제론 로그인 정보에서 받아와야 함
   const reportParams = useMemo(() => ({
     user_id: userId,
     report_type: undefined,
@@ -472,32 +472,6 @@ const downloadAsPdf = async () => {
                     className="prose max-w-none"
                   />
                   <div className="mt-4 flex justify-end">
-                  {/* <Button
-                    variant="default"
-                    className="mt-4 bg-green-600 hover:bg-green-700"
-                    onClick={async () => {
-                      const res = await fetch("http://localhost:8001/report/pdf/create", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          html: htmlPreview, // 개인화된 HTML
-                          form_data: selectedReport?.content_data || {}, // 혹시 form_data도 보내려면
-                        }),
-                      })
-
-                      const data = await res.json()
-                      if (res.ok && data.file_id) {
-                        const link = document.createElement("a")
-                        link.href = `http://localhost:8001/report/pdf/download/${data.file_id}`
-                        link.download = `report_${data.file_id}.pdf`
-                        link.click()
-                      } else {
-                        alert("PDF 생성에 실패했습니다.")
-                      }
-                    }}
-                  >
-                    PDF 다운로드
-                  </Button> */}
                   <Button
                     variant="default"
                     className="mt-4 bg-green-600 hover:bg-green-700"
