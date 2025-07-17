@@ -104,6 +104,8 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
             
             result = await self._make_request(payload)
             
+            metadata = result.get("metadata", {})
+
             processing_time = time.time() - start_time
             
             return AgentResponse(
@@ -112,10 +114,11 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
                 confidence=0.85,  # 기본값
                 sources=result.get("sources", ""),
                 metadata={
-                    "topics": result.get("topics", []),
-                    "type": result.get("type", "general"),
-                    "title": result.get("title", ""),
-                    "content": result.get("content", "")
+                    "topics": metadata.get("topics", []),
+                    "type": metadata.get("type", "general"),
+                    "title": metadata.get("title", ""),
+                    "content": metadata.get("content", ""),
+                    "template_title": metadata.get("template_title", ""),
                 },
                 processing_time=processing_time
             )

@@ -307,8 +307,9 @@ export default function ChatRoomPage() {
   // html린캐버스
   const [leanCanvasHtml, setLeanCanvasHtml] = useState<string | null>(null)
   const [showCanvasPopup, setShowCanvasPopup] = useState(false)
+  const [leanCanvasTitle, setLeanCanvasTitle] = useState<string | null>(null)
 
-  
+
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [rating, setRating] = useState(0)
@@ -445,6 +446,7 @@ export default function ChatRoomPage() {
             form_data: formData,
             user_id: userId, // <- 상태에서 가져온 ID
             conversation_id: conversationId,
+            title: leanCanvasTitle
           }),
         });
 
@@ -557,12 +559,16 @@ export default function ChatRoomPage() {
       console.log("result.data", result.data)
       if (result.data?.answer) {
         const answer = result.data.answer.trim();
+       
 
         if (isHtmlContent(answer)) {
           // const cleanHtml = extractBodyInnerHtml(answer);
           // setLeanCanvasHtml(cleanHtml);
-          setLeanCanvasHtml(result.data.answer);
+          
+          setLeanCanvasTitle(result.data?.metadata?.template_title || "린 캔버스_common")
 
+          setLeanCanvasHtml(result.data.answer);
+          
           const agentMessage: Message = {
             sender: "agent",
             text: "[Lean Canvas] 도착! 클릭하여 수정 및 다운로드 가능합니다.",
@@ -825,13 +831,3 @@ export default function ChatRoomPage() {
     </div>
   )
 }
-
-
-// 목표
-// 린캔버스 답변이 올 때만 미리보기와 PDF 다운로드 버튼이 자동으로 노출되고, 
-// ->  {leanCanvasHtml && ( <div ...   <Button ...
-
-//  leanCanvasHtml 상태에 HTML이 저장됨
-// -> if (res.success && res.data && res.data.type === "lean_canvas") { .. }
-
-// 버튼을 누르면 PDF로 변환 및 다운로드가 정상적으로 이뤄집니다. -> downloadLeanCanvasPdf() 

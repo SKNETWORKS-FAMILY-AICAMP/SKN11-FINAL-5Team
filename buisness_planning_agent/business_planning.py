@@ -431,6 +431,7 @@ async def process_user_query(request: UserQuery):
                 },
                 processing_time=time.time() - start_time
             )
+            
             return create_success_response(response_data)
 
         # 4. 일반 RAG 쿼리 처리
@@ -601,14 +602,15 @@ class PdfCreateRequest(BaseModel):
     form_data: Optional[Dict[str, str]] = None
     user_id: int                       
     conversation_id: Optional[int] = None
+    title: Optional[str] = "린 캔버스_common" 
 
-## db에 저장이 버튼누ㄹ를때마다 되니까 분리해야함 
+## db에 저장
 @app.post("/report/pdf/create")
 async def create_pdf_from_html_api(data: PdfCreateRequest,
     db: Session = Depends(get_db_dependency),):
     html = data.html or "<p>내용 없음</p>"
     form_data = data.form_data or {}
-
+   
     try:
         pdf_bytes = generate_pdf_from_html(html)
         file_id = save_pdf_to_temp(pdf_bytes)
@@ -616,10 +618,10 @@ async def create_pdf_from_html_api(data: PdfCreateRequest,
 
         report = create_report(
             db=db,
-            user_id=data.user_id,  # ✅ 실제 로그인 사용자 ID로 교체 필요
+            user_id=data.user_id,  
             conversation_id=data.conversation_id,
             report_type="린캔버스",
-            title="린 캔버스_common",
+            title=data.title, # 프론트에서 주는 값 바꿔야함
             content_data=form_data,  # JSON으로 저장
             file_url=file_url,
         )
