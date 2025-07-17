@@ -13,9 +13,10 @@ import os
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
+
 
 # 공통 모듈 import
 from shared_modules import (
@@ -62,7 +63,7 @@ class FeedbackCreate(BaseModel):
     rating: conint(ge=1, le=5)
     comment: str | None = None
 
-@router.post("/feedback", status_code=201)
+@router.post("/create", status_code=201)
 def create_feedback(feedback: FeedbackCreate):
     with get_session_context() as db:
         new_feedback = Feedback(
@@ -70,7 +71,7 @@ def create_feedback(feedback: FeedbackCreate):
             conversation_id=feedback.conversation_id,
             rating=feedback.rating,
             comment=feedback.comment,
-            created_at=datetime.utcnow()  # timezone-aware가 아닌 UTC naive
+            created_at=utc_to_kst(datetime.utcnow())  # timezone-aware가 아닌 UTC naive
         )
         db.add(new_feedback)
         db.commit()

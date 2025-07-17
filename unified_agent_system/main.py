@@ -12,14 +12,13 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, conint
 import uvicorn
-import sys
-import os
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-
-# 공통 모듈 경로 추가
+import sys
+import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from shared_modules.utils import utc_to_kst
 
 # 공통 모듈 import
 from shared_modules import (
@@ -809,50 +808,7 @@ async def test_system():
         "total_tests": len(results)
     }
 
-@router.get("/faq")
-def get_faq_list(
-    category: Optional[str] = None,
-    search: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1),
-    db: Session = Depends(unified_get_session_context)
-):
-    query = db.query(FAQ)
 
-    if category:
-        query = query.filter(FAQ.category == category)
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(FAQ.question.ilike(search_term))
-
-    total = query.count()
-    faqs = query.offset((page - 1) * limit).limit(limit).all()
-
-    # FAQ 카테고리 목록 추출 (distinct)
-    categories = db.query(FAQ.category).distinct().all()
-    categories = [c[0] for c in categories]
-
-    return {
-        "success": True,
-        "data": {
-            "faqs": [
-                {
-                    "faq_id": f.faq_id,
-                    "category": f.category,
-                    "question": f.question,
-                    "answer": f.answer,
-                    "view_count": f.view_count,
-                    "is_helpful": f.is_helpful
-                } for f in faqs
-            ],
-            "categories": categories,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total
-            }
-        }
-    }
 
 from regular_subscription import router as subscription_router
 app.include_router(subscription_router, prefix="/subscription")
@@ -862,7 +818,7 @@ app.include_router(feedback_router, prefix="/feedback")
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host=SERVER_HOST,
+        host=SERVER_HOST,   
         port=SERVER_PORT,
         reload=DEBUG_MODE,
         log_level=LOG_LEVEL.lower()

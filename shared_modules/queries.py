@@ -4,7 +4,7 @@ Fully qualified path 사용으로 SQLAlchemy 충돌 완전 해결
 """
 
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import bindparam, text
@@ -16,7 +16,12 @@ import shared_modules.db_models as db_models
 engine = DatabaseManager().engine
 logger = logging.getLogger(__name__)
 
-from utils import utc_to_kst
+def utc_to_kst(utc_dt: datetime) -> datetime:
+    if utc_dt.tzinfo is None:
+        # UTC 정보가 없는 naive datetime이면 UTC로 간주
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+    kst = timezone(timedelta(hours=9))
+    return utc_dt.astimezone(kst)
 
 # -------------------
 # User 관련 함수 (새 DDL 스키마 적용)
@@ -840,7 +845,7 @@ def insert_template(user_id: int, template_type: str = None, channel_type: str =
                     "channel_type": channel_type,
                     "title": title,
                     "content": content,
-                    "created_at": datetime.utcnow()
+                    "created_at": utc_to_kst(datetime.utcnow())
                 }
             )
             return result.lastrowid
