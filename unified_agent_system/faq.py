@@ -66,7 +66,7 @@ def create_faq(data: FAQCreate, db: Session = Depends(unified_get_session_contex
     new_faq = FAQ(
         category=data.category,
         question=data.question,
-        answer=data.answer,  # answer 칼럼이 db에 있어야 함
+        answer=data.answer,
         view_count=0,
         is_active=True,
         created_at=utc_to_kst(datetime.utcnow())
@@ -120,3 +120,4 @@ def get_faq_list(
             }
         }
     }
+    

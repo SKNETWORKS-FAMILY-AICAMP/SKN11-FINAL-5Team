@@ -395,9 +395,9 @@ def downgrade_subscription(user_id: int = Query(...), new_fee: float = Query(...
             sub.status = "CANCELLED"
 
         # 새 구독 생성
-        if new_fee == 0:
+        if new_fee == Decimal('0.00'):
             new_plan = "basic"
-        elif new_fee == 2900:
+        elif new_fee == Decimal('2900.00'):
             new_plan = "premium"
         else:
             new_plan = "enterprise"
