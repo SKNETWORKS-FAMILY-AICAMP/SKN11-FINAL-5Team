@@ -51,7 +51,7 @@ class UnifiedRequest(BaseModel):
     conversation_id: Optional[int] = Field(default=None, description="대화 ID")
     message: str = Field(description="사용자 메시지")
     context: Dict[str, Any] = Field(default_factory=dict, description="추가 컨텍스트")
-    preferred_agent: Optional[AgentType] = Field(default=None, description="선호 에이전트")
+    preferred_agent: Optional[Union[AgentType, str]] = Field(default=None, description="선호 에이전트")
     history: List[Dict[str, Any]] = Field(default_factory=list, description="대화 기록")
 
 

@@ -208,7 +208,7 @@ def create_smart_retriever(user_input: str, topics: list = None):
         general_retriever = get_retriever(
             "global-documents",
             k=8,
-            search_kwargs={"fetch_k": 20}
+            search_kwargs={"k": 20}
         )
         
         test_docs = vector_manager.search_documents(user_input, "global-documents", k=8)
