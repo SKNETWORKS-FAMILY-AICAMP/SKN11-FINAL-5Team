@@ -8,6 +8,10 @@ from langchain_core.output_parsers import StrOutputParser
 from config.prompts_config import PROMPT_META
 from fastapi.responses import FileResponse
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 # 공통 모듈 사용
 import os
 import sys

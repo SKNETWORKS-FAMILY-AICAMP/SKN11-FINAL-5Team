@@ -12,6 +12,14 @@ import Image from "next/image"
 import Link from "next/link"
 import { useState } from "react"
 import { User, LogOut, CreditCard, FileText, HelpCircle, MessageSquare } from "lucide-react"
+import { useReportList } from "@/hooks/useReport"
+import { useMemo } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useEffect } from "react"
+
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
+
 
 export default function MyPage() {
   const [activeTab, setActiveTab] = useState("profile")
@@ -23,9 +31,142 @@ export default function MyPage() {
     phone: "010-1234-5678",
   })
 
+  const userId = 3  // 실제론 로그인 정보에서 받아와야 함
+  const reportParams = useMemo(() => ({
+    user_id: userId,
+    report_type: undefined,
+    status: undefined,
+  }), [userId])
+
+  const showReports = activeTab === "report"
+  const { list: reports = [], loading: reportLoading, error: reportError } = useReportList(reportParams, showReports)
+
+    
+  const [selectedReport, setSelectedReport] = useState<any>(null)
+  const [htmlPreview, setHtmlPreview] = useState<string>("")
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+
+  // PDF 다운로드용 임시 DOM 영역 생성
+const createPreviewDOM = (html: string) => {
+  const tempDiv = document.createElement("div")
+  tempDiv.innerHTML = html
+  tempDiv.style.position = "absolute"
+  tempDiv.style.left = "-9999px"
+  tempDiv.id = "preview-temp"
+  document.body.appendChild(tempDiv)
+  return tempDiv
+}
+
+const removePreviewDOM = () => {
+  const existing = document.getElementById("preview-temp")
+  if (existing) document.body.removeChild(existing)
+}
+
+const downloadAsPdf = async () => {
+  removePreviewDOM() // 혹시 남아있던 이전 DOM 제거
+  const tempDOM = createPreviewDOM(htmlPreview)
+
+  const textareas = tempDOM.querySelectorAll("textarea")
+  const formData: Record<string, string> = {}
+
+  textareas.forEach((textarea) => {
+    const value = textarea.value
+    const wrapper = textarea.closest(".textarea-wrapper")
+    const preview = wrapper?.querySelector(".preview-textarea") as HTMLDivElement
+    if (preview) preview.textContent = value
+    textarea.style.display = "none"
+    preview.style.display = "block"
+    formData[textarea.name] = value
+  })
+
+  const canvas = await html2canvas(tempDOM, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: null,
+  })
+
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "px",
+    format: [canvas.width, canvas.height],
+  })
+  const imgData = canvas.toDataURL("image/png")
+  pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height)
+  pdf.save("lean-canvas.pdf")
+
+  removePreviewDOM()
+}
+
+  
+  const openPreview = async (report_id: number) => {
+    try {
+      const res = await fetch(`http://localhost:8001/reports/${report_id}`)
+      const result = await res.json()
+
+      if (res.ok && result.success) {
+        const report = result.data
+        const contentJson = report.content_data || {}
+        const title = report.title
+
+        let finalHtml = ""
+
+        // 템플릿 HTML 가져오기
+        if (title) {
+          const templateRes = await fetch(`http://localhost:8001/lean_canvas/${encodeURIComponent(title)}`)
+          const templateHtml = await templateRes.text()
+
+          finalHtml = templateHtml
+          
+          finalHtml = finalHtml.replace(
+            /<div class="download-section[^"]*">[\s\S]*?<\/div>/g,
+            ""
+          )
+
+          // contentJson 삽입
+          try {
+            const contentObj = typeof contentJson === "string" ? JSON.parse(contentJson) : contentJson
+
+            Object.entries(contentObj).forEach(([key, value]) => {
+              const safeValue = String(value).trim()
+
+              // <textarea name="key"> 치환 
+              finalHtml = finalHtml.replace(
+                new RegExp(`(<textarea[^>]*name="${key}"[^>]*>)[\\s\\S]*?(</textarea>)`, "g"),
+                `$1${safeValue}$2`
+              )
+              
+              
+              // <div class="preview-textarea"> 치환 (주의: 여러 preview가 있을 경우 다 덮일 수 있음)
+              finalHtml = finalHtml.replace(
+                new RegExp(`(<div[^>]*class="preview-textarea"[^>]*>)[\\s\\S]*?(</div>)`, "g"),
+                `$1${safeValue}$2`
+              )
+            })
+
+            // textarea 태그 제거 
+            
+          } catch (err) {
+            console.warn("⚠️ content JSON 파싱 실패", err)
+          }
+        }
+
+        setHtmlPreview(finalHtml || "<p>내용 없음</p>")
+        setSelectedReport(report)
+        setIsPreviewOpen(true)
+      } else {
+        alert("리포트를 불러오지 못했습니다.")
+      }
+    } catch (e) {
+      alert("오류 발생: " + e)
+    }
+  }
+
+
+
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
     { id: "subscription", label: "구독 관리", icon: CreditCard },
+    { id: "report", label: "리포트 조회", icon: FileText },
     { id: "support", label: "고객 지원", icon: HelpCircle },
   ]
 
@@ -264,6 +405,85 @@ export default function MyPage() {
                 </CardContent>
               </Card>
             )}
+
+            {activeTab === "report" && (
+            <>
+              <Card className="border-0 shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <FileText className="h-5 w-5" />
+                    <span>리포트 조회</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="text-sm text-gray-600">
+                    생성된 리포트 목록을 확인하고 다운로드할 수 있어요.
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    {/* 여기에 API로 불러온 리포트 목록 map 렌더링 */}
+                    {reportLoading && <p className="text-sm text-gray-500">불러오는 중...</p>}
+                    {reportError && <p className="text-sm text-red-500">{reportError}</p>}
+                    {!reportLoading && reports.length === 0 && (
+                      <p className="text-sm text-gray-500">생성된 리포트가 없습니다.</p>
+                    )}
+
+                    {reports.map((report) => (
+                      <div
+                        key={report.report_id}
+                        className="flex justify-between items-center bg-white p-4 border border-gray-100 rounded-lg shadow-sm"
+                      >
+                        <div>
+                          <p className="font-semibold text-gray-800">{report.title}</p>
+                          <p className="text-sm text-gray-500">생성일: {new Date(report.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          {report.file_url ? (
+                            <a
+                              href={`http://localhost:8001${report.file_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                            </a>
+                          ) : (
+                            <span className="text-sm text-yellow-600">생성 중...</span>
+                          )}
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openPreview(report.report_id)}
+                          >
+                            보기
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+                <DialogContent className="max-w-[1400px] w-full h-[80vh] overflow-auto">
+                  <DialogHeader>
+                    <DialogTitle>{selectedReport?.title || "리포트 보기"}</DialogTitle>
+                  </DialogHeader>
+                  <div
+                    dangerouslySetInnerHTML={{ __html: htmlPreview }}
+                    className="prose max-w-none"
+                  />
+                  <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="default"
+                    className="mt-4 bg-green-600 hover:bg-green-700"
+                    onClick={downloadAsPdf}
+                  >
+                    PDF 다운로드
+                  </Button>
+                </div>
+                </DialogContent>
+              </Dialog>
+            </>
+            )} 
 
             {activeTab === "support" && (
               <Card className="border-0 shadow-lg bg-white">
