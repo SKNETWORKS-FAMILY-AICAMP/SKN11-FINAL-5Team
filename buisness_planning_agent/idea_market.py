@@ -12,10 +12,11 @@ import os
 
 
 # simithery_api_key
-load_dotenv('./unified_agent_system/.env')
+load_dotenv('../unified_agent_system/.env') # 디버깅으로 킬 때는 ./unfied
 smithery_api_key=os.getenv("SMITHERY_API_KEY")
 google_api_key=os.getenv("GOOGLE_API_KEY")
 
+print(f"smithery_api_key : {smithery_api_key}")
 # smithery_mcp_url
 app_store_url = (
     "https://server.smithery.ai/@JiantaoFu/appinsightmcp/mcp"
@@ -216,55 +217,62 @@ today=datetime.now()
 min_date = today - relativedelta(years=1,months=6)
 
 async def get_common(url,query, max_results=2):
-    answer = []
-    async with streamablehttp_client(url) as (read_stream, write_stream, _):
-        async with mcp.ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            today = datetime.now()
-            params = {"query": query, "engine": "google", "min_date": min_date}
-            search_result = await session.call_tool("search_engine", params)
-            text = search_result.content[0].text
+    print("[DEBUG] get_common 진입")
+    try:
+        answer = []
+        async with streamablehttp_client(url) as (read_stream, write_stream, _):
+            async with mcp.ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                
+                params = {"query": query, "engine": "google", "min_date": min_date}
+                search_result = await session.call_tool("search_engine", params)
+                text = search_result.content[0].text
 
-            url_pattern = re.compile(r"\(http[^)]+\)")
-            url_candidates = url_pattern.findall(text)
-            links = [s[1:-1] for s in url_candidates]
+                url_pattern = re.compile(r"\(http[^)]+\)")
+                url_candidates = url_pattern.findall(text)
+                links = [s[1:-1] for s in url_candidates]
 
-            try:
-                links = links[6:] # 구글 부가링크 제외
-                print(links)
-                if len(links) < 1:
-                    raise ValueError
-            except Exception:
-                return "\n[!] URL 추출을 위한 검색 결과가 너무 적습니다.\n검색어를 더 구체적으로 바꾸거나, 다른 키워드로 재시도해 주세요."
-
-            # 2. 본문 수집 (에러 없는 2개까지)
-            collected_texts = []
-            count = 0
-            for url_ in links:
-                if count >= max_results:
-                    break
                 try:
-                    scrape_result = await session.call_tool("scrape_as_markdown", {"url": url_})
-                    if not getattr(scrape_result, "isError", False):
-                        content = (scrape_result.content[0].text or '').strip()
-                        if len(content)<=100:
-                            continue
-                        collected_texts.append(content)
-                        count += 1
-                except Exception as e:
-                    continue
+                    links = links[6:] # 구글 부가링크 제외
+                    print(links)
+                    if len(links) < 1:
+                        raise ValueError
+                except Exception:
+                    return "\n[!] URL 추출을 위한 검색 결과가 너무 적습니다.\n검색어를 더 구체적으로 바꾸거나, 다른 키워드로 재시도해 주세요."
 
-            if not collected_texts:
-                return "[!] 본문 추출에 모두 실패했습니다. 질문이나 키워드를 바꿔보세요."
+                # 2. 본문 수집 (에러 없는 2개까지)
+                collected_texts = []
+                count = 0
+                for url_ in links:
+                    if count >= max_results:
+                        break
+                    try:
+                        scrape_result = await session.call_tool("scrape_as_markdown", {"url": url_})
+                        if not getattr(scrape_result, "isError", False):
+                            content = (scrape_result.content[0].text or '').strip()
+                            if len(content)<=100:
+                                continue
+                            collected_texts.append(content)
+                            count += 1
+                    except Exception as e:
+                        continue
 
-            all_content = "⎯⎯ 다음 자료 ⎯⎯".join(collected_texts)
-            all_content = re.sub(r'!\[.*?\]\([^)]+\)', '', all_content)
-            all_content = re.sub(r'\(http[^)]+\)', '', all_content)
-            all_content = re.sub(r"\{.*?\}", "", all_content) # { } 있으면 에러남
-            all_content = all_content.replace("{", "").replace("}", "")
-            all_content = re.sub(r'\n+', ' ', all_content)
-            answer.append(all_content)
-    return "\n".join(answer)
+                if not collected_texts:
+                    return "[!] 본문 추출에 모두 실패했습니다. 질문이나 키워드를 바꿔보세요."
+
+                all_content = "⎯⎯ 다음 자료 ⎯⎯".join(collected_texts)
+                all_content = re.sub(r'!\[.*?\]\([^)]+\)', '', all_content)
+                all_content = re.sub(r'\(http[^)]+\)', '', all_content)
+                all_content = re.sub(r"\{.*?\}", "", all_content) # { } 있으면 에러남
+                all_content = all_content.replace("{", "").replace("}", "")
+                all_content = re.sub(r'\n+', ' ', all_content)
+                answer.append(all_content)
+        return "\n".join(answer)
+    
+    except Exception as e:
+        print("[!!EXCEPTION in get_common!!]", type(e), e)
+        import traceback; traceback.print_exc()
+        raise
 
 ############### 창업 아이템 추천 ################
 ################ 분류 #################
@@ -361,5 +369,9 @@ def clean_korean_query(text: str) -> str:
     return text
 
 async def get_market_analysis(user_query: str):
+    print("[DEBUG] 진입, input:", user_query)
     cleaned_query = clean_korean_query(user_query)
-    return await get_common(bright_data_url, cleaned_query)
+    print("[DEBUG] cleaned_query:", cleaned_query)
+    bright_data = await get_common(url=bright_data_url, query=cleaned_query)
+    print("[DEBUG] get_common()의 실제 반환값 type:", type(bright_data))
+    return bright_data

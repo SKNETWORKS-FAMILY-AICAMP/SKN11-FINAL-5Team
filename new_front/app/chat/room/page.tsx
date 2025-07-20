@@ -5,6 +5,9 @@ import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import rehypeRaw from "rehype-raw"; //npm install rehype-raw // npm install rehype-raw --legacy-peer-deps
+import html2pdf from "html2pdf.js"; //npm install html2pdf.js --legacy-peer-deps
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -224,17 +227,250 @@ const exampleQuestions = [
   },
 ]
 
+function DraftPreviewModal({
+  userId,
+  content,
+  onClose,
+  onDownload, // 필요시 PDF 생성 등 핸들러 연결
+  }: {
+    userId: number | string;
+    content: string
+    onClose: () => void
+    onDownload?: () => void
+  }) {
+    const previewRef = useRef(null);
+
+    // 드라이브 업로드 상태 관리용 state
+    const [driveUploading, setDriveUploading] = useState(false);
+    const [driveStatus, setDriveStatus] = useState<string | null>(null);
+    const [driveUrl, setDriveUrl] = useState<string | null>(null);
+    
+    
+    // 마크다운 파일 만들기 (.md 확장자)
+    const makeMarkdownFile = () => {
+      const filename = "사업기획서.md";
+      const blob = new Blob([content], { type: "text/markdown" });
+      return new File([blob], filename, { type: "text/markdown" });
+    };
+
+    // PDF Blob 생성 (ref의 화면을 PDF로 변환)
+    const getPdfBlob = async (element: HTMLElement) => {
+      // html2pdf는 Promise 기반, save 대신 output('blob') 사용!
+      return await html2pdf()
+        .set({
+          margin: [10, 10],
+          filename: "사업기획서.pdf",
+          html2canvas: { scale: 2, backgroundColor: "#fff" },
+          jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
+        })
+        .from(element)
+        .outputPdf('blob');  // or .output('blob')
+    };
+
+    // 구글 드라이브 업로드
+    const handleDriveUpload = async () => {
+      setDriveUploading(true);
+      setDriveStatus(null);
+      setDriveUrl(null);
+
+      try {
+        setDriveStatus("구글 드라이브 업로드 요청 중...");
+
+        //const file = makeMarkdownFile();
+        // 1. PDF Blob 추출 (미리보기 영역)
+        if (!previewRef.current) throw new Error("미리보기 영역이 없어요!");
+        const pdfBlob = await getPdfBlob(previewRef.current);
+        const pdfFile = new File([pdfBlob], "사업기획서.pdf", { type: "application/pdf" });
+        
+        const formData = new FormData();
+        formData.append("user_id", userId);
+        formData.append("file", pdfFile);
+
+        // 1. 백엔드 서버 임시폴더에 파일 업로드
+        const tempResp = await fetch("http://localhost:8001/drive/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const tempData = await tempResp.json();
+
+        if (tempData?.success && tempData.filename) {
+          // 2. 구글드라이브로 업로드 요청
+          const uploadResp = await fetch("http://localhost:8001/drive/upload/gdrive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: userId,
+              filename: tempData.filename,
+              mime_type: pdfFile.type,
+            }),
+          });
+          const uploadData = await uploadResp.json();
+          if (uploadData.success) {
+            setDriveStatus("구글 드라이브 업로드가 완료됐습니다");
+            if (uploadData.webViewLink) setDriveUrl(uploadData.webViewLink);
+
+            // 보고서 DB 저장 요청 추가
+            await fetch("http://localhost:8001/report/markdown/create", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: Number(userId),
+                conversation_id: localStorage.getItem("conversation_id") || null,
+                title: "사업기획서",
+                markdown_content: content,
+                file_url: uploadData.webViewLink, // 또는 완성된 Google Drive 파일 링크
+              }),
+            });
+
+          } else if (uploadData.error_type === "GOOGLE_OAUTH_REQUIRED") {
+            setDriveStatus("구글 인증이 필요합니다. 인증페이지로 이동합니다...");
+            window.location.href = uploadData.oauth_url;
+          } else {
+            setDriveStatus("업로드 실패: " + (uploadData.message || uploadData.error));
+          }
+        } else {
+          setDriveStatus("서버 파일 업로드 실패: " + (tempData?.message || ""));
+        }
+      } catch (err: any) {
+        setDriveStatus("에러: " + (err?.message || err));
+      } finally {
+        setDriveUploading(false);
+      }
+    };
+
+    const handleDownloadPdf = async () => {
+      if (!previewRef.current) return;
+
+      try {
+        // PDF 생성 및 다운로드
+        await html2pdf()
+          .set({
+            margin: [10, 10],
+            filename: "사업기획서.pdf",
+            html2canvas: { scale: 2, backgroundColor: "#fff" },
+            jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
+          })
+          .from(previewRef.current)
+          .save();
+
+        // 보고서 DB 저장 요청 추가
+        await fetch("http://localhost:8001/report/markdown/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: Number(userId),
+            conversation_id: localStorage.getItem("conversation_id") || null,
+            title: "사업기획서",
+            markdown_content: content, // 미리보기의 마크다운 내용
+            file_url: `/uploads/${userId}/사업기획서.pdf`,// Drive URL 대신 null
+          }),
+        });
+        console.log("보고서 DB 저장 완료!");
+      } catch (error) {
+        console.error("PDF 다운로드 및 보고서 저장 실패:", error);
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
+        <div className="bg-white rounded-lg max-w-6xl w-full m-2 p-6 shadow-lg flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">사업 기획서 미리보기</h2>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <span className="text-2xl font-bold">&times;</span>
+            </Button>
+          </div>
+          <div className="prose max-w-none overflow-y-auto" style={{ maxHeight: "70vh" }}>
+            <div ref={previewRef} className="prose prose-lg text-gray-800">
+              <div className="markdown-content">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={{
+                    p: ({ node, ...props }) => <p className="text-lg leading-relaxed mb-3" {...props} />,
+                    h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mb-4" {...props} />,
+                    h2: ({ node, ...props }) => <h2 className="text-xl font-semibold mb-3" {...props} />,
+                  }}
+                >
+                  {content}
+                </ReactMarkdown>
+              </div>
+              <style global jsx>{`
+                .prose table,
+                .prose th,
+                .prose td,
+                .markdown-content table,
+                .markdown-content th,
+                .markdown-content td {
+                  border: 1.5px solid #7b7b7bff !important;   /* 녹색 테두리 (원하면 #ccc 등으로) */
+                }
+                .prose table, .markdown-content table {
+                  border-collapse: collapse !important;
+                  width: 100%;
+                  margin: 1em 0 2em 0;
+                  background: white;
+                }
+                .prose th, .markdown-content th {
+                  background-color: #f8f8f8;
+                  font-weight: bold;
+                }
+                .prose th, .prose td, .markdown-content th, .markdown-content td {
+                  padding: 8px;
+                  text-align: left;
+                }
+              `}
+              </style>
+
+            </div>
+          </div>
+          <div className="flex justify-end mt-4 space-x-2">
+            {onDownload && (
+              <Button onClick={handleDownloadPdf} className="bg-green-600 hover:bg-green-700 text-white">
+                PDF로 저장
+              </Button>
+            )}
+            <Button
+              onClick={handleDriveUpload}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={driveUploading}
+            >
+              {driveUploading ? "업로드 중..." : "Google Drive로 업로드"}
+            </Button>
+            <Button variant="outline" onClick={onClose}>닫기</Button>
+          </div>
+          {/* 업로드 진행 상태/링크 출력 */}
+          {driveStatus && (
+            <div className="mt-4 text-gray-900 text-sm">
+              {driveStatus}
+              {driveUrl && (
+                <div className="mt-2">
+                  <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                    구글드라이브에서 바로 보기
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
 export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
 
-  const [userId] = useState(3) // 실제 구현시 로그인 사용자 ID 사용
+  const [userId] = useState(2) // 실제 구현시 로그인 사용자 ID 사용
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState("")
   const [agentType, setAgentType] = useState<AgentType>(agent)
+
+  // 사업기획서 (draft)
+  const [showDraftPreview, setShowDraftPreview] = useState(false)
+  const [draftContent, setDraftContent] = useState<string | null>(null)
 
   // 피드백 모달 상태
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -371,10 +607,19 @@ export default function ChatRoomPage() {
       
       const result = await agentApi.sendQuery(userId, currentConversationId, currentInput, agentType)
 
+      console.log("result.data", result.data)
+
       if (!result.success || !result.data) {
         throw new Error(result.error || "응답을 받지 못했습니다")
       }
       
+      if (result.data.metadata?.type === "idea_validation") {
+        setDraftContent(result.data.metadata.content)
+        localStorage.setItem("idea_validation_content", result.data.metadata.content)
+        localStorage.setItem("user_id", String(userId))
+        localStorage.setItem("conversation_id", String(currentConversationId))
+      }
+
       const agentMessage: Message = {
         sender: "agent",
         text: result.data.answer,
@@ -546,12 +791,34 @@ export default function ChatRoomPage() {
                     <div className="bg-white text-gray-800 px-4 py-3 rounded-2xl shadow-md whitespace-pre-wrap leading-relaxed">
                       <ReactMarkdown>{msg.text}</ReactMarkdown>
                     </div>
+                    <style jsx>{`
+                      .markdown-content table {
+                        border-collapse: collapse;
+                        width: 100%;
+                      }
+                      .markdown-content th,
+                      .markdown-content td {
+                        border: 1px solid #ccc;
+                        padding: 8px;
+                      }
+                    `}</style>
                   </div>
                 </div>
               )}
             </div>
           ))}
           <div ref={scrollRef} />
+
+          {draftContent && (
+          <div className="mt-4 flex justify-center">
+            <Button
+              onClick={() => setShowDraftPreview(true)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              사업 기획서 보기
+            </Button>
+          </div>
+        )}
         </div>
 
         {/* 입력 영역 */}
@@ -593,6 +860,15 @@ export default function ChatRoomPage() {
           setCategory={setCategory}
           onClose={() => setShowFeedbackModal(false)}
           onSubmit={handleFeedbackSubmit}
+        />
+      )}
+
+      {showDraftPreview && draftContent && (
+        <DraftPreviewModal
+          userId={userId}
+          content={draftContent}
+          onClose={() => setShowDraftPreview(false)}
+          onDownload={() => {}}
         />
       )}
     </div>
