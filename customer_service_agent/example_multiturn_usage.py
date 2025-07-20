@@ -16,8 +16,8 @@ async def customer_service_multiturn_demo():
     manager = CustomerServiceAgentManager()
     
     # 사용자 정보
-    user_id = 2001
-    conversation_id = None  # 새 대화 시작
+    user_id = 45
+    conversation_id = 890  # 새 대화 시작
     
     # 대화 시나리오
     conversation_flow = [

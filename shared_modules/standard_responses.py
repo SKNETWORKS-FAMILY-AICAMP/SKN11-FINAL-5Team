@@ -78,6 +78,11 @@ class AgentResponseFactory:
         sources: str = "",
         inquiry_type: str = "general",
         business_type: str = "common",
+        # 멀티턴 대화 시스템 추가 필드
+        conversation_stage: str = None,
+        completion_rate: float = None,
+        collected_info: Dict[str, Any] = None,
+        multiturn_flow: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """고객 서비스 전용 응답"""
@@ -85,7 +90,11 @@ class AgentResponseFactory:
         metadata = kwargs.copy()
         metadata.update({
             "inquiry_type": inquiry_type,
-            "business_type": business_type
+            "business_type": business_type,
+            "conversation_stage": conversation_stage,
+            "completion_rate": completion_rate,
+            "collected_info": collected_info,
+            "multiturn_flow": multiturn_flow
         })
         
         return AgentResponseFactory.create_standard_response(

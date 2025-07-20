@@ -32,6 +32,8 @@ from shared_modules import (
 
 from customer_service_agent.config.persona_config import PERSONA_CONFIG, get_persona_by_topic
 from customer_service_agent.config.prompts_config import PROMPT_META
+from langchain.schema import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,38 @@ class CustomerServiceAgentManager:
         # 지식 기반 초기화
         self._initialize_knowledge_base()
     
+    def call_llm_api(self, model: str, prompt: str) -> str:
+        """LLM API 호출 함수"""
+        try:
+            messages = [
+                SystemMessage(content="당신은 도움이 되는 AI 어시스턴트입니다."),
+                HumanMessage(content=prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name=model, temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"LLM API 호출 실패: {e}")
+            return ""
+    
+    def is_follow_up(self, user_input: str, last_message: str, model="gpt-4o-mini") -> bool:
+        """이전 메시지와 연결되는 후속 질문인지 판단"""
+        try:
+            prompt = f"""아래 사용자 발화가 이전 메시지 "{last_message}"와 의미적으로 연결되는 후속 질문인지 판단해.
+후속 질문이면 true, 아니면 false만 출력해.
+
+사용자 발화: "{user_input}"""
+            
+            response = self.call_llm_api(model=model, prompt=prompt)
+            return "true" in response.lower()
+            
+        except Exception as e:
+            logger.error(f"is_follow_up 판단 실패: {e}")
+            return False
+    
     def _initialize_knowledge_base(self):
         """고객 서비스 전문 지식 벡터 스토어 초기화"""
         try:
@@ -227,12 +261,16 @@ class CustomerServiceAgentManager:
 
 답변:"""
 
+            # SystemMessage, HumanMessage를 사용한 메시지 구성
             messages = [
-                {"role": "system", "content": "당신은 고객 서비스 전문가로서 사용자 질문을 정확한 고객 관리 토픽으로 분류합니다."},
-                {"role": "user", "content": topic_classification_prompt}
+                SystemMessage(content="당신은 고객 서비스 전문가로서 사용자 질문을 정확한 고객 관리 토픽으로 분류합니다."),
+                HumanMessage(content=topic_classification_prompt)
             ]
             
-            response = self.llm_manager.generate_response_sync(messages)
+            # ChatOpenAI 인스턴스를 직접 사용
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
             
             if response:
                 topics = [topic.strip() for topic in response.split(',')]
@@ -278,12 +316,16 @@ class CustomerServiceAgentManager:
 
 분석 결과:"""
 
+            # SystemMessage, HumanMessage를 사용한 메시지 구성
             messages = [
-                {"role": "system", "content": "당신은 고객 서비스 상담 전문가로서 대화 흐름과 사용자 의도를 정확히 분석합니다."},
-                {"role": "user", "content": intent_analysis_prompt}
+                SystemMessage(content="당신은 고객 서비스 상담 전문가로서 대화 흐름과 사용자 의도를 정확히 분석합니다."),
+                HumanMessage(content=intent_analysis_prompt)
             ]
             
-            response = self.llm_manager.generate_response_sync(messages, output_format="json")
+            # ChatOpenAI 인스턴스를 직접 사용
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
             
             if isinstance(response, dict):
                 return response
@@ -372,12 +414,17 @@ class CustomerServiceAgentManager:
 """
 
         try:
+            # SystemMessage, HumanMessage를 사용한 메시지 구성
             messages = [
-                {"role": "system", "content": template_extract_prompt},
-                {"role": "user", "content": user_input}
+                SystemMessage(content=template_extract_prompt),
+                HumanMessage(content=user_input)
             ]
             
-            result = self.llm_manager.generate_response_sync(messages)
+            # ChatOpenAI 인스턴스를 직접 사용
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            result = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
             return result.strip() if result else "해당사항 없음"
             
         except Exception as e:
@@ -408,113 +455,292 @@ class CustomerServiceAgentManager:
         
         return filtered if filtered else templates
     
-    def get_relevant_knowledge(self, query: str, topics: List[str] = None) -> List[str]:
-        """관련 전문 지식 검색"""
+    def _determine_conversation_mode_with_history(self, user_input: str, user_id: int, conversation_id: Optional[int] = None) -> bool:
+        """히스토리를 고려한 싱글턴/멀티턴 모드 자동 판단
+        
+        Returns:
+            bool: True면 싱글턴, False면 멀티턴
+        """
         try:
-            search_results = self.vector_manager.search_documents(
-                query=query,
-                collection_name=self.knowledge_collection,
-                k=5
-            )
+            # 1. 첫 대화인지 확인
+            if conversation_id is None:
+                logger.info("첫 대화 감지 - 싱글턴 모드로 시작")
+                return True  # 첫 대화는 무조건 싱글턴
             
-            knowledge_texts = []
-            for doc in search_results[:3]:
-                knowledge_area = doc.metadata.get('knowledge_area', '일반')
-                content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
-                knowledge_texts.append(f"[{knowledge_area}]\n{content}")
+            # 2. 기존 대화 히스토리 조회
+            with get_session_context() as db:
+                recent_messages = get_recent_messages(db, conversation_id, limit=2)
             
-            return knowledge_texts
+            if not recent_messages or len(recent_messages) < 2:
+                logger.info("히스토리 부족 - 싱글턴 모드")
+                return True  # 히스토리가 없으면 싱글턴
+            
+            # 3. 마지막 메시지 확인
+            last_message = recent_messages[-1] if recent_messages else ""
+            
+            # 4. 후속 질문인지 LLM으로 판단
+            is_followup = self.is_follow_up(user_input, last_message.get('content'))
+            
+            if is_followup:
+                logger.info("후속 질문 감지 - 멀티턴 모드 유지")
+                return False  # 후속 질문이면 멀티턴 유지
+            
+            # 5. 새로운 주제인 경우 키워드 기반 판단
+            return self._determine_conversation_mode_by_keywords(user_input)
             
         except Exception as e:
-            logger.error(f"전문 지식 검색 실패: {e}")
-            return []
+            logger.error(f"히스토리 기반 대화 모드 판단 실패: {e}")
+            return True  # 오류 시 싱글턴으로 기본 설정
     
-    def process_user_query(
-        self, 
-        user_input: str, 
-        user_id: int, 
-        conversation_id: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """사용자 쿼리 처리 - 멀티턴 대화 플로우"""
+    def _determine_conversation_mode_by_keywords(self, user_input: str) -> bool:
+        """키워드 기반 싱글턴/멀티턴 모드 판단
         
+        Returns:
+            bool: True면 싱글턴, False면 멀티턴
+        """
         try:
-            logger.info(f"멀티턴 고객 서비스 쿼리 처리 시작: {user_input[:50]}...")
+            # 1. 명시적 싱글턴 요청 키워드
+            single_turn_keywords = [
+                "템플릿", "메시지", "문구", "알림",
+                "빠른 답변", "간단한 질문", "즉시", "당장",
+                "무엇", "어떻게", "왜", "언제", "어디서"
+            ]
             
-            # 대화 세션 처리
-            session_info = get_or_create_conversation_session(user_id, conversation_id)
-            conversation_id = session_info["conversation_id"]
+            # 2. 멀티턴 필요 키워드
+            multi_turn_keywords = [
+                "상담", "도움", "해결", "분석", "계획",
+                "단계별", "자세히", "체계적", "전략",
+                "긴급", "문제", "개선", "전문적"
+            ]
             
-            # 대화 상태 조회/생성
-            state = self.get_or_create_conversation_state(conversation_id, user_id)
+            user_lower = user_input.lower()
             
-            # 사용자 메시지 저장
-            with get_session_context() as db:
-                create_message(db, conversation_id, "user", "customer_service", user_input)
+            # 3. 명시적 싱글턴 체크
+            single_score = sum(1 for keyword in single_turn_keywords if keyword in user_lower)
             
+            # 4. 멀티턴 요청 체크
+            multi_score = sum(1 for keyword in multi_turn_keywords if keyword in user_lower)
+            
+            # 5. 문장 길이 및 복잡도
+            is_short = len(user_input) < 50
+            is_simple_question = user_input.count('?') <= 1
+            
+            # 6. 판단 로직
+            if single_score > 0 and multi_score == 0:
+                return True  # 명시적 싱글턴 요청
+            
+            if multi_score > single_score:
+                return False  # 멀티턴 상담 요청
+            
+            if is_short and is_simple_question:
+                return True  # 간단한 질문은 싱글턴
+            
+            # 7. 기본값: 멀티턴 (상담 서비스이므로)
+            return False
+            
+        except Exception as e:
+            logger.error(f"키워드 기반 대화 모드 판단 실패: {e}")
+            return False  # 오류 시 멀티턴으로 기본 설정
+    
+    def _process_single_turn_query(self, user_input: str, user_id: int) -> Dict[str, Any]:
+        """싱글턴 대화 처리"""
+        try:
             # 템플릿 요청 체크
             if any(keyword in user_input for keyword in ["템플릿", "메시지", "문구", "알림"]):
-                response_content = self.handle_template_request(user_input, state)
+                response_content = self._handle_single_turn_template_request(user_input)
             else:
-                # 의도 및 단계 분석
-                intent_analysis = self.analyze_user_intent_and_stage(user_input, state)
+                # 일반 고객 서비스 질문 처리
+                response_content = self._handle_single_turn_general_query(user_input)
+            
+            return create_success_response({
+                "answer": response_content,
+                "agent_type": "customer_service",
+                "mode": "single_turn",
+                "timestamp": get_current_timestamp()
+            })
+            
+        except Exception as e:
+            logger.error(f"싱글턴 쿼리 처리 실패: {e}")
+            return create_error_response(
+                error_message=f"싱글턴 상담 처리 중 오류: {str(e)}",
+                error_code="SINGLE_TURN_ERROR"
+            )
+    
+    def _handle_single_turn_template_request(self, user_input: str) -> str:
+        """싱글턴 템플릿 요청 처리"""
+        try:
+            template_type = self.extract_template_type(user_input)
+            templates = get_templates_by_type(template_type)
+            
+            if template_type == "고객 맞춤 메시지" and templates:
+                filtered_templates = self.filter_templates_by_query(templates, user_input)
+            else:
+                filtered_templates = templates
+            
+            if filtered_templates:
+                answer_blocks = []
+                for t in filtered_templates:
+                    if t.get("content_type") == "html":
+                        preview_url = f"http://localhost:8001/preview/{t['template_id']}"
+                        answer_blocks.append(f"📋 **{t['title']}**\n\n[HTML 미리보기]({preview_url})")
+                    else:
+                        answer_blocks.append(f"📋 **{t['title']}**\n\n{t['content']}")
                 
-                # 현재 단계에 따른 처리
-                if state.stage == ConversationStage.INITIAL:
-                    # 초기 접촉 시 문제 파악 단계로 전환
-                    state.update_stage(ConversationStage.PROBLEM_IDENTIFICATION)
-                    response_content = f"""안녕하세요! 고객 서비스 전문 컨설턴트입니다. 🎯
+                answer = "\n\n---\n\n".join(answer_blocks)
+                answer += f"\n\n✅ 위 템플릿들을 참고하여 고객에게 보낼 메시지를 작성해보세요!"
+                return answer
+            else:
+                return f"'{template_type}' 관련 템플릿을 찾지 못했습니다. 다른 키워드로 다시 검색해보세요."
+            
+        except Exception as e:
+            logger.error(f"싱글턴 템플릿 요청 실패: {e}")
+            return "템플릿 검색 중 오류가 발생했습니다."
+    
+    def _handle_single_turn_general_query(self, user_input: str) -> str:
+        """싱글턴 일반 쿼리 처리"""
+        try:
+            # 토픽 분류
+            topics = self.classify_customer_topic_with_llm(user_input)
+            primary_topic = topics[0] if topics else "customer_service"
+            
+            # 관련 지식 검색
+            knowledge_texts = self.get_relevant_knowledge(user_input, topics)
+            
+            # 일반 고객 서비스 응답 생성
+            general_prompt = f"""당신은 고객 서비스 전문 컨설턴트입니다.
+
+사용자 질문: "{user_input}"
+주요 토픽: {primary_topic}
+
+{"관련 전문 지식:" + chr(10) + chr(10).join(knowledge_texts) if knowledge_texts else ""}
+
+다음 지침에 따라 응답해주세요:
+1. 전문적이고 실용적인 조언 제공
+2. 구체적이고 실행 가능한 해결책 제시
+3. 친절하고 공감적인 어조 유지
+4. 필요시 단계별 안내 제공
+
+응답:"""
+            
+            messages = [
+                SystemMessage(content="당신은 고객 서비스 전문 컨설턴트로서 실용적이고 전문적인 조언을 제공합니다."),
+                HumanMessage(content=general_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.7)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            return response if response else "고객 서비스 전문가로서 도움을 드리고 싶지만, 질문을 이해하지 못했습니다. 더 구체적으로 말씀해 주세요."
+            
+        except Exception as e:
+            logger.error(f"싱글턴 일반 쿼리 처리 실패: {e}")
+            return "죄송합니다. 질문 처리 중 오류가 발생했습니다. 다시 시도해주세요."
+    
+    def _process_multi_turn_query(self, user_input: str, user_id: int, conversation_id: Optional[int] = None) -> Dict[str, Any]:
+        """멀티턴 대화 처리 (기존 로직)"""
+        # 대화 세션 처리
+        session_info = get_or_create_conversation_session(user_id, conversation_id)
+        conversation_id = session_info["conversation_id"]
+        
+        # 대화 상태 조회/생성
+        state = self.get_or_create_conversation_state(conversation_id, user_id)
+        
+        # 사용자 메시지 저장
+        with get_session_context() as db:
+            create_message(db, conversation_id, "user", "customer_service", user_input)
+        
+        # 템플릿 요청 체크
+        if any(keyword in user_input for keyword in ["템플릿", "메시지", "문구", "알림"]):
+            response_content = self.handle_template_request(user_input, state)
+        else:
+            # 의도 및 단계 분석
+            intent_analysis = self.analyze_user_intent_and_stage(user_input, state)
+            
+            # 현재 단계에 따른 처리
+            if state.stage == ConversationStage.INITIAL:
+                # 초기 접촉 시 문제 파악 단계로 전환
+                state.update_stage(ConversationStage.PROBLEM_IDENTIFICATION)
+                response_content = f"""안녕하세요! 고객 서비스 전문 컨설턴트입니다. 🎯
 
 고객 관리와 서비스 개선을 위해 도움을 드리겠습니다.
 
 **첫 번째 질문**: {list(self.info_gathering_questions.values())[0]}
 
 정확한 분석과 해결책 제시를 위해 차근차근 진행해보겠습니다!"""
-                    
-                elif state.stage == ConversationStage.PROBLEM_IDENTIFICATION:
-                    # 문제 파악 후 정보 수집으로 전환
-                    state.update_stage(ConversationStage.INFORMATION_GATHERING)
-                    response_content = self.handle_information_gathering(user_input, state, intent_analysis)
-                    
-                elif state.stage == ConversationStage.INFORMATION_GATHERING:
-                    response_content = self.handle_information_gathering(user_input, state, intent_analysis)
-                    
-                # 추가 단계들은 필요시 구현
-                else:
-                    response_content = "죄송합니다. 아직 구현되지 않은 단계입니다."
-            
-            # 응답 메시지 저장
-            insert_message_raw(
+                
+            elif state.stage == ConversationStage.PROBLEM_IDENTIFICATION:
+                # 문제 파악 후 정보 수집으로 전환
+                state.update_stage(ConversationStage.INFORMATION_GATHERING)
+                response_content = self.handle_information_gathering(user_input, state, intent_analysis)
+                
+            elif state.stage == ConversationStage.INFORMATION_GATHERING:
+                response_content = self.handle_information_gathering(user_input, state, intent_analysis)
+                
+            # 추가 단계들은 필요시 구현
+            else:
+                response_content = "죄송합니다. 아직 구현되지 않은 단계입니다."
+        
+        # 응답 메시지 저장
+        insert_message_raw(
+            conversation_id=conversation_id,
+            sender_type="agent",
+            agent_type="customer_service",
+            content=response_content
+        )
+        
+        # 표준 응답 형식으로 반환
+        try:
+            from shared_modules.standard_responses import create_customer_response
+            return create_customer_response(
                 conversation_id=conversation_id,
-                sender_type="agent",
-                agent_type="customer_service",
-                content=response_content
+                answer=response_content,
+                topics=getattr(state.analysis_results, 'primary_topics', []),
+                sources=f"멀티턴 대화 시스템 (단계: {state.stage.value})",
+                conversation_stage=state.stage.value,
+                completion_rate=state.get_completion_rate(),
+                collected_info=state.collected_info,
+                multiturn_flow=True
             )
+        except ImportError:
+            # 백업용 표준 응답
+            return create_success_response({
+                "conversation_id": conversation_id,
+                "answer": response_content,
+                "agent_type": "customer_service",
+                "stage": state.stage.value,
+                "completion_rate": state.get_completion_rate(),
+                "timestamp": get_current_timestamp()
+            })
+    
+    def process_user_query(
+        self, 
+        user_input: str, 
+        user_id: int, 
+        conversation_id: Optional[int] = None,
+        single_turn: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        """사용자 쿼리 처리 - 자동 멀티턴/싱글턴 대화 지원"""
+        
+        try:
+            # 1. 대화 모드 자동 판단 (single_turn이 명시되지 않은 경우)
+            if single_turn is None:
+                single_turn = self._determine_conversation_mode_with_history(user_input, user_id, conversation_id)
+                
+            logger.info(f"{'싱글턴' if single_turn else '멀티턴'} 모드로 고객 서비스 쿼리 처리 시작: {user_input[:50]}...")
             
-            # 표준 응답 형식으로 반환 (shared_modules에 create_customer_service_response 함수가 있다고 가정)
-            try:
-                from shared_modules.standard_responses import create_customer_service_response
-                return create_customer_service_response(
-                    conversation_id=conversation_id,
-                    answer=response_content,
-                    topics=getattr(state.analysis_results, 'primary_topics', []),
-                    sources=f"멀티턴 대화 시스템 (단계: {state.stage.value})"
-                )
-            except ImportError:
-                # 백업용 표준 응답
-                return create_success_response({
-                    "conversation_id": conversation_id,
-                    "answer": response_content,
-                    "agent_type": "customer_service",
-                    "stage": state.stage.value,
-                    "completion_rate": state.get_completion_rate(),
-                    "timestamp": get_current_timestamp()
-                })
+            # 2. 싱글턴 모드 처리
+            if single_turn:
+                return self._process_single_turn_query(user_input, user_id)
+            
+            # 3. 멀티턴 모드 처리 (기존 로직)
+            return self._process_multi_turn_query(user_input, user_id, conversation_id)
             
         except Exception as e:
-            logger.error(f"멀티턴 고객 서비스 쿼리 처리 실패: {e}")
+            logger.error(f"{'싱글턴' if single_turn else '멀티턴'} 고객 서비스 쿼리 처리 실패: {e}")
             return create_error_response(
                 error_message=f"고객 서비스 상담 처리 중 오류가 발생했습니다: {str(e)}",
-                error_code="MULTITURN_CUSTOMER_SERVICE_ERROR"
+                error_code="CUSTOMER_SERVICE_ERROR"
             )
     
     def handle_information_gathering(self, user_input: str, state: ConversationState, intent_analysis: Dict[str, Any]) -> str:
@@ -579,7 +805,7 @@ class CustomerServiceAgentManager:
         return {
             "agent_type": "customer_service",
             "version": "3.0.0",
-            "conversation_system": "multiturn",
+            "conversation_system": "multiturn_and_singleturn",
             "stages": [stage.value for stage in ConversationStage],
             "active_conversations": len(self.conversation_states),
             "conversation_stages": {
@@ -591,8 +817,39 @@ class CustomerServiceAgentManager:
             "supported_features": [
                 "고객 메시지 템플릿",
                 "멀티턴 대화",
+                "싱글턴 대화",
                 "문제 파악 및 해결",
                 "고객 세분화",
                 "만족도 분석"
             ]
         }
+
+    def get_relevant_knowledge(self, query: str, topics: List[str] = None) -> List[str]:
+        """실제 전문 지식 검색 (벡터DB - 프롬프트 파일 제외)"""
+        try:
+            # ✅ 실제 전문 지식만 검색 (프롬프트 파일은 제외)
+            search_results = self.vector_manager.search_documents(
+                query=query,
+                collection_name=self.knowledge_collection,
+                k=5
+            )
+            
+            # 프롬프트 파일은 필터링 제외
+            filtered_results = []
+            for doc in search_results:
+                # 프롬프트 파일이 아닌 실제 지식 콘텐츠만
+                if doc.metadata.get('type') != 'prompt_template':
+                    filtered_results.append(doc)
+            
+            # 전문 지식 내용 추출
+            knowledge_texts = []
+            for doc in filtered_results[:3]:
+                knowledge_area = doc.metadata.get('knowledge_area', '일반')
+                content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
+                knowledge_texts.append(f"[{knowledge_area}]\n{content}")
+            
+            return knowledge_texts
+            
+        except Exception as e:
+            logger.error(f"전문 지식 검색 실패: {e}")
+            return []
