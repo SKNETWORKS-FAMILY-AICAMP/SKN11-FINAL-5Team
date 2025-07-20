@@ -25,7 +25,8 @@ from shared_modules import (
     create_error_response,
     get_current_timestamp,
     format_conversation_history,
-    load_prompt_from_file
+    load_prompt_from_file,
+    get_session
 )
 
 # Mental Health 특화 임포트
@@ -140,9 +141,32 @@ class ConversationState:
                 self.phq9_state["is_active"] = False
                 # 점수 계산
                 result = calculate_phq9_score(self.phq9_state["responses"])
-                self.phq9_state["score"] = result.get("total_score", 0)
+                total_score = result.get("total_score", 0)
+                self.phq9_state["score"] = total_score
                 self.phq9_state["interpretation"] = result
                 self.assessment_results["phq9_results"] = result
+                
+                # PHQ-9 결과 저장
+                try:
+                    # PHQ-9 점수를 level로 변환 (0-4: 1, 5-9: 2, 10-14: 3, 15-19: 4, 20-27: 5)
+                    level = 1
+                    if total_score >= 20:
+                        level = 5
+                    elif total_score >= 15:
+                        level = 4
+                    elif total_score >= 10:
+                        level = 3
+                    elif total_score >= 5:
+                        level = 2
+
+                    save_or_update_phq9_result(
+                        db=get_session(),
+                        user_id=self.user_id,
+                        score=total_score,
+                        level=level  # 변환된 level 값 사용
+                    )
+                except Exception as e:
+                    logger.error(f"PHQ-9 결과 저장 실패: {e}")
                 
                 # 자살 위험 업데이트
                 if result.get("suicide_risk", False):
@@ -284,13 +308,35 @@ class MentalHealthAgentManager:
             return ["general"]
     
     def analyze_user_state(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
-        """사용자 상태 종합 분석"""
+        """사용자 상태 종합 분석 - 수정된 버전"""
         try:
             # 감정 상태 분석
             emotional_analysis = analyze_emotional_state(user_input)
             
             # 위기 지표 감지
             crisis_indicators = detect_crisis_indicators(user_input)
+            
+            # 분석 결과가 딕셔너리인지 확인
+            if not isinstance(emotional_analysis, dict):
+                logger.warning(f"감정 분석 결과가 딕셔너리가 아님: {type(emotional_analysis)}")
+                emotional_analysis = {
+                    "primary_emotion": "neutral",
+                    "detected_emotions": {},
+                    "risk_level": "low",
+                    "requires_immediate_attention": False,
+                    "emotional_intensity": 0
+                }
+            
+            if not isinstance(crisis_indicators, dict):
+                logger.warning(f"위기 지표 결과가 딕셔너리가 아님: {type(crisis_indicators)}")
+                crisis_indicators = {
+                    "crisis_level": "none",
+                    "detected_indicators": {},
+                    "immediate_intervention": False,
+                    "total_indicators": 0,
+                    "emergency_resources_needed": False,
+                    "recommended_actions": []
+                }
             
             # 분석 결과 저장
             state.assessment_results["emotional_analysis"] = emotional_analysis
@@ -309,18 +355,22 @@ class MentalHealthAgentManager:
             state.assessment_results["risk_level"] = risk_level
             
             # 자살 위험 평가
-            if "suicidal" in emotional_analysis.get("detected_emotions", {}):
+            detected_emotions = emotional_analysis.get("detected_emotions", {})
+            if isinstance(detected_emotions, dict) and "suicidal" in detected_emotions:
+                state.assessment_results["suicide_risk"] = True
+                state.assessment_results["immediate_intervention_needed"] = True
+            elif emotional_analysis.get("primary_emotion") == "suicidal":
                 state.assessment_results["suicide_risk"] = True
                 state.assessment_results["immediate_intervention_needed"] = True
             
             # 적절한 페르소나 추천
-            if state.assessment_results["suicide_risk"]:
+            if state.assessment_results.get("suicide_risk", False):
                 recommended_persona = "crisis_counselor"
             elif risk_level == "critical":
                 recommended_persona = "crisis_counselor"
-            elif "anxiety" in emotional_analysis.get("detected_emotions", {}):
+            elif "anxiety" in str(detected_emotions):
                 recommended_persona = "counselor"
-            elif "sad" in emotional_analysis.get("detected_emotions", {}):
+            elif emotional_analysis.get("primary_emotion") in ["sad", "anxious"]:
                 recommended_persona = "counselor"
             else:
                 recommended_persona = "common"
@@ -331,19 +381,34 @@ class MentalHealthAgentManager:
                 "emotional_analysis": emotional_analysis,
                 "crisis_indicators": crisis_indicators,
                 "risk_level": risk_level,
-                "immediate_intervention_needed": state.assessment_results["immediate_intervention_needed"],
+                "immediate_intervention_needed": state.assessment_results.get("immediate_intervention_needed", False),
                 "recommended_persona": recommended_persona,
                 "next_stage_recommendation": self._recommend_next_stage(state)
             }
             
         except Exception as e:
             logger.error(f"사용자 상태 분석 실패: {e}")
+            # 안전한 기본값 반환
             return {
-                "emotional_analysis": {},
-                "crisis_indicators": {},
+                "emotional_analysis": {
+                    "primary_emotion": "neutral",
+                    "detected_emotions": {},
+                    "risk_level": "low",
+                    "requires_immediate_attention": False,
+                    "emotional_intensity": 0
+                },
+                "crisis_indicators": {
+                    "crisis_level": "none",
+                    "detected_indicators": {},
+                    "immediate_intervention": False,
+                    "total_indicators": 0,
+                    "emergency_resources_needed": False,
+                    "recommended_actions": []
+                },
                 "risk_level": "low",
                 "immediate_intervention_needed": False,
-                "recommended_persona": "common"
+                "recommended_persona": "common",
+                "next_stage_recommendation": "rapport_building"
             }
     
     def _recommend_next_stage(self, state: ConversationState) -> str:
@@ -417,9 +482,19 @@ class MentalHealthAgentManager:
                         # DB 저장 시도
                         try:
                             with get_session_context() as db:
+                                # PHQ-9 점수를 level로 변환 (0-4: 1, 5-9: 2, 10-14: 3, 15-19: 4, 20-27: 5)
+                                level = 1
+                                if score >= 20:
+                                    level = 5
+                                elif score >= 15:
+                                    level = 4
+                                elif score >= 10:
+                                    level = 3
+                                elif score >= 5:
+                                    level = 2
+
                                 save_or_update_phq9_result(
-                                    db, state.user_id, score, 
-                                    state.phq9_state["responses"]
+                                    db, state.user_id, score, level
                                 )
                         except Exception as e:
                             logger.warning(f"PHQ-9 결과 DB 저장 실패: {e}")
@@ -594,22 +669,29 @@ class MentalHealthAgentManager:
 필요하다면 후속 질문을 하거나 적절한 자원을 제안할 수 있습니다."""
 
                 try:
+                    # SystemMessage, HumanMessage를 사용한 메시지 구성
+                    from langchain.schema import SystemMessage, HumanMessage
+                    
                     messages = [
-                        {"role": "system", "content": counseling_prompt},
-                        {"role": "user", "content": user_input}
+                        SystemMessage(content=counseling_prompt),
+                        HumanMessage(content=user_input)
                     ]
                     
-                    response_content = self.llm_manager.generate_response_sync(messages)
+                    # ChatOpenAI 인스턴스를 직접 사용
+                    from langchain_openai import ChatOpenAI
+                    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.7)
+                    raw_response = llm.invoke(messages)
+                    response_content = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
                     
                     # 후속 질문 추가
                     follow_up_questions = get_follow_up_questions(analysis_result.get("emotional_analysis", {}))
                     if follow_up_questions and analysis_result.get("risk_level") != "critical":
                         response_content += f"\n\n더 도움이 되도록 몇 가지 질문을 드려도 될까요?\n"
-                        response_content += f"• {follow_up_questions[0]}"
+                        response_content += f"• {follow_up_questions['questions'][0]}"
                     
                 except Exception as e:
                     logger.error(f"상담 응답 생성 실패: {e}")
-                    response_content = "죄송합니다. 응답 생성 중 문제가 발생했습니다. 다시 말씀해 주세요."
+                    response_content = "안녕하세요. 정신건강 상담사입니다. 어떤 어려움이든 함께 나누고 해결해 나갈 수 있습니다. 편안하게 이야기해 주세요."
             
             # 응답 메시지 저장
             insert_message_raw(

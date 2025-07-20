@@ -5,7 +5,7 @@ Mental Health Agent - 리팩토링된 메인 진입점
 
 import logging
 import time
-from typing import Optional
+from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -183,11 +183,24 @@ def submit_phq9(request: PHQ9Request):
             from shared_modules import get_session_context
             
             with get_session_context() as db:
+                # PHQ9 점수를 레벨로 변환 (0-4: 1, 5-9: 2, 10-14: 3, 15-19: 4, 20-27: 5)
+                level = 1
+                total_score = result.get("total_score", 0)
+                if total_score >= 20:
+                    level = 5
+                elif total_score >= 15:
+                    level = 4
+                elif total_score >= 10:
+                    level = 3
+                elif total_score >= 5:
+                    level = 2
+                
                 save_or_update_phq9_result(
                     db, request.user_id, 
-                    result.get("total_score", 0),
-                    request.responses
+                    total_score,
+                    level
                 )
+                request.responses
         except Exception as e:
             logger.warning(f"PHQ-9 결과 DB 저장 실패: {e}")
         

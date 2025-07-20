@@ -1,12 +1,17 @@
 """
-Mental Health Agent Utilities
+Mental Health Agent Utilities - 템플릿 변수 오류 해결 버전
 정신건강 관련 유틸리티 함수들
 """
 
 import logging
 import re
+import json
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
+from shared_modules.llm_utils import generate_response_sync
+from shared_modules.llm_utils import get_llm_manager
+from langchain_openai import ChatOpenAI
+from langchain.schema import SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -23,55 +28,74 @@ PHQ9_QUESTIONS = [
     "지난 2주 동안, 자신을 해치거나 죽어버리고 싶다는 생각을 했다"
 ]
 
-def calculate_phq9_score(responses: List[int]) -> Dict[str, Any]:
-    """PHQ-9 점수 계산 및 해석"""
+def fix_invalid_json(response: str) -> Dict[str, Any]:
+    """
+    LLM이 반환한 잘못된 JSON 응답을 가능한 한 자동 보정하여 dict로 변환.
+    """
     try:
-        if len(responses) != 9:
-            raise ValueError("PHQ-9는 9개 문항이 필요합니다")
-        
-        # 각 응답은 0-3 범위여야 함
-        for i, response in enumerate(responses):
-            if not (0 <= response <= 3):
-                raise ValueError(f"문항 {i+1}의 응답은 0-3 범위여야 합니다")
-        
-        total_score = sum(responses)
-        
-        # 점수별 해석
-        if total_score >= 20:
-            severity = "심각한 우울"
-            recommendation = "즉시 전문의의 도움을 받으시기 바랍니다."
-            action_needed = "immediate"
-        elif total_score >= 15:
-            severity = "중등도 심각 우울"
-            recommendation = "정신건강 전문가와 상담받으시기 바랍니다."
-            action_needed = "urgent"
-        elif total_score >= 10:
-            severity = "중등도 우울"
-            recommendation = "상담이나 치료를 고려해보시기 바랍니다."
-            action_needed = "recommended"
-        elif total_score >= 5:
-            severity = "경미한 우울"
-            recommendation = "생활습관 개선이나 스트레스 관리가 도움이 될 수 있습니다."
-            action_needed = "lifestyle"
-        else:
-            severity = "정상"
-            recommendation = "현재 우울 증상은 최소한입니다."
-            action_needed = "none"
-        
-        # 9번 문항 (자해/자살 사고) 특별 체크
-        suicide_risk = responses[8] > 0  # 9번 문항이 1 이상이면 위험
-        
+        return json.loads(response)
+    except json.JSONDecodeError:
+        cleaned = re.sub(r"```[a-zA-Z]*", "", response).strip()
+        cleaned = cleaned.replace("'", '"')
+        start, end = cleaned.find("{"), cleaned.rfind("}") + 1
+        if start != -1 and end != -1:
+            cleaned = cleaned[start:end]
+        cleaned = re.sub(r",\s*}", "}", cleaned)
+        cleaned = re.sub(r",\s*]", "]", cleaned)
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            return {"error": "JSON 파싱 실패", "raw": response}
+
+def calculate_phq9_score(responses: List[int]) -> Dict[str, Any]:
+    """PHQ-9 점수 계산 및 해석 (JSON 기반)"""
+    try:
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 전문가입니다. PHQ-9 응답을 분석하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음 PHQ-9 응답을 분석해주세요:
+
+응답: {responses}
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "total_score": "총점",
+    "severity": "심각도 (정상, 경미한 우울, 중등도 우울, 중등도 심각 우울, 심각한 우울)",
+    "recommendation": "권장사항",
+    "action_needed": "필요한 조치 (none, lifestyle, recommended, urgent, immediate)",
+    "suicide_risk": "자살 위험 여부 (true/false)",
+    "responses": "응답 배열",
+    "assessment_date": "평가 일시",
+    "interpretation": "상세 해석"    
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
         return {
-            "total_score": total_score,
-            "severity": severity,
-            "recommendation": recommendation,
-            "action_needed": action_needed,
-            "suicide_risk": suicide_risk,
+            "total_score": int(result.get("total_score", 0)),
+            "severity": result.get("severity", "평가 불가"),
+            "recommendation": result.get("recommendation", "다시 평가해주세요."),
+            "action_needed": result.get("action_needed", "none"),
+            "suicide_risk": bool(result.get("suicide_risk", False)),
             "responses": responses,
             "assessment_date": datetime.now(),
-            "interpretation": get_detailed_interpretation(total_score, suicide_risk)
+            "interpretation": result.get("interpretation", "평가 결과를 확인할 수 없습니다.")
         }
-        
+
     except Exception as e:
         logger.error(f"PHQ-9 점수 계산 실패: {e}")
         return {
@@ -81,271 +105,378 @@ def calculate_phq9_score(responses: List[int]) -> Dict[str, Any]:
             "recommendation": "다시 평가해주세요."
         }
 
-def get_detailed_interpretation(score: int, suicide_risk: bool) -> str:
-    """상세한 PHQ-9 해석 제공"""
-    interpretation = f"""
-PHQ-9 총점: {score}점
+def get_detailed_interpretation(score: int, suicide_risk: bool) -> Dict[str, Any]:
+    """상세한 PHQ-9 해석 제공 (JSON 기반)"""
+    try:
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
 
-점수별 해석:
-- 0-4점: 정상 (우울증상 거의 없음)
-- 5-9점: 경미한 우울 (생활습관 개선 권장)
-- 10-14점: 중등도 우울 (상담 치료 권장)
-- 15-19점: 중등도 심각 우울 (전문가 치료 필요)
-- 20-27점: 심각한 우울 (즉시 전문의 진료 필요)
-"""
-    
-    if suicide_risk:
-        interpretation += "\n⚠️ 자해나 자살에 대한 생각이 있으신 것으로 나타났습니다. 즉시 전문가의 도움을 받으시기 바랍니다."
-    
-    return interpretation
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 전문가입니다. PHQ-9 점수와 자살 위험 여부를 바탕으로 상세한 해석을 제공하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음 정보를 바탕으로 상세한 해석을 제공해주세요:
+
+총점: {score}
+자살위험: {suicide_risk}
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "score_interpretation": "점수 해석",
+    "severity_level": "심각도 수준",
+    "risk_assessment": "위험 평가",
+    "recommendations": ["권장사항1", "권장사항2"],
+    "warning_signs": ["주의해야 할 징후1", "주의해야 할 징후2"],
+    "next_steps": ["다음 단계1", "다음 단계2"]
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
+        return {
+            "score_interpretation": result.get("score_interpretation", "해석 불가"),
+            "severity_level": result.get("severity_level", "평가 불가"),
+            "risk_assessment": result.get("risk_assessment", "위험 평가 불가"),
+            "recommendations": result.get("recommendations", ["전문가와 상담하세요"]),
+            "warning_signs": result.get("warning_signs", ["주의 징후 파악 불가"]),
+            "next_steps": result.get("next_steps", ["전문가의 도움을 받으세요"])
+        }
+
+    except Exception as e:
+        logger.error(f"PHQ-9 상세 해석 실패: {e}")
+        return {
+            "error": str(e),
+            "score_interpretation": "해석 불가",
+            "severity_level": "평가 불가",
+            "risk_assessment": "위험 평가 불가",
+            "recommendations": ["전문가와 상담하세요"],
+            "warning_signs": ["주의 징후 파악 불가"],
+            "next_steps": ["전문가의 도움을 받으세요"]
+        }
 
 def analyze_emotional_state(text: str) -> Dict[str, Any]:
-    """텍스트에서 감정 상태 분석"""
+    """
+    LLM을 사용하여 텍스트에서 감정 상태 분석 (JSON 기반)
+    """
     try:
-        text_lower = text.lower()
-        
-        # 감정 키워드 정의
-        emotion_keywords = {
-            "sad": ["슬프", "우울", "울적", "기운없", "침울", "쓸쓸", "외로", "허전"],
-            "anxious": ["불안", "걱정", "초조", "긴장", "두려", "무서", "겁", "떨림"],
-            "angry": ["화", "짜증", "분노", "빡침", "열받", "성질", "약오름"],
-            "hopeless": ["희망없", "절망", "포기", "의미없", "무력", "막막", "답답"],
-            "suicidal": ["죽고싶", "자살", "사라지고싶", "끝내고싶", "괴로", "못살겠"],
-            "positive": ["좋", "행복", "기쁘", "즐거", "만족", "감사", "평화"],
-            "neutral": ["그냥", "보통", "평범", "괜찮", "무난"]
-        }
-        
-        detected_emotions = {}
-        for emotion, keywords in emotion_keywords.items():
-            count = sum(1 for keyword in keywords if keyword in text_lower)
-            if count > 0:
-                detected_emotions[emotion] = count
-        
-        # 주요 감정 결정
-        primary_emotion = "neutral"
-        if detected_emotions:
-            primary_emotion = max(detected_emotions, key=detected_emotions.get)
-        
-        # 위험도 평가
-        risk_level = "low"
-        if "suicidal" in detected_emotions or "hopeless" in detected_emotions:
-            risk_level = "high"
-        elif "sad" in detected_emotions or "anxious" in detected_emotions:
-            risk_level = "medium"
-        
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 전문가입니다. 사용자의 텍스트에서 감정 상태를 분석하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음 텍스트에서 감정 상태를 분석해주세요:
+
+"{text}"
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "primary_emotion": "감정 (sad, anxious, angry, hopeless, suicidal, positive, neutral 중 하나)",
+    "emotional_intensity": "감정 강도 (1-10 사이의 정수)",
+    "risk_level": "위험 수준 (low, medium, high)",
+    "requires_immediate_attention": "즉각적 개입 필요 여부 (true/false)",
+    "detected_emotions": {{
+        "감정1": "근거가 되는 표현",
+        "감정2": "근거가 되는 표현"
+    }}
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
         return {
-            "primary_emotion": primary_emotion,
-            "detected_emotions": detected_emotions,
-            "risk_level": risk_level,
-            "requires_immediate_attention": "suicidal" in detected_emotions,
-            "emotional_intensity": sum(detected_emotions.values())
-        }
-        
-    except Exception as e:
-        logger.error(f"감정 상태 분석 실패: {e}")
-        return {
-            "primary_emotion": "neutral",
-            "detected_emotions": {},
-            "risk_level": "low",
-            "requires_immediate_attention": False
+            "primary_emotion": result.get("primary_emotion", "neutral"),
+            "emotional_intensity": int(result.get("emotional_intensity", 0)),
+            "risk_level": result.get("risk_level", "low"),
+            "requires_immediate_attention": bool(result.get("requires_immediate_attention", False)),
+            "detected_emotions": result.get("detected_emotions", {})
         }
 
-def detect_crisis_indicators(text: str) -> Dict[str, Any]:
-    """위기 상황 지표 감지"""
-    try:
-        text_lower = text.lower()
-        
-        # 위기 지표 키워드
-        crisis_keywords = {
-            "suicide_direct": ["자살", "죽고싶", "목숨", "죽어버리"],
-            "suicide_indirect": ["사라지고싶", "끝내고싶", "지쳐", "못살겠"],
-            "self_harm": ["자해", "상처", "칼", "베어", "때리"],
-            "substance": ["술", "약", "마약", "음주", "약물"],
-            "isolation": ["혼자", "외로", "아무도", "버림받"],
-            "hopelessness": ["희망없", "절망", "포기", "의미없", "소용없"]
-        }
-        
-        detected_indicators = {}
-        for category, keywords in crisis_keywords.items():
-            count = sum(1 for keyword in keywords if keyword in text_lower)
-            if count > 0:
-                detected_indicators[category] = count
-        
-        # 위기 수준 결정
-        crisis_level = "none"
-        immediate_intervention = False
-        
-        if "suicide_direct" in detected_indicators:
-            crisis_level = "severe"
-            immediate_intervention = True
-        elif "suicide_indirect" in detected_indicators or "self_harm" in detected_indicators:
-            crisis_level = "moderate"
-        elif any(detected_indicators.values()):
-            crisis_level = "mild"
-        
-        return {
-            "crisis_level": crisis_level,
-            "detected_indicators": detected_indicators,
-            "immediate_intervention": immediate_intervention,
-            "total_indicators": sum(detected_indicators.values()),
-            "emergency_resources_needed": immediate_intervention
-        }
-        
     except Exception as e:
-        logger.error(f"위기 지표 감지 실패: {e}")
+        return {
+            "primary_emotion": "neutral",
+            "emotional_intensity": 0,
+            "risk_level": "low",
+            "requires_immediate_attention": False,
+            "detected_emotions": {},
+            "error": str(e)
+        }
+
+
+def detect_crisis_indicators(text: str) -> Dict[str, Any]:
+    """
+    LLM을 사용하여 위기 상황 지표 감지 (SystemMessage + HumanMessage 기반).
+    """
+    try:
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 작성
+        messages = [
+            SystemMessage(content="당신은 정신건강 위기 평가 전문가입니다. 사용자의 텍스트에서 위기 상황 지표를 분석하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음 텍스트에서 위기 상황 지표를 분석해주세요:
+
+"{text}"
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "crisis_level": "위기 수준 (none, mild, moderate, severe 중 하나)",
+    "immediate_intervention": "즉각 개입 필요 여부 (true/false)",
+    "suicide_risk": "자살 위험 여부 (true/false)",
+    "self_harm_risk": "자해 위험 여부 (true/false)",
+    "total_indicators": "감지된 위기 지표 개수 (숫자)",
+    "emergency_resources_needed": "응급 자원 필요 여부 (true/false)",
+    "detected_indicators": {{
+        "crisis_content": "감지된 위기 관련 구체적 표현들"
+    }},
+    "recommended_actions": ["권장 조치1", "권장 조치2"]
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
+        parsed_result = {
+            "crisis_level": result.get("crisis_level", "none"),
+            "immediate_intervention": bool(result.get("immediate_intervention", False)),
+            "suicide_risk": bool(result.get("suicide_risk", False)),
+            "self_harm_risk": bool(result.get("self_harm_risk", False)),
+            "total_indicators": int(result.get("total_indicators", 0)),
+            "emergency_resources_needed": bool(result.get("emergency_resources_needed", False)),
+            "detected_indicators": result.get("detected_indicators", {"crisis_content": "없음"}),
+            "recommended_actions": result.get("recommended_actions", [])
+        }
+
+        # 값 검증
+        if parsed_result["crisis_level"] not in ["none", "mild", "moderate", "severe"]:
+            parsed_result["crisis_level"] = "none"
+
+        if parsed_result["total_indicators"] < 0:
+            parsed_result["total_indicators"] = 0
+
+        # 자살/자해 위험 시 강제 플래그 설정
+        if parsed_result["suicide_risk"] or parsed_result["self_harm_risk"]:
+            parsed_result["immediate_intervention"] = True
+            parsed_result["emergency_resources_needed"] = True
+            if not parsed_result["recommended_actions"]:
+                parsed_result["recommended_actions"] = ["즉시 119 또는 1393에 연락하세요"]
+
+        return parsed_result
+
+    except Exception as e:
         return {
             "crisis_level": "none",
-            "detected_indicators": {},
-            "immediate_intervention": False
+            "immediate_intervention": False,
+            "suicide_risk": False,
+            "self_harm_risk": False,
+            "total_indicators": 0,
+            "emergency_resources_needed": False,
+            "detected_indicators": {"crisis_content": "없음"},
+            "recommended_actions": [],
+            "error": str(e)
         }
 
 def generate_safety_plan(crisis_info: Dict[str, Any]) -> Dict[str, Any]:
-    """안전 계획 생성"""
+    """LLM을 사용하여 위기 정보를 바탕으로 맞춤형 안전 계획 생성 (JSON 기반)"""
     try:
-        safety_plan = {
-            "immediate_actions": [],
-            "coping_strategies": [],
-            "support_contacts": [],
-            "emergency_contacts": [],
-            "professional_resources": []
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 위기 관리 전문가입니다. 내담자의 위기 정보를 바탕으로 맞춤형 안전 계획을 생성하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음과 같은 내담자의 위기 정보를 바탕으로, 맞춤형 안전 계획을 생성해주세요:
+
+위기 정보: {crisis_info}
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "immediate_actions": ["즉시 조치사항1", "즉시 조치사항2"],
+    "coping_strategies": ["대처전략1", "대처전략2"],
+    "emergency_contacts": ["긴급연락처1", "긴급연락처2"],
+    "professional_resources": ["전문가자원1", "전문가자원2"],
+    "safety_notes": ["안전수칙1", "안전수칙2"],
+    "warning_signs": ["경고신호1", "경고신호2"]
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+- 실행 가능하고 구체적인 조치를 제안하세요.
+- 24시간 이용 가능한 연락처를 포함하세요.
+- 안전을 최우선으로 고려하세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
+        return {
+            "immediate_actions": result.get("immediate_actions", ["전문가의 도움을 받으세요"]),
+            "coping_strategies": result.get("coping_strategies", ["깊은 호흡을 하며 진정하세요"]),
+            "emergency_contacts": result.get("emergency_contacts", ["생명의전화: 1393", "응급실: 119"]),
+            "professional_resources": result.get("professional_resources", ["가까운 정신건강의학과"]),
+            "safety_notes": result.get("safety_notes", ["위험한 상황이라고 판단되면 즉시 119에 연락하세요."]),
+            "warning_signs": result.get("warning_signs", [])
         }
-        
-        crisis_level = crisis_info.get("crisis_level", "none")
-        
-        if crisis_level == "severe":
-            safety_plan["immediate_actions"] = [
-                "즉시 안전한 장소로 이동하세요",
-                "주변의 위험한 물건들을 치워주세요",
-                "신뢰할 수 있는 사람에게 연락하세요",
-                "아래 응급 연락처로 즉시 도움을 요청하세요"
-            ]
-            safety_plan["emergency_contacts"] = [
-                "생명의전화: 1393",
-                "청소년전화: 1388",
-                "응급실: 119"
-            ]
-        elif crisis_level == "moderate":
-            safety_plan["immediate_actions"] = [
-                "깊게 숨을 쉬고 잠시 진정하세요",
-                "신뢰할 수 있는 사람과 이야기하세요",
-                "전문가의 도움을 받는 것을 고려해보세요"
-            ]
-        
-        # 공통 대처 전략
-        safety_plan["coping_strategies"] = [
-            "깊은 호흡이나 명상하기",
-            "좋아하는 음악 듣기",
-            "산책이나 가벼운 운동하기",
-            "일기 쓰기",
-            "따뜻한 차 마시기"
-        ]
-        
-        safety_plan["professional_resources"] = [
-            "정신건강상담센터",
-            "병원 정신건강의학과",
-            "온라인 상담 서비스",
-            "지역 보건소"
-        ]
-        
-        return safety_plan
-        
+
     except Exception as e:
         logger.error(f"안전 계획 생성 실패: {e}")
-        return {"error": "안전 계획 생성에 실패했습니다"}
-
-def get_follow_up_questions(emotional_state: Dict[str, Any]) -> List[str]:
-    """감정 상태에 따른 후속 질문 생성"""
-    try:
-        primary_emotion = emotional_state.get("primary_emotion", "neutral")
-        
-        question_sets = {
-            "sad": [
-                "언제부터 이런 기분이 드셨나요?",
-                "특별히 힘든 일이 있으셨나요?",
-                "평소에 기분이 좋아지는 활동이 있나요?"
-            ],
-            "anxious": [
-                "어떤 상황에서 불안감을 느끼시나요?",
-                "불안할 때 몸에 어떤 변화가 있나요?",
-                "이전에 도움이 되었던 방법이 있나요?"
-            ],
-            "angry": [
-                "화가 나는 구체적인 이유가 있나요?",
-                "평소 화를 다스리는 방법이 있나요?",
-                "누군가와 이야기를 나누셨나요?"
-            ],
-            "hopeless": [
-                "어떤 부분에서 희망이 없다고 느끼시나요?",
-                "이전에 비슷한 기분을 느낀 적이 있나요?",
-                "작은 것이라도 기대되는 것이 있나요?"
-            ],
-            "suicidal": [
-                "지금 안전한 곳에 계신가요?",
-                "신뢰할 수 있는 누군가와 함께 계신가요?",
-                "전문가의 도움을 받은 적이 있나요?"
-            ]
+        return {
+            "immediate_actions": ["전문가의 도움을 받으세요"],
+            "coping_strategies": ["깊은 호흡을 하며 진정하세요"],
+            "emergency_contacts": ["생명의전화: 1393", "응급실: 119"],
+            "professional_resources": ["가까운 정신건강의학과"],
+            "safety_notes": ["위험한 상황이라고 판단되면 즉시 119에 연락하세요."],
+            "warning_signs": []
         }
-        
-        return question_sets.get(primary_emotion, [
-            "현재 어떤 기분이신가요?",
-            "요즘 어떻게 지내세요?",
-            "어떤 도움이 필요하신가요?"
-        ])
-        
+
+def get_follow_up_questions(emotional_state: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM을 사용하여 감정 상태에 따른 맥락화된 후속 질문 생성 (JSON 기반)"""
+    try:
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 상담 전문가입니다. 내담자의 감정 상태를 기반으로 적절한 후속 질문을 생성하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음과 같은 내담자의 감정 상태 정보를 바탕으로, 맥락화된 후속 질문을 생성해주세요:
+
+감정 상태: {emotional_state}
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "questions": [
+        "첫 번째 질문",
+        "두 번째 질문",
+        "세 번째 질문"
+    ],
+    "focus_areas": ["중점적으로 다룰 영역1", "중점적으로 다룰 영역2"],
+    "safety_concerns": "안전 관련 우려사항 (있는 경우)",
+    "approach_style": "상담 접근 방식 추천"
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+- 내담자의 주요 감정과 강도를 고려하여 질문을 구성하세요.
+- 위험 수준이 높은 경우 안전 확인 질문을 우선적으로 포함하세요.
+- 개방형 질문을 사용하여 내담자가 자유롭게 표현할 수 있도록 하세요.
+- 비판단적이고 공감적인 어조를 유지하세요.
+""")
+        ]
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
+        return {
+            "questions": result.get("questions", ["더 자세히 말씀해 주실 수 있나요?"])[:3],  # 최대 3개만 반환
+            "focus_areas": result.get("focus_areas", ["감정 상태 탐색"]),
+            "safety_concerns": result.get("safety_concerns", "없음"),
+            "approach_style": result.get("approach_style", "공감적 경청")
+        }
+
     except Exception as e:
         logger.error(f"후속 질문 생성 실패: {e}")
-        return ["더 자세히 말씀해 주실 수 있나요?"]
-
-def recommend_resources(assessment: Dict[str, Any]) -> Dict[str, List[str]]:
-    """평가 결과에 따른 자원 추천"""
-    try:
-        phq9_score = assessment.get("total_score", 0)
-        suicide_risk = assessment.get("suicide_risk", False)
-        
-        recommendations = {
-            "immediate": [],
-            "professional": [],
-            "self_help": [],
-            "lifestyle": []
+        return {
+            "questions": ["더 자세히 말씀해 주실 수 있나요?"],
+            "focus_areas": ["감정 상태 탐색"],
+            "safety_concerns": "없음",
+            "approach_style": "공감적 경청"
         }
-        
-        if suicide_risk or phq9_score >= 20:
-            recommendations["immediate"] = [
-                "생명의전화 1393",
-                "정신건강위기상담전화 1577-0199",
-                "가까운 응급실 방문"
-            ]
-        
-        if phq9_score >= 15:
-            recommendations["professional"] = [
-                "정신건강의학과 전문의 상담",
-                "임상심리사 상담",
-                "정신건강상담센터 이용"
-            ]
-        elif phq9_score >= 10:
-            recommendations["professional"] = [
-                "심리상담센터 이용",
-                "온라인 상담 서비스",
-                "지역 보건소 정신건강팀"
-            ]
-        
-        if phq9_score >= 5:
-            recommendations["self_help"] = [
-                "우울증 자가관리 앱 사용",
-                "명상 및 마음챙김 실천",
-                "인지행동치료 자조서적 읽기"
-            ]
-        
-        recommendations["lifestyle"] = [
-            "규칙적인 운동 (주 3회 이상)",
-            "충분한 수면 (7-8시간)",
-            "균형잡힌 식사",
-            "사회적 관계 유지",
-            "스트레스 관리 기법 학습"
+
+def recommend_resources(assessment: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM을 사용하여 평가 결과에 따른 맞춤형 자원 추천 (JSON 기반)"""
+    try:
+        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+        # 메시지 리스트 구성
+        messages = [
+            SystemMessage(content="당신은 정신건강 자원 추천 전문가입니다. 내담자의 평가 결과를 바탕으로 맞춤형 자원을 추천하고 반드시 JSON으로만 응답해주세요."),
+            HumanMessage(content=f"""
+다음과 같은 내담자의 평가 결과를 바탕으로, 맞춤형 자원을 추천해주세요:
+
+평가 결과: {assessment}
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "immediate": ["긴급 자원1", "긴급 자원2"],
+    "professional": ["전문가 자원1", "전문가 자원2"],
+    "self_help": ["자가 관리 자원1", "자가 관리 자원2"],
+    "lifestyle": ["생활습관 자원1", "생활습관 자원2"],
+    "resource_notes": "자원 관련 중요 참고사항",
+    "priority_level": "우선순위 수준 (high, medium, low)",
+    "follow_up_needed": "후속 조치 필요 여부 (true/false)"
+}}
+
+주의사항:
+- 반드시 JSON 형식만 출력하세요.
+- 설명 문장은 출력하지 마세요.
+- PHQ-9 점수와 자살 위험도에 따라 자원의 우선순위를 조정하세요.
+- 구체적이고 실행 가능한 자원을 추천하세요.
+- 필요한 경우 24시간 이용 가능한 긴급 자원을 강조하세요.
+""")
         ]
-        
-        return recommendations
-        
+
+        # LLM 호출
+        raw_result = llm.invoke(messages)
+
+        # JSON 파싱 (보정 포함)
+        result = fix_invalid_json(str(raw_result.content))
+
+        # 필드 검증 및 기본값 보정
+        return {
+            "immediate": result.get("immediate", ["생명의전화 1393", "응급실 119"]),
+            "professional": result.get("professional", ["가까운 정신건강의학과"]),
+            "self_help": result.get("self_help", ["심호흡과 명상"]),
+            "lifestyle": result.get("lifestyle", ["규칙적인 생활습관 유지"]),
+            "resource_notes": result.get("resource_notes", "평가 결과에 따른 맞춤형 자원입니다."),
+            "priority_level": result.get("priority_level", "low"),
+            "follow_up_needed": bool(result.get("follow_up_needed", False))
+        }
+
     except Exception as e:
         logger.error(f"자원 추천 실패: {e}")
-        return {"error": ["추천 생성에 실패했습니다"]}
+        return {
+            "immediate": ["생명의전화 1393", "응급실 119"],
+            "professional": ["가까운 정신건강의학과"],
+            "self_help": ["심호흡과 명상"],
+            "lifestyle": ["규칙적인 생활습관 유지"],
+            "resource_notes": "위험한 상황이라고 판단되면 즉시 전문가의 도움을 받으세요.",
+            "priority_level": "low",
+            "follow_up_needed": False
+        }

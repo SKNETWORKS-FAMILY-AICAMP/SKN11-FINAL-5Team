@@ -16,8 +16,8 @@ async def mental_health_multiturn_demo():
     manager = MentalHealthAgentManager()
     
     # 사용자 정보
-    user_id = 3001
-    conversation_id = None  # 새 대화 시작
+    user_id = 6
+    conversation_id = 745  # 새 대화 시작
     
     # 대화 시나리오 - 일반적인 우울 상담 사례
     conversation_flow = [
@@ -72,7 +72,7 @@ async def mental_health_multiturn_demo():
                 print(f"📞 새 대화 세션 생성: {conversation_id}")
             
             # 응답 출력
-            print(f"🤖 [상담사]: {result.get('answer', '응답을 받지 못했습니다.')}")
+            print(f"🤖 [상담사]: {result.get('data').get('answer')}")
             
             # 대화 상태 정보 출력
             if conversation_id in manager.conversation_states:

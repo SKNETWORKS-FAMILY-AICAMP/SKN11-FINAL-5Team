@@ -167,16 +167,24 @@ def check_database_connection(db: Session) -> bool:
 def ensure_test_user(db: Session, user_id: int):
     """테스트용 사용자가 존재하지 않으면 생성"""
     try:
+        # user_id로 먼저 조회
         user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
         if user:
             logger.info(f"[ensure_test_user] 사용자 존재: {user.email}")
+            return user
+            
+        # 이메일로 조회
+        email = f"test_user_{user_id}@example.com"
+        user = db.query(db_models.User).filter(db_models.User.email == email).first()
+        if user:
+            logger.info(f"[ensure_test_user] 이메일로 사용자 찾음: {email}")
             return user
         
         # 테스트 사용자 생성
         logger.warning(f"[ensure_test_user] 사용자 ID {user_id} 없음. 테스트 사용자 생성 중...")
         
         test_user = db_models.User(
-            email=f"test_user_{user_id}@example.com",
+            email=email,
             nickname=f"TestUser{user_id}",
             business_type="test",
             provider="local",
@@ -924,4 +932,109 @@ def delete_template(template_id: int) -> bool:
             return result.rowcount > 0
     except Exception as e:
         return handle_db_error(e, "delete_template") or False
+
+# -------------------
+# Message 관련 함수들
+# -------------------
+def get_recent_messages(db: Session, conversation_id: int, limit: int = 10) -> list:
+    """
+    최근 메시지 조회 (딕셔너리 형태로 반환)
+    
+    Args:
+        db: 데이터베이스 세션
+        conversation_id: 대화 ID
+        limit: 조회할 메시지 수
+    
+    Returns:
+        list: 메시지 딕셔너리 리스트
+    """
+    try:
+        messages = db.query(db_models.Message).filter(
+            db_models.Message.conversation_id == conversation_id
+        ).order_by(
+            db_models.Message.created_at.desc()
+        ).limit(limit).all()
+        
+        # Message 객체를 딕셔너리로 변환
+        result = []
+        for msg in reversed(messages):  # 시간순으로 정렬
+            result.append({
+                "message_id": msg.message_id,
+                "conversation_id": msg.conversation_id,
+                "sender_type": msg.sender_type.lower() if msg.sender_type else "unknown",
+                "agent_type": msg.agent_type,
+                "content": msg.content,
+                "created_at": msg.created_at,
+                "role": "user" if msg.sender_type == "USER" else "assistant"
+            })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"get_recent_messages 오류: {e}")
+        return []
+
+def create_message(db: Session, conversation_id: int, sender_type: str, agent_type: str, content: str):
+    """
+    새 메시지 생성
+    
+    Args:
+        db: 데이터베이스 세션
+        conversation_id: 대화 ID
+        sender_type: 발신자 유형 ("user" 또는 "agent")
+        agent_type: 에이전트 유형
+        content: 메시지 내용
+    
+    Returns:
+        Message: 생성된 메시지 객체
+    """
+    try:
+        message = db_models.Message(
+            conversation_id=conversation_id,
+            sender_type=sender_type.upper(),
+            agent_type=agent_type,
+            content=content
+        )
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+        return message
+    except Exception as e:
+        logger.error(f"create_message 오류: {e}")
+        db.rollback()
+        return None
+
+def insert_message_raw(conversation_id: int, sender_type: str, agent_type: str, content: str):
+    """
+    메시지 Raw 삽입 (트랜잭션 독립적)
+    
+    Args:
+        conversation_id: 대화 ID
+        sender_type: 발신자 유형
+        agent_type: 에이전트 유형
+        content: 메시지 내용
+    
+    Returns:
+        int: 메시지 ID 또는 -1 (실패)
+    """
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                INSERT INTO message 
+                (conversation_id, sender_type, agent_type, content, created_at)
+                VALUES (:conversation_id, :sender_type, :agent_type, :content, :created_at)
+                """),
+                {
+                    "conversation_id": conversation_id,
+                    "sender_type": sender_type.upper(),
+                    "agent_type": agent_type,
+                    "content": content,
+                    "created_at": datetime.utcnow()
+                }
+            )
+            return result.lastrowid
+    except Exception as e:
+        logger.error(f"insert_message_raw 오류: {e}")
+        return -1
 
