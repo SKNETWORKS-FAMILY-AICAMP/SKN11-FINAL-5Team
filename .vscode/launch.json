@@ -2,6 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env"
+    },
+    {
       "name": "marketing task",
       "type": "debugpy",
       "request": "launch",
@@ -78,6 +86,15 @@
       "justMyCode": false
     },
     {
+      "name": "🎯 Marketing MCP Server",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/marketing_agent/mcp/workflow_manager.py",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env",
+      "justMyCode": false
+    },
+    {
       "name": "🧠 Mental Agent (8004)",
       "type": "debugpy",
       "request": "launch",
@@ -120,6 +137,7 @@
         "💼 Business Planning Agent (8001)",
         "🤝 Customer Service Agent (8002)",
         "📢 Marketing Agent (8003)",
+        "🎯 Marketing MCP Server",
         "🧠 Mental Agent (8004)",
         "⚡ Task Automation Agent (8005)"
       ],
