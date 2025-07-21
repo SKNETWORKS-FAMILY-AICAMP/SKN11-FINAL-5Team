@@ -67,6 +67,7 @@ def chunk_text(text, chunk_size=500, overlap=50):
 
 # === Qdrant 저장 ===
 def insert_texts(texts, metadata):
+    print(f"[QDRANT] Inserting {len(texts)} chunks with metadata: {metadata}")
     points = []
     for i, text in enumerate(texts):
         vector = embeddings.embed_query(text)
@@ -100,7 +101,9 @@ def extract_text_from_json(json_path):
 
 # === 공통 데이터 초기화 ===
 def process_initial_data(pdf_folder="/app/data/pdf", json_folder="/app/data/json"):
+    print("[INIT] process_initial_data started")
     init_qdrant()
+    print("[INIT] process_initial_data finished")
     # PDF 처리
     for pdf_file in os.listdir(pdf_folder):
         if pdf_file.endswith(".pdf"):
@@ -121,7 +124,6 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_qdrant()
     process_initial_data()
     yield
 
