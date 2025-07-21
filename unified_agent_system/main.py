@@ -814,8 +814,8 @@ from regular_subscription import router as subscription_router
 app.include_router(subscription_router, prefix="/subscription")
 from feedback import router as feedback_router
 app.include_router(feedback_router, prefix="/feedback")
-from pdf_upload import router as pdf_router
-app.include_router(pdf_router, prefix="/upload")
+from qdrant import router as qdrant_router
+app.include_router(qdrant_router, prefix="/upload")
 
 if __name__ == "__main__":
     uvicorn.run(
