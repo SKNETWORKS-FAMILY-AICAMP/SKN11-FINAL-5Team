@@ -1,0 +1,21 @@
+services:
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  fastapi:
+    build: ..
+    container_name: fastapi
+    ports:
+      - "80:80"
+    env_file:
+      - .env
+    volumes:
+      - ../data:/app/data 
+    depends_on:
+      - qdrant
