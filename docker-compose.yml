@@ -9,11 +9,13 @@ services:
       - ./unified_agent_system/qdrant_storage:/qdrant/storage
 
   fastapi:
-    build: .
+    build: ./unified_agent_system
     container_name: fastapi
     ports:
-      - "80:80" 
+      - "80:80"
     env_file:
       - ./unified_agent_system/.env
+    volumes:
+      - ./data:/app/data 
     depends_on:
       - qdrant
