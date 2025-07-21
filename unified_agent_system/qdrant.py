@@ -120,7 +120,7 @@ def process_initial_data(pdf_folder="../data/pdf", json_folder="../data/json"):
 app = FastAPI()
 router = APIRouter()
 
-@app.post("/upload")
+@router.post("/upload")
 async def upload_file(user_id: int = Form(...), file: UploadFile = None):
     tmp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
     with open(tmp_path, "wb") as f:
@@ -134,7 +134,7 @@ async def upload_file(user_id: int = Form(...), file: UploadFile = None):
     insert_texts(chunks, {"data_scope": "user", "user_id": user_id, "source_file": s3_key})
     return {"message": "File uploaded & indexed", "s3_key": s3_key}
 
-@app.get("/search")
+@router.get("/search")
 def search(query: str, user_id: int = None):
     vector = embeddings.embed_query(query)
     filters = [models.FieldCondition(key="data_scope", match=models.MatchValue(value="global"))]
