@@ -54,6 +54,7 @@ from shared_modules.database import get_session_context as unified_get_session_c
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from shared_modules.db_models import FAQ, Feedback
+from qdrant import init_qdrant, process_initial_data
 
 
 router = APIRouter()
@@ -102,6 +103,17 @@ async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행되는 라이프사이클 함수"""
     # 시작 시
     logger.info("통합 에이전트 시스템 시작")
+    
+    # Qdrant 초기화 추가
+    try:
+        from qdrant import init_qdrant, process_initial_data
+        init_qdrant()
+        logger.info("Qdrant 컬렉션 초기화 완료")
+        process_initial_data()
+        logger.info("초기 데이터 인덱싱 완료")
+    except Exception as e:
+        logger.error(f"Qdrant 초기화 중 오류 발생: {e}")
+    
     workflow = get_workflow()
     
     # 에이전트 상태 확인
