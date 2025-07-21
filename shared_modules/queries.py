@@ -9,6 +9,8 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import bindparam, text
 from shared_modules.database import DatabaseManager
+from typing import Optional, List
+from sqlalchemy import or_
 
 # SQLAlchemy 충돌 방지를 위해 fully qualified import 사용
 import shared_modules.db_models as db_models
@@ -557,18 +559,23 @@ def create_template_message(db: Session, user_id: int, template_type: str, chann
         db.rollback()
         return None
 
-def get_templates_by_user(db: Session, user_id: int, template_type: str = None, channel_type: str = None):
-    """사용자별 템플릿 조회"""
-    try:
-        query = db.query(db_models.TemplateMessage).filter(db_models.TemplateMessage.user_id == user_id)
-        if template_type:
-            query = query.filter(db_models.TemplateMessage.template_type == template_type)
-        if channel_type:
-            query = query.filter(db_models.TemplateMessage.channel_type == channel_type)
-        return query.order_by(db_models.TemplateMessage.created_at.desc()).all()
-    except Exception as e:
-        logger.error(f"[get_templates_by_user 오류] {e}", exc_info=True)
-        return []
+def get_templates_by_user_and_type(db: Session,user_id: int,template_type: Optional[str] = None,
+include_public_user_id: int = 3,
+) -> List[db_models.TemplateMessage]:
+    """
+    지정 user_id + 공용 템플릿(user_id=include_public_user_id)을 함께 조회.
+    template_type == "전체" 또는 None 이면 타입 필터 없음.
+    """
+    query = db.query(db_models.TemplateMessage).filter(
+        or_(
+            db_models.TemplateMessage.user_id == include_public_user_id,
+            db_models.TemplateMessage.user_id == user_id,
+        )
+    )
+    if template_type and template_type != "전체":
+        query = query.filter(db_models.TemplateMessage.template_type == template_type)
+
+    return query.order_by(db_models.TemplateMessage.created_at.desc()).all()
 
 def get_template_by_id(db: Session, template_id: int):
     """템플릿 ID로 조회"""
@@ -618,6 +625,94 @@ def delete_template_message(db: Session, template_id: int) -> bool:
         db.rollback()
         return False
 
+        return templates[:limit]
+    
+    except Exception as e:
+        print(f"❌ 템플릿 추천 오류: {e}")
+        return []
+    
+def extract_template_keyword(text: str) -> str:
+    text_lower = text.lower()
+    mapping = {
+        "생일": "생일/기념일", 
+        "기념일": "생일/기념일",
+        "축하": "생일/기념일",
+        "리뷰": "리뷰 요청", 
+        "후기": "리뷰 요청",
+        "평가": "리뷰 요청",
+        "예약": "예약",
+        "설문": "설문 요청",
+        "감사": "구매 후 안내", 
+        "출고": "구매 후 안내", 
+        "배송": "구매 후 안내",
+        "발송": "구매 후 안내",
+        "재구매": "재구매 유도", 
+        "재방문": "재방문",
+        "다시": "재구매 유도",
+        "VIP": "고객 맞춤 메시지", 
+        "맞춤": "고객 맞춤 메시지",
+        "특별": "고객 맞춤 메시지",
+        "이벤트": "이벤트 안내", 
+        "할인": "이벤트 안내", 
+        "프로모션": "이벤트 안내",
+        "세일": "이벤트 안내"
+    }
+    for keyword, template_type in mapping.items():
+        if keyword in text_lower:
+            print(f"🎯 키워드 '{keyword}' → 템플릿 타입 '{template_type}'")
+            return template_type
+    
+    print("🔍 특정 키워드 없음 → '전체' 템플릿")
+    return "전체"
+
+# 템플릿 감지 함수
+def is_template_query(text: str) -> bool:
+    template_keywords = [
+        "템플릿", "문자", "메시지", "문구", "추천", "예시", 
+        "샘플", "양식", "포맷", "멘트", "말", "텍스트"
+    ]
+    text_lower = text.lower()
+    is_template = any(keyword in text_lower for keyword in template_keywords)
+    
+    print(f"📝 템플릿 쿼리 감지: {is_template} (입력: '{text}')")
+    return is_template
+
+# 템플릿 추천 로직
+def recommend_templates_core(query: str, limit: int = 5) -> list:
+    """템플릿 추천 로직 (공통 모듈 사용)"""
+    try:
+        keyword = extract_template_keyword(query)
+        print(f"📌 추출된 템플릿 키워드: {keyword}")
+        
+        # DB에서 템플릿 조회 (공통 모듈 사용)
+        templates = get_templates_by_type(keyword)
+        print(f"📋 조회된 템플릿 수: {len(templates)}")
+        
+        # 템플릿이 없으면 전체 템플릿에서 검색
+        if not templates and keyword != "전체":
+            print("⚠️ 특정 타입 템플릿 없음, 전체에서 검색...")
+            templates = get_templates_by_type("전체")
+        
+        # 디버깅을 위한 템플릿 정보 출력
+        for i, template in enumerate(templates[:3]):  # 처음 3개만
+            print(f"템플릿 {i+1}: {template.get('title', 'No Title')}")
+        
+        return templates[:limit]
+        
+    except Exception as e:
+        print(f"❌ 템플릿 추천 오류: {e}")
+        return []
+    
+def get_user_template_by_title(db: Session, user_id: int, title: str):
+    """사용자의 템플릿 중 제목이 일치하는 템플릿을 조회"""
+    try:
+        return db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == user_id,
+            db_models.TemplateMessage.title == title
+        ).first()
+    except Exception as e:
+        logger.error(f"[get_user_template_by_title 오류] {e}", exc_info=True)
+        return None
 # -------------------
 # AutomationTask 관련 함수 (template_id FK 추가)
 # -------------------
