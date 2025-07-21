@@ -402,6 +402,7 @@ def run_customer_agent_with_rag(user_input: str, user_id: int, conversation_id: 
         response = llm.invoke(formatted_prompt)
 
         return {
+            "conversation_id": conversation_id,
             "topics": topics,
             "answer": f"[참고 문서 없음] {response.content}",
             "sources": "참고 문서를 찾을 수 없었습니다.",
@@ -466,6 +467,8 @@ def recommend_templates_core(query: str, limit: int = 5) -> list:
         # DB에서 템플릿 조회 (공통 모듈 사용)
         templates = get_templates_by_type(keyword)
         print(f"📋 조회된 템플릿 수: {len(templates)}")
+
+        
         
         # 템플릿이 없으면 전체 템플릿에서 검색
         if not templates and keyword != "전체":

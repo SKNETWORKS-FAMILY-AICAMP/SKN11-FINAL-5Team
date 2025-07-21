@@ -152,11 +152,14 @@ export default function ChatMainPage() {
           <div className="flex items-center space-x-4">
             {user ? (
               <div className="flex items-center space-x-3">
-                <div className="flex items-center space-x-2">
+                <div
+                  className="flex items-center space-x-2 cursor-pointer"
+                  onClick={() => router.push("/mypage")}
+                >
                   <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
                     <User className="w-4 h-4 text-green-600" />
                   </div>
-                  <span className="text-sm font-medium text-gray-700">
+                  <span className="text-sm font-medium text-gray-700 hover:underline">
                     {user.username || user.email || '사용자'}
                   </span>
                 </div>

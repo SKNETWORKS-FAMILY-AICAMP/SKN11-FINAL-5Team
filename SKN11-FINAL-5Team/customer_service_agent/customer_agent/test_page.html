@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>고객대응 에이전트 테스트</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 15px;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+        input:focus, textarea:focus {
+            border-color: #4dabf7;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(77, 171, 247, 0.2);
+        }
+        textarea {
+            height: 120px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4263eb;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #364fc7;
+        }
+        .response {
+            margin-top: 25px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #4263eb;
+            border-radius: 6px;
+            line-height: 1.6;
+            font-size: 15px;
+            display: none;
+        }
+        .loading {
+            color: #495057;
+            font-style: italic;
+        }
+        .error {
+            color: #e03131;
+            background-color: #fff5f5;
+            border-left-color: #e03131;
+        }
+        .info-text {
+            font-size: 13px;
+            color: #868e96;
+            margin-top: 5px;
+        }
+        h1 {
+            color: #2b2d42;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .input-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .input-row .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+    </style>
+    <!-- Markdown 파서 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>고객대응 에이전트 테스트</h1>
+        
+        <div class="input-row">
+            <div class="input-group">
+                <label for="user_id">사용자 ID</label>
+                <input 
+                    type="number" 
+                    id="user_id" 
+                    placeholder="예: 3"
+                    value="3">
+                <div class="info-text">DB에 존재하는 사용자 ID</div>
+            </div>
+            
+            <div class="input-group">
+                <label for="conversation_id">대화 세션 ID</label>
+                <input 
+                    type="number" 
+                    id="conversation_id" 
+                    placeholder="예: 3"
+                    value="3">
+                <div class="info-text">동일 대화에서는 동일 값 사용</div>
+            </div>
+        </div>
+        
+        <div class="input-group">
+            <label for="question">질문 내용</label>
+            <textarea 
+                id="question" 
+                placeholder="예: 배송이 너무 늦어서 별점 1개가 달렸어. 어떻게 답변 달아야 할까?"></textarea>
+        </div>
+        
+        <button onclick="sendRequest()">에이전트에게 질문하기</button>
+        
+        <div id="response" class="response"></div>
+    </div>
+
+   <script>
+        let chatHistory = []; // 전역 상태로 history 유지
+
+        async function sendRequest() {
+            const userId = document.getElementById('user_id').value;
+            const conversationId = document.getElementById('conversation_id').value;
+            const question = document.getElementById('question').value;
+            const responseDiv = document.getElementById('response');
+            
+            if (!userId || !conversationId || !question.trim()) {
+                alert('모든 필드를 입력해주세요!');
+                return;
+            }
+
+            responseDiv.style.display = 'block';
+            responseDiv.className = 'response loading';
+            responseDiv.textContent = '⏳ 에이전트가 답변을 생성 중입니다...';
+
+            try {
+                const response = await fetch('http://127.0.0.1:8080/agent/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: parseInt(userId),
+                        conversation_id: parseInt(conversationId),
+                        question: question,
+                        history: chatHistory // ★ 반드시 추가!
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP 오류! 상태 코드: ${response.status}`);
+                }
+
+                const data = await response.json();
+                chatHistory = data.history; // ★ 서버에서 받은 history를 누적 저장!
+
+                // Markdown → HTML 변환 후 출력
+                responseDiv.className = 'response';
+                let htmlContent = `<div class="info-text" style="margin-bottom: 15px;">
+                    <strong>인식된 주제:</strong> ${Array.isArray(data.topics) ? data.topics.join(', ') : ''}
+                </div>`;
+                htmlContent += marked.parse(data.answer || '답변을 찾을 수 없습니다.');
+                if (data.sources) {
+                    htmlContent += `<div style="margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px;">
+                        <h3 style="margin-top: 0; color: #495057;">참고 문서</h3>
+                        <div style="background: #f1f3f5; padding: 15px; border-radius: 6px; font-size: 14px;">
+                            ${data.sources.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>`;
+                }
+                responseDiv.innerHTML = htmlContent;
+            } catch (error) {
+                responseDiv.className = 'response error';
+                responseDiv.textContent = `❌ 오류 발생: ${error.message}`;
+            }
+        }
+
+        // Ctrl + Enter로 실행 (textarea에서)
+        document.getElementById('question').addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.key === 'Enter') {
+                sendRequest();
+            }
+        });
+    </script>
+
+</body>
+</html>
