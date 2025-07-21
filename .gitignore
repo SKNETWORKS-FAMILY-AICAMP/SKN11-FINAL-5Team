@@ -1,0 +1,13 @@
+*.dist-info
+*.pyc
+.env
+__pycache__
+# Local configuration files
+*.local
+*.sqlite3
+*.bin
+*.pickle
+*.log
+*package*
+node_modules
+*.pem
