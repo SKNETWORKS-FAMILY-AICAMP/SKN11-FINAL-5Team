@@ -159,7 +159,6 @@ def search(query: str, user_id: int = None):
 @router.get("/status")
 def qdrant_status():
     try:
-        # Qdrant 서버 상태 확인을 get_collections()로 대신함
         collections = qdrant.get_collections()
         return {
             "qdrant_status": "ok",
@@ -169,7 +168,6 @@ def qdrant_status():
         return {"qdrant_status": "error", "message": str(e)}
 
 if __name__ == "__main__":
-    # 최초 실행 시 공통 데이터 삽입
     process_initial_data()
     import uvicorn
     uvicorn.run("qdrant:app", host="127.0.0.1", port=8080, reload=True)
