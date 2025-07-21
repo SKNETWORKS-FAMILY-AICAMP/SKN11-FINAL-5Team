@@ -159,11 +159,11 @@ def search(query: str, user_id: int = None):
 @router.get("/status")
 def qdrant_status():
     try:
-        health = qdrant.http.health_check()
+        # Qdrant 서버 상태 확인을 get_collections()로 대신함
         collections = qdrant.get_collections()
         return {
-            "qdrant_health": health.status,
-            "collections": collections.model_dump().get("collections", []),
+            "qdrant_status": "ok",
+            "collections": collections.model_dump().get("collections", [])
         }
     except Exception as e:
         return {"qdrant_status": "error", "message": str(e)}
