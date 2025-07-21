@@ -9,11 +9,6 @@ PROMPT_META = {
         "role": "아이디어 시장성 검증과 타겟 분석 전문가",
         "file": "prompts/idea_validation.txt",
     },
-    "idea_validation_2": {
-        "name": "아이디어 시장조사",
-        "role": "시장/경쟁 분석과 시장규모 파악 전문가로서 사업기획서 작성 에이전트",
-        "file": "prompts/idea_validation_2.txt",
-    },
      "idea_recommendation": {
         "name": "창업 아이템 추천",
         "role": "다양한 창업 아이디어와 아이템을 추천하는 에이전트",
@@ -59,4 +54,9 @@ PROMPT_META = {
         "role": "사업 리스크 및 위기 대응 전문가",
         "file": "prompts/risk_management.txt",
     },
+    "final_business_plan": {
+        "name": "아이디어 시장조사",
+        "role": "시장/경쟁 분석과 시장규모 파악 전문가로서 최종 사업기획서 작성 에이전트",
+        "file": "prompts/final_business_plan.txt",
+    }
 }

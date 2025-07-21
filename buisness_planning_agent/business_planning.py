@@ -100,6 +100,18 @@ from idea_market import get_persona_trend, get_market_analysis
 class BusinessPlanningService:
     """비즈니스 기획 서비스 클래스 - 공통 모듈 최대 활용"""
     
+    # 단계와 토픽 매핑
+    STAGE_TOPIC_MAP = {
+        "아이디어 탐색": ["idea_recommendation"],
+        "시장 검증": ["idea_validation"],
+        "비즈니스 모델링": ["business_model", "mvp_development"],
+        "실행 계획 수립": ["funding_strategy", "financial_planning", "startup_preparation"],
+        "성장 전략 & 리스크 관리": ["growth_strategy", "risk_management"],
+        "최종 기획서 작성": []  # 별도 토픽 없음
+    }
+
+    STAGES = list(STAGE_TOPIC_MAP.keys())
+
     def __init__(self):
         """서비스 초기화"""
         self.llm_manager = llm_manager
@@ -111,6 +123,56 @@ class BusinessPlanningService:
         
         logger.info("BusinessPlanningService 초기화 완료")
     
+
+    def determine_stage(self, topics: List[str]) -> str:
+        """토픽 기반으로 현재 상담 단계 추론"""
+        for stage, mapped_topics in self.STAGE_TOPIC_MAP.items():
+            if any(t in mapped_topics for t in topics):
+                return stage
+        return "아이디어 탐색"  # 기본값
+    
+    def get_next_stage(self, current_stage: str) -> Optional[str]:
+        try:
+            idx = self.STAGES.index(current_stage)
+            return self.STAGES[idx + 1] if idx + 1 < len(self.STAGES) else None
+        except ValueError:
+            return None
+    
+    async def is_single_question(self, user_input: str) -> bool:
+        """
+        싱글턴(single)인지 멀티턴(multi)인지 LLM으로 판별.
+        - LLM이 '단계 주제'와 관련 있는지 판단해 multi 여부를 결정
+        - 관련성이 있으면 무조건 multi, 아니면 single/multi 판단
+        """
+        try:
+            # LLM 기반 판별
+            judge_prompt = f"""
+            다음 질문이 아래 단계 주제와 관련이 있으면 무조건 multi를 출력하세요.
+            - 단계 주제: "아이디어 탐색", "시장 검증", "비즈니스 모델링", "실행 계획 수립", "성장 전략 & 리스크 관리"
+            - 단계 주제와 전혀 관련이 없으면 질문 난이도를 기반으로 single 또는 multi를 출력하세요.
+            - 즉답 가능한 단순 정보: "single"
+            - 전략/분석/단계별 설명 필요: "multi"
+            - 답변은 반드시 single 또는 multi만 출력.
+
+            질문: "{user_input}"
+            """
+            messages = [
+                {"role": "system", "content": "너는 single/multi만 판단하는 전문가야."},
+                {"role": "user", "content": judge_prompt}
+            ]
+
+            result = await self.llm_manager.generate_response(messages=messages, provider="openai")
+            result_clean = result.strip().lower()
+            logger.info(f"[is_single_question] LLM 응답: {result_clean}")
+
+            if result_clean.startswith("single"):
+                return True
+            return False  # multi가 포함되거나 예외가 발생하면 multi 처리
+        except Exception as e:
+            logger.error(f"[is_single_question] 판별 실패: {e}")
+            return False  # 에러 시 멀티턴 진행
+
+
     # 4. market_research(시장/경쟁 분석, 시장규모)
     def _load_classification_prompt(self) -> str:
         """분류 프롬프트 로드"""
@@ -202,10 +264,15 @@ class BusinessPlanningService:
 
 사용자 질문: "{user_input}"
 
-위 지침에 따라 사용자의 질문에 대해 구체적이고 실용적인 답변을 제공하세요. 지침 내용을 그대로 반복하지 말고, 실제 답변만 작성하세요."""
+멀티턴 대화 규칙:
+1. 답변 후, 다음 단계로 넘어가기 위해 필요한 추가 정보를 되묻습니다.
+2. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
+3. 마지막 단계(성장 전략 & 리스크 관리)까지 끝나면, "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"라고 제안하세요.
+
+위 지침에 따라 사용자의 질문에 대해 구체적이고 실용적인 답변과 후속 질문을 함께 제공하세요. 지침 내용을 그대로 반복하지 말고, 실제 답변만 작성하세요."""
 
         return PromptTemplate(
-            input_variables=["context"],
+            input_variables=["context", "current_stage", "next_stage"],
             template=template
         )
     
@@ -264,19 +331,18 @@ class BusinessPlanningService:
             provider="openai",
         )
         
-        # 2차 : 상세 기획서 (draft)
-        draft = ""
-        if topic == "idea_validation":
-             idea_validation_2_path = PROMPT_META.get("idea_validation_2", {}).get("file")
-             logger.info(f"idea_validation_2_path : {idea_validation_2_path}")
-             if idea_validation_2_path:
-                # idea_plan_prompt = load_prompt_from_file(idea_validation_2_path)
-                draft_prompt_template = self.build_agent_prompt(["idea_validation_2"], user_input, persona, history=answer)
-                draft_prompt = draft_prompt_template.template.format(context=trend_data)
-                logger.info(f"draft_prompt : {draft_prompt}")
-                draft_msg = [{"role": "user", "content": draft_prompt}]
-                draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
-                logger.info(f"draft {draft}")
+        # # 2차 : 상세 기획서 (draft)
+        # draft = ""
+        # if topic == "idea_validation":
+        #      idea_validation_2_path = PROMPT_META.get("idea_validation_2", {}).get("file")
+        #      logger.info(f"idea_validation_2_path : {idea_validation_2_path}")
+        #      if idea_validation_2_path:
+        #         draft_prompt_template = self.build_agent_prompt(["idea_validation_2"], user_input, persona, history=answer)
+        #         draft_prompt = draft_prompt_template.template.format(context=trend_data)
+        #         logger.info(f"draft_prompt : {draft_prompt}")
+        #         draft_msg = [{"role": "user", "content": draft_prompt}]
+        #         draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
+        #         logger.info(f"draft {draft}")
         
         return {
             "topics": [topic],
@@ -285,7 +351,7 @@ class BusinessPlanningService:
             "retrieval_used": False,
             "metadata": {
                 "type": topic,
-                "content": draft
+                #"content": draft
             }
         }
     
@@ -301,14 +367,58 @@ class BusinessPlanningService:
             # 1. 토픽 분류
             topics = await self.classify_topics(user_input)
             
-            # 2. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
+            # 2. 현재 단계/다음 단계 결정
+            is_single = await self.is_single_question(user_input)
+            current_stage = self.determine_stage(topics)
+            next_stage = None if is_single else self.get_next_stage(current_stage)
+            next_question = None if is_single or next_stage else "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"
+
+            
+            logger.info(f"토픽: {topics}, 현재 단계: {current_stage}, 다음 단계: {next_stage}, 싱글턴 여부: {is_single}")
+
+            # 3. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
             with get_session_context() as db:
                 messages = get_recent_messages(db, conversation_id, 10)
                 history = self.format_history(messages)
             
-            # 3. 프롬프트 생성
+            # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history)
             
+            formatted_prompt = prompt.format(
+            context="관련 문서를 찾지 못했습니다. 기본 컨설턴트 지식으로 답변해주세요.",
+            current_stage=current_stage or "아이디어 탐색",
+            next_stage=next_stage or ""
+            )
+
+            messages = [{"role": "user", "content": formatted_prompt}]
+            
+            if current_stage == "최종 기획서 작성":
+                logger.info("[FINAL STAGE] 최종 사업기획서 작성 단계 감지")
+                try:
+                    final_plan_path = PROMPT_META.get("final_business_plan", {}).get("file")
+                    logger.info(f"final_plan_path : {final_plan_path}")
+                    if final_plan_path:
+                        draft_prompt_template = self.build_agent_prompt(["final_business_plan"], user_input, persona, history=history)
+                        draft_prompt = draft_prompt_template.template.format(context="잡담을 제외한 지금까지의 대화와 시장 데이터 기반 기획서를 작성하세요")
+                        
+                        logger.info(f"draft_prompt : {draft_prompt}")
+                        
+                        draft_msg = [{"role": "user", "content": draft_prompt}]
+                        draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
+                        
+                        logger.info(f"[FINAL PLAN] Draft 생성 완료")
+                        
+                        return {
+                            "topics": ["final_business_plan"],
+                            "answer": draft,
+                            "sources": "history 기반 종합 기획서",
+                            "retrieval_used": False,
+                            "metadata": {"type": "final_business_plan"}
+                        }
+                except Exception as e:
+                    logger.error(f"[FINAL STAGE] 최종 기획서 작성 실패: {e}")
+
+
             if "idea_recommendation" in topics:
                 logger.info("idea_recommendation 토픽 - handle_special_topic으로 이동")
                 return await self._handle_special_topic("idea_recommendation", persona, user_input, prompt)
@@ -349,12 +459,17 @@ class BusinessPlanningService:
                         
                         # 소스 문서 정보 포맷팅
                         sources = self._format_source_documents(result.get('source_documents', []))
-                        
+
                         return {
                             "topics": topics,
                             "answer": result['result'],
                             "sources": sources,
-                            "retrieval_used": True
+                            "retrieval_used": True,
+                             "metadata": {
+                                "current_stage": current_stage,
+                                "next_stage": next_stage,
+                                "next_question": next_question
+                            }
                         }
                 
                 # 5. 검색기 없이 기본 응답 생성
@@ -362,7 +477,8 @@ class BusinessPlanningService:
             
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
-            return await self._generate_fallback_response(topics, user_input, prompt)
+            return await self._generate_fallback_response(topics, user_input, prompt,current_stage=current_stage,
+    next_stage=next_stage or "")
             # return await self._generate_error_fallback(user_input)
     
     def _format_source_documents(self, documents: List[Any]) -> str:
@@ -382,13 +498,17 @@ class BusinessPlanningService:
         
         return "\n\n".join(sources)
     
-    async def _generate_fallback_response(self, topics: List[str], user_input: str, prompt: PromptTemplate) -> Dict[str, Any]:
+    async def _generate_fallback_response(self, topics: List[str], user_input: str, prompt: PromptTemplate, current_stage: str = "아이디어 탐색", next_stage: str = "") -> Dict[str, Any]:
         """폴백 응답 생성"""
         try:
             # Gemini로 폴백 응답 생성
             llm = self.llm_manager.get_llm("gemini", load_balance=True)
             
-            formatted_prompt = prompt.template.format(context="관련 문서를 찾지 못했습니다. 기본 컨설턴트 지식만으로 답변해주세요.")
+            formatted_prompt = prompt.format(
+                context="관련 문서를 찾지 못했습니다. 기본 컨설턴트 지식만으로 답변해주세요.",
+                current_stage=current_stage or "아이디어 탐색",
+                next_stage=next_stage or ""
+            )
             
             messages = [{"role": "user", "content": formatted_prompt}]
             result = await self.llm_manager.generate_response(messages, provider="gemini")
@@ -539,11 +659,17 @@ async def process_user_query(request: UserQuery):
         # 5. 에이전트 응답 저장
         logger.info("[STEP 5] 에이전트 응답 저장 시작")
         try:
+            content_to_save = result["answer"]
+
+            # 기획서 쓸 때 도움되는 트렌드/시장 데이터는 저장
+            if result.get("sources") and any(t in ["idea_validation", "idea_recommendation"] for t in result.get("topics", [])):
+                content_to_save += "\n\n[참고문서]\n" + str(result["sources"])
+
             insert_message_raw(
                 conversation_id=conversation_id,
                 sender_type="agent",
                 agent_type="business_planning",
-                content=result["answer"]
+                content=content_to_save
             )
             logger.info("[STEP 5] 에이전트 응답 저장 완료")
         except Exception as e:
@@ -551,33 +677,56 @@ async def process_user_query(request: UserQuery):
 
         # 6. 응답 생성
         logger.info("[STEP 6] 응답 생성 및 반환")
-        if "metadata" in result and result["metadata"]:  # metadata가 있을 경우
-            response_data = UnifiedResponse(
+        # if "metadata" in result and result["metadata"]:  # metadata가 있을 경우
+        #     response_data = UnifiedResponse(
+        #     conversation_id=conversation_id,
+        #     agent_type=AgentType.BUSINESS_PLANNING,
+        #     response=result["answer"],
+        #     confidence=0.85,  # 상황에 맞게 지정, 필요시 계산
+        #     routing_decision=RoutingDecision(
+        #         agent_type=AgentType.BUSINESS_PLANNING,
+        #         confidence=0.85,
+        #         reasoning="사업기획서 제공",
+        #         keywords=result.get("topics", [])
+        #         ),
+        #     sources=result.get("sources"),
+        #     metadata=result["metadata"],
+        #     processing_time=time.time() - start_time
+        #     )
+        #     return create_success_response(response_data)
+            
+        
+        # response_data = create_business_response(
+        #     conversation_id=conversation_id,
+        #     answer=result["answer"],
+        #     topics=result.get("topics", []),
+        #     sources=result.get("sources", "")
+        # )
+        # logger.info(f"응답을 create_success_response에 넣기 전 :{response_data}")
+        # logger.info(f"[END] 전체 처리 완료 - 총 소요시간: {time.time() - start_time:.2f}s")
+
+        metadata = result.get("metadata", {})
+
+        if metadata.get("type") == "final_business_plan":
+            metadata = {**metadata, "content": result["answer"]}
+            result["answer"] = "최종 사업기획서가 작성되었습니다."
+
+        response_data = UnifiedResponse(
             conversation_id=conversation_id,
             agent_type=AgentType.BUSINESS_PLANNING,
             response=result["answer"],
-            confidence=0.85,  # 상황에 맞게 지정, 필요시 계산
+            confidence=result.get("confidence", 0.8),
             routing_decision=RoutingDecision(
                 agent_type=AgentType.BUSINESS_PLANNING,
-                confidence=0.85,
-                reasoning="사업기획서 제공",
+                confidence=result.get("confidence", 0.8),
+                reasoning="사업기획 단계별 멀티턴 진행",
                 keywords=result.get("topics", [])
-                ),
+            ),
             sources=result.get("sources"),
-            metadata=result["metadata"],
+            metadata=metadata,
             processing_time=time.time() - start_time
-            )
-            return create_success_response(response_data)
-            
-        
-        response_data = create_business_response(
-            conversation_id=conversation_id,
-            answer=result["answer"],
-            topics=result.get("topics", []),
-            sources=result.get("sources", "")
         )
-        logger.info(f"응답을 create_success_response에 넣기 전 :{response_data}")
-        logger.info(f"[END] 전체 처리 완료 - 총 소요시간: {time.time() - start_time:.2f}s")
+
         return create_success_response(response_data)
 
     except Exception as e:

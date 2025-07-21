@@ -613,7 +613,7 @@ export default function ChatRoomPage() {
         throw new Error(result.error || "응답을 받지 못했습니다")
       }
       
-      if (result.data.metadata?.type === "idea_validation") {
+      if (result.data.metadata?.type === "final_business_plan") {
         setDraftContent(result.data.metadata.content)
         localStorage.setItem("idea_validation_content", result.data.metadata.content)
         localStorage.setItem("user_id", String(userId))
@@ -678,6 +678,8 @@ export default function ChatRoomPage() {
         throw new Error(result.error || "메시지 전송에 실패했습니다")
       }
 
+      console.log("result.data", result.data)
+      
       const userMessage: Message = { sender: "user", text }
       const agentMessage: Message = {
         sender: "agent",
