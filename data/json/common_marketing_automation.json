@@ -1,0 +1,102 @@
+[
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 0,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "텍스트 콘텐츠 생성 도구: Jasper(긴 형식 블로그, 기사, 이메일 자동 생성), Copy.ai(광고 문구, SNS 게시글, 이메일 제목 등 짧은 카피), Writesonic(블로그, 광고 문구, 랜딩 페이지 등 다양한 텍스트), Rytr(템플릿 기반 제품 설명, 블로그 아이디어 등), ChatGPT(프롬프트 기반 자연어 생성), Bard(Google 개발, 실시간 검색 연동 및 요약), Notion AI(문서 작성, 요약, 번역 등), Grammarly(문법 및 문장 교정 추천)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 1,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "광고 문구 및 크리에이티브 생성: AdCreative.ai(광고 이미지+문구 자동 생성/최적화), Anyword(문구 성과 예측 및 자동 개선), Phrasee(이메일, 알림 메시지 등 마케팅 언어 생성), Persado(감정 기반 언어 분석으로 광고 문구 생성)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 2,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "제품 설명 및 SEO 콘텐츠 최적화: Surfer SEO(키워드 최적화, 경쟁 콘텐츠 비교), Clearscope(키워드 및 주제 분석), Semrush(키워드 리서치, 트래픽 분석, 경쟁사 추적), Ahrefs(백링크 추적, 키워드 연구, 콘텐츠 갭 분석)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 3,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "이미지 및 비디오 콘텐츠 생성: Canva Magic Design(템플릿 기반 디자인 자동 생성), Adobe Sensei(이미지 자동 보정·편집·추천), DALL·E(텍스트→이미지 생성), Midjourney(예술적 스타일 이미지), Stable Diffusion(오픈소스 텍스트-이미지 생성), Descript(오디오/비디오 자동 전사·자막), Synthesys(AI 음성·아바타로 비디오 제작), RunwayML(영상 생성·배경 제거·스타일 전환), Murf.ai(고품질 AI 음성 생성), Otter.ai(음성→텍스트 자동 녹취), Fireflies.ai(회의 녹음·요약·분석)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 4,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "콘텐츠 아이디어 및 트렌드 분석: BuzzSumo(키워드별 인기 콘텐츠 분석)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 5,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "광고 캠페인 자동화 및 최적화: Acquisio(검색·디스플레이·소셜 광고 통합 관리, AI 성과 최적화), Albert AI(자율형 AI 마케팅 시스템, 타겟팅·운영·분석 자동화), Adext AI(오디언스 자동 선정, 예산 배분), Optmyzr(Google/Microsoft Ads 입찰 자동화, 성과 분석)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 6,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "AI 기반 고객 관리 및 개인화 마케팅: Dynamic Yield(웹·앱·이메일 콘텐츠 개인화 추천), Optimizely(콘텐츠 A/B 테스트, 개인화 전략), Salesforce Einstein(고객 행동 데이터 기반 이탈 예측·추천·마케팅 자동화), HubSpot CRM(마케팅·영업·고객지원 통합, AI 분석·자동화), ChurnZero(이탈 예측 및 방지 캠페인), Gainsight(고객 생애 가치 예측·분석), Braze(고객 여정 자동화·메시지 개인화), Iterable(채널 통합 고객 참여 자동화)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 7,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "개인화 메시지 및 챗봇: Intercom(실시간 고객 문의 대응 AI 챗봇), Zendesk Answer Bot(FAQ 기반 자동 고객 응답)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 8,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "프레젠테이션 및 스토리텔링: Beautiful.ai(자동 프레젠테이션 생성), Tome(스토리텔링 중심 발표 자료 자동 생성)"
+  },
+  {
+    "doc_id": "marketing_ai_tools",
+    "chunk_id": 9,
+    "persona": "common",
+    "category": "marketing",
+    "topic": "marketing_automation",
+    "source": "tool",
+    "last_updated": "2025-06-25",
+    "content": "AI 코딩 도구(마케팅 자동화/웹사이트 운영): Github Copilot(코드 자동 생성·추천), Tabnine(IDE 실시간 코드 자동완성), Replit(웹 기반 협업 코딩, 코드 오류 탐지·예제 제안)"
+  }
+]
