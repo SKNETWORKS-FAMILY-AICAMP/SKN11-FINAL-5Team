@@ -96,6 +96,7 @@ except ImportError:
     PROMPT_META = {}
 
 from idea_market import get_persona_trend, get_market_analysis
+from multi_turn import MultiTurnManager
 
 class BusinessPlanningService:
     """비즈니스 기획 서비스 클래스 - 공통 모듈 최대 활용"""
@@ -115,6 +116,7 @@ class BusinessPlanningService:
     def __init__(self):
         """서비스 초기화"""
         self.llm_manager = llm_manager
+        self.multi_turn = MultiTurnManager(self.llm_manager)
         self.vector_manager = vector_manager
         self.db_manager = db_manager
         
@@ -187,7 +189,7 @@ class BusinessPlanningService:
         가능한 토픽:
         0. startup_preparation(창업 준비, 체크리스트)
         1. idea_recommendation(창업 아이템, 트렌드, 아이디어 추천)
-        2. idea_validation(아이디어 검증, 시장성 분석, 시장규모, 타겟 분석, 사업기획서 작성)
+        2. idea_validation(아이디어 검증, 시장성 분석, 시장규모, 타겟 분석)
         3. business_model(린캔버스, 수익 구조)
         5. mvp_development(MVP 기획, 초기 제품 설계)
         6. funding_strategy(투자유치, 정부지원, 자금 조달)
@@ -195,6 +197,7 @@ class BusinessPlanningService:
         8. financial_planning(예산, 매출, 세무)
         9. growth_strategy(사업 확장, 스케일업)
         10. risk_management(리스크 관리, 위기 대응)
+        11. final_business_plan(사업 기획서 작성)
 
         **출력 예시**: startup_preparation, idea_validation
         """
@@ -290,7 +293,11 @@ class BusinessPlanningService:
         # 공통 모듈의 format_conversation_history 활용
         return format_conversation_history(history_data, max_messages=10)
     
-    async def _handle_special_topic(self, topic: str, persona: str, user_input: str, prompt: PromptTemplate):
+    async def _handle_special_topic(
+            self, topic: str, persona: str, user_input: str, prompt: PromptTemplate,
+            current_stage: str, progress: float, missing: List[str],
+            next_stage: Optional[str], next_question: Optional[str]
+        ):
         """idea_recommendation, idea_validation 공통 처리 함수"""
         logger.info("handle_special_topic 시작")
         topic_data_funcs = {
@@ -321,7 +328,7 @@ class BusinessPlanningService:
             mcp_source = "fallback"
         logger.info(f"trend_data type: {type(trend_data)}, value: {trend_data}")
 
-        # 1차 : 기본 요약 (answer)
+        # LLM 응답 생성 (answer)
         prompt_str = prompt.template.format(context=trend_data)
         messages = [{"role": "user", "content": prompt_str}]
         logger.info(f"1차 기본 요약 : {messages}")
@@ -331,19 +338,6 @@ class BusinessPlanningService:
             provider="openai",
         )
         
-        # # 2차 : 상세 기획서 (draft)
-        # draft = ""
-        # if topic == "idea_validation":
-        #      idea_validation_2_path = PROMPT_META.get("idea_validation_2", {}).get("file")
-        #      logger.info(f"idea_validation_2_path : {idea_validation_2_path}")
-        #      if idea_validation_2_path:
-        #         draft_prompt_template = self.build_agent_prompt(["idea_validation_2"], user_input, persona, history=answer)
-        #         draft_prompt = draft_prompt_template.template.format(context=trend_data)
-        #         logger.info(f"draft_prompt : {draft_prompt}")
-        #         draft_msg = [{"role": "user", "content": draft_prompt}]
-        #         draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
-        #         logger.info(f"draft {draft}")
-        
         return {
             "topics": [topic],
             "answer": answer,
@@ -351,9 +345,14 @@ class BusinessPlanningService:
             "retrieval_used": False,
             "metadata": {
                 "type": topic,
-                #"content": draft
+                "current_stage": current_stage,
+                "progress": progress,
+                "missing": missing,
+                "next_stage": next_stage,
+                "next_question": next_question
             }
         }
+
     
     async def run_rag_query(
         self, 
@@ -370,115 +369,117 @@ class BusinessPlanningService:
             # 2. 현재 단계/다음 단계 결정
             is_single = await self.is_single_question(user_input)
             current_stage = self.determine_stage(topics)
-            next_stage = None if is_single else self.get_next_stage(current_stage)
-            next_question = None if is_single or next_stage else "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"
-
             
-            logger.info(f"토픽: {topics}, 현재 단계: {current_stage}, 다음 단계: {next_stage}, 싱글턴 여부: {is_single}")
-
+            # **에러 방지를 위해 초기화**
+            next_stage: Optional[str] = None
+            next_question: Optional[str] = None
+            
             # 3. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
             with get_session_context() as db:
                 messages = get_recent_messages(db, conversation_id, 10)
                 history = self.format_history(messages)
-            
-            # 4. 프롬프트 생성
-            prompt = self.build_agent_prompt(topics, user_input, persona, history)
-            
-            formatted_prompt = prompt.format(
-            context="관련 문서를 찾지 못했습니다. 기본 컨설턴트 지식으로 답변해주세요.",
-            current_stage=current_stage or "아이디어 탐색",
-            next_stage=next_stage or ""
-            )
+                logger.info(f"history:{history}")
 
-            messages = [{"role": "user", "content": formatted_prompt}]
+            # 4. 단계별 진행률 체크 (멀티턴)
+            progress_info = await self.multi_turn.check_stage_progress(current_stage, history)
+            progress = progress_info.get("progress", 0.0)
+            missing = progress_info.get("missing", [])
             
+            logger.info(f"[멀티턴] 현재 단계: {current_stage}, 진행률: {progress}, 누락 항목: {missing}")
+
+            # 5. 다음 단계 판단
+            if progress >= 0.8 and not is_single:
+                next_stage = self.multi_turn.get_next_stage(current_stage)
+                next_question = f"현재 단계가 거의 완료되었습니다. 다음 단계({next_stage})로 진행할까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
+            elif missing:
+                # 진행률이 낮으면 누락 정보에 대해 되묻기
+                next_stage = current_stage
+                missing_str = " / ".join(missing)
+                next_question = f"아직 '{missing_str}'에 대한 정보가 부족합니다. 이에 대해 알려주실 수 있나요?"
+
+                
+            # 6. 프롬프트 생성
+            prompt = self.build_agent_prompt(topics, user_input, persona, history)
+
+            # === 마지막 단계 (최종 기획서 작성) ===
             if current_stage == "최종 기획서 작성":
                 logger.info("[FINAL STAGE] 최종 사업기획서 작성 단계 감지")
                 try:
                     final_plan_path = PROMPT_META.get("final_business_plan", {}).get("file")
-                    logger.info(f"final_plan_path : {final_plan_path}")
                     if final_plan_path:
                         draft_prompt_template = self.build_agent_prompt(["final_business_plan"], user_input, persona, history=history)
-                        draft_prompt = draft_prompt_template.template.format(context="잡담을 제외한 지금까지의 대화와 시장 데이터 기반 기획서를 작성하세요")
-                        
-                        logger.info(f"draft_prompt : {draft_prompt}")
-                        
+                        draft_prompt = draft_prompt_template.template.format(
+                            context="잡담을 제외한 지금까지의 대화와 시장 데이터 기반 기획서를 작성하세요"
+                        )
                         draft_msg = [{"role": "user", "content": draft_prompt}]
                         draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
-                        
-                        logger.info(f"[FINAL PLAN] Draft 생성 완료")
-                        
+
                         return {
                             "topics": ["final_business_plan"],
-                            "answer": draft,
+                            "answer": "최종 사업기획서가 작성되었습니다.",
                             "sources": "history 기반 종합 기획서",
                             "retrieval_used": False,
-                            "metadata": {"type": "final_business_plan"}
+                            "metadata": {
+                                "type": "final_business_plan",
+                                "content": draft,
+                                "current_stage": current_stage,
+                                "progress": 1.0,
+                                "missing": [],
+                                "next_stage": None,
+                                "next_question": None
+                            }
                         }
                 except Exception as e:
                     logger.error(f"[FINAL STAGE] 최종 기획서 작성 실패: {e}")
 
 
+            # 7. === MCP 사용하는 topic 처리 ===
             if "idea_recommendation" in topics:
-                logger.info("idea_recommendation 토픽 - handle_special_topic으로 이동")
-                return await self._handle_special_topic("idea_recommendation", persona, user_input, prompt)
+                return await self._handle_special_topic("idea_recommendation", persona, user_input, prompt, current_stage, progress, missing, next_stage, next_question)
             elif "idea_validation" in topics:
-                logger.info("idea_validation 토픽 - handle_special_topic으로 이동")
-                return await self._handle_special_topic("idea_validation", persona, user_input, prompt)
-            else:
-                # 4. 벡터 검색 설정 - 공통 모듈의 vector_manager 활용
-                if use_retriever and topics:
-                    topic_filter = {
-                        "$and": [
-                            {"category": "business_planning"},
-                            {"topic": {"$in": topics}}
-                        ]
-                    }
-                    
-                    # 공통 모듈의 벡터 매니저로 검색기 생성
-                    retriever = self.vector_manager.get_retriever(
-                        collection_name="global-documents",
-                        k=5,
-                        search_kwargs={"filter": topic_filter}
-                    )
-                    
-                    if retriever:
-                        # LLM으로 로드 밸런싱
-                        llm = self.llm_manager.get_llm(load_balance=True)
-                        
-                        # RetrievalQA 체인 생성
-                        qa_chain = RetrievalQA.from_chain_type(
-                            llm=llm,
-                            chain_type="stuff",
-                            retriever=retriever,
-                            chain_type_kwargs={"prompt": prompt},
-                            return_source_documents=True
-                        )
-                        
-                        result = qa_chain.invoke(user_input)
-                        
-                        # 소스 문서 정보 포맷팅
-                        sources = self._format_source_documents(result.get('source_documents', []))
-
-                        return {
-                            "topics": topics,
-                            "answer": result['result'],
-                            "sources": sources,
-                            "retrieval_used": True,
-                             "metadata": {
-                                "current_stage": current_stage,
-                                "next_stage": next_stage,
-                                "next_question": next_question
-                            }
-                        }
-                
-                # 5. 검색기 없이 기본 응답 생성
-                return await self._generate_fallback_response(topics, user_input, prompt)
+                return await self._handle_special_topic("idea_validation", persona, user_input, prompt, current_stage, progress, missing, next_stage, next_question)
             
+            # === 8. 벡터 검색 ===
+            if use_retriever and topics:
+                logger.info("RAG 쿼리 실행 시작")
+                topic_filter = {"$and": [{"category": "business_planning"}, {"topic": {"$in": topics}}]}
+                retriever = self.vector_manager.get_retriever(
+                    collection_name="global-documents", k=5, search_kwargs={"filter": topic_filter}
+                )
+
+                if retriever:
+                    llm = self.llm_manager.get_llm(load_balance=True)
+                    qa_chain = RetrievalQA.from_chain_type(
+                        llm=llm,
+                        chain_type="stuff",
+                        retriever=retriever,
+                        chain_type_kwargs={"prompt": prompt},
+                        return_source_documents=True
+                    )
+                    result = qa_chain.invoke(user_input)
+                    sources = self._format_source_documents(result.get("source_documents", []))
+
+                    return {
+                        "topics": topics,
+                        "answer": result["result"],
+                        "sources": sources,
+                        "retrieval_used": True,
+                        "metadata": {
+                            "type": topics[0] if topics else "general",
+                            "current_stage": current_stage,
+                            "progress": progress,
+                            "missing": missing,
+                            "next_stage": next_stage,
+                            "next_question": next_question
+                        }
+                    }                   
+            
+            # === 9. 기본 폴백 ===
+            return await self._generate_fallback_response(topics, user_input, prompt, current_stage, next_stage, progress, missing)
+
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
-            return await self._generate_fallback_response(topics, user_input, prompt,current_stage=current_stage,
-    next_stage=next_stage or "")
+            return await self._generate_fallback_response(topics, user_input, prompt, current_stage, next_stage, progress, missing)
             # return await self._generate_error_fallback(user_input)
     
     def _format_source_documents(self, documents: List[Any]) -> str:
@@ -498,7 +499,7 @@ class BusinessPlanningService:
         
         return "\n\n".join(sources)
     
-    async def _generate_fallback_response(self, topics: List[str], user_input: str, prompt: PromptTemplate, current_stage: str = "아이디어 탐색", next_stage: str = "") -> Dict[str, Any]:
+    async def _generate_fallback_response(self, topics: List[str], user_input: str, prompt: PromptTemplate, current_stage: str = "아이디어 탐색", next_stage: str = "", progress: float = 0.0, missing: List[str] = []) -> Dict[str, Any]:
         """폴백 응답 생성"""
         try:
             # Gemini로 폴백 응답 생성
@@ -517,7 +518,15 @@ class BusinessPlanningService:
                 "topics": topics,
                 "answer": result,
                 "sources": "문서를 찾지 못했습니다. 기본 지식으로 답변합니다.",
-                "retrieval_used": False
+                "retrieval_used": False,
+                "metadata": {
+                    "type": topics[0] if topics else "general",
+                    "current_stage": current_stage,
+                    "progress": progress,
+                    "missing": missing,
+                    "next_stage": next_stage,
+                    "next_question": None
+                }
             }
             
         except Exception as e:
@@ -707,9 +716,9 @@ async def process_user_query(request: UserQuery):
 
         metadata = result.get("metadata", {})
 
-        if metadata.get("type") == "final_business_plan":
-            metadata = {**metadata, "content": result["answer"]}
-            result["answer"] = "최종 사업기획서가 작성되었습니다."
+        # if metadata.get("type") == "final_business_plan":
+        #     metadata = {**metadata, "content": result["answer"]}
+        #     result["answer"] = "최종 사업기획서가 작성되었습니다."
 
         response_data = UnifiedResponse(
             conversation_id=conversation_id,

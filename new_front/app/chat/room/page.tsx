@@ -612,20 +612,29 @@ export default function ChatRoomPage() {
       if (!result.success || !result.data) {
         throw new Error(result.error || "응답을 받지 못했습니다")
       }
-      
+      //progress가 0.8이상이 아니면 마크다운이 안오니까 고쳐야함 // 버튼도 다시 사라지게
       if (result.data.metadata?.type === "final_business_plan") {
-        setDraftContent(result.data.metadata.content)
-        localStorage.setItem("idea_validation_content", result.data.metadata.content)
+        console.log("사업기획서 도착")
+        setDraftContent(result.data.answer)
+        console.log("result.data.answer: ",result.data.answer)
+        localStorage.setItem("idea_validation_content", result.data.answer)
         localStorage.setItem("user_id", String(userId))
         localStorage.setItem("conversation_id", String(currentConversationId))
-      }
-
-      const agentMessage: Message = {
-        sender: "agent",
-        text: result.data.answer,
-      }
+        
+        setMessages((prev) => [
+          ...prev,
+          { sender: "agent", text: "📄 사업기획서가 도착했습니다. '사업 기획서 보기' 버튼을 눌러 확인하세요." }
+        ]);
+        }
+      else{
+        const agentMessage: Message = {
+          sender: "agent",
+          text: result.data.answer,
+        }
+      
         setMessages((prev: Message[]) => [...prev, agentMessage])
-    } catch (error) {
+      }
+      } catch (error) {
       console.error("응답 실패:", error)
       const agentMessage: Message = {
         sender: "agent",
