@@ -43,15 +43,17 @@ qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # === Qdrant 컬렉션 초기화 ===
 def init_qdrant():
+    print("[QDRANT] init_qdrant started")
     try:
         qdrant.get_collection(collection_name=COLLECTION_NAME)
-        print(f"Collection '{COLLECTION_NAME}' already exists.")
-    except:
+        print(f"[QDRANT] Collection '{COLLECTION_NAME}' already exists.")
+    except Exception as e:
+        print(f"[QDRANT] Collection '{COLLECTION_NAME}' not found. Creating...")
         qdrant.recreate_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=models.VectorParams(size=1536, distance=models.Distance.COSINE)
         )
-        print(f"Collection '{COLLECTION_NAME}' created.")
+        print(f"[QDRANT] Collection '{COLLECTION_NAME}' created.")
 
 # === 텍스트 분할 ===
 def chunk_text(text, chunk_size=500, overlap=50):
