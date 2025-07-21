@@ -99,7 +99,7 @@ def extract_text_from_json(json_path):
     return json.dumps(data, ensure_ascii=False)
 
 # === 공통 데이터 초기화 ===
-def process_initial_data(pdf_folder="../data/pdf", json_folder="../data/json"):
+def process_initial_data(pdf_folder="/app/data/pdf", json_folder="/app/data/json"):
     init_qdrant()
     # PDF 처리
     for pdf_file in os.listdir(pdf_folder):
