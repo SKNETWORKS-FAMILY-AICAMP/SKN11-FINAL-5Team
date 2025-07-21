@@ -17,8 +17,6 @@ __author__ = "SKN11-FINAL-5Team"
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
 from core.workflow import UnifiedAgentWorkflow
 from core.models import UnifiedRequest, UnifiedResponse, AgentType
 
