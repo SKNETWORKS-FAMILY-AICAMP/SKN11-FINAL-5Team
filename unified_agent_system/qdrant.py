@@ -117,7 +117,14 @@ def process_initial_data(pdf_folder="../data/pdf", json_folder="../data/json"):
             insert_texts(chunks, {"data_scope": "global", "user_id": None, "source_file": json_file})
 
 # === FastAPI 서버 ===
-app = FastAPI()
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_qdrant()  # Qdrant 초기화
+    yield
+
+app = FastAPI(lifespan=lifespan)
 router = APIRouter()
 
 @router.post("/upload")
