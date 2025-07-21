@@ -156,6 +156,18 @@ def search(query: str, user_id: int = None):
     )
     return [{"score": r.score, "text": r.payload.get("text"), "source": r.payload.get("source_file")} for r in results]
 
+@router.get("/status")
+def qdrant_status():
+    try:
+        health = qdrant.http.health_check()
+        collections = qdrant.get_collections()
+        return {
+            "qdrant_health": health.status,
+            "collections": collections.model_dump().get("collections", []),
+        }
+    except Exception as e:
+        return {"qdrant_status": "error", "message": str(e)}
+
 if __name__ == "__main__":
     # 최초 실행 시 공통 데이터 삽입
     process_initial_data()
