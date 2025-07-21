@@ -1,11 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { ToastProvider } from '@/lib/toast'
 
 export const metadata: Metadata = {
-  title: 'TinkerBell Business - 마케팅 자동화',
-  description: '1인 창업자를 위한 AI 마케팅 자동화 플랫폼',
-  generator: 'TinkerBell Business',
+  title: 'v0 App',
+  description: 'Created with v0',
+  generator: 'v0.dev',
 }
 
 export default function RootLayout({
@@ -14,11 +13,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ko">
-      <body>
-        {children}
-        <ToastProvider />
-      </body>
+    <html lang="en">
+      <body>{children}</body>
     </html>
   )
 }

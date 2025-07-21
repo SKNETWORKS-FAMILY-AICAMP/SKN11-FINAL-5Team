@@ -7,6 +7,9 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Depends, Request
+from fastapi import APIRouter
+from fastapi import Form
+from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +19,8 @@ import requests
 import uvicorn
 import sys
 import os
+import shutil
+from typing import Optional
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -38,8 +43,15 @@ from shared_modules import (
     get_latest_phq9_by_user,
     create_success_response,
     create_error_response,
-    get_current_timestamp
+    get_current_timestamp,
+    get_templates_by_user_and_type,
+    update_template_message,
+    create_template_message,
+    recommend_templates_core,
+    get_user_template_by_title
+
 )
+
 
 from core.models import (
     UnifiedRequest, UnifiedResponse, HealthCheck, 
@@ -50,9 +62,17 @@ from core.config import (
     SERVER_HOST, SERVER_PORT, DEBUG_MODE, 
     LOG_LEVEL, LOG_FORMAT
 )
-from shared_modules.database import get_session_context as unified_get_session_context
+from shared_modules.database import  get_db_dependency
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
+from pydantic import BaseModel
+from shared_modules.db_models import Template
+from shared_modules.db_models import User
+from shared_modules.db_models import TemplateMessage
+from shared_modules.db_models import  Project
+from shared_modules.db_models import ProjectDocument
+from shared_modules.db_models import Conversation
+from shared_modules.db_models import FAQ
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -60,6 +80,14 @@ logger = logging.getLogger(__name__)
 
 # 설정 로드
 config = get_config()
+router = APIRouter()
+
+class TemplateUpdateRequest(BaseModel):
+    title: str
+    content: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    user_id: Optional[int] = None  # ✅ 이거 추가
 
 # ===== 공통 요청/응답 모델 =====
 
@@ -92,11 +120,30 @@ class AutomationRequest(BaseModel):
     task_type: str
     parameters: Dict[str, Any] = {}
 
+
+class TemplateCreateRequest(BaseModel):
+    user_id: int
+    title: str
+    content: str
+    template_type: str
+    channel_type: str
+    content_type: Optional[str] = "text"
+    is_custom: bool
+    description: Optional[str] = None
+    conversation_id: Optional[int] = None
+
+class ProjectCreate(BaseModel):
+    user_id: int
+    title: str
+    description: str = ""
+    category: str = "general"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행되는 라이프사이클 함수"""
     # 시작 시
-    logger.info("통합 에이전트 시스템 시작 (블로그 워크플로우 통합)")
+    logger.info("통합 에이전트 시스템 시작")
     workflow = get_workflow()
     
     # 에이전트 상태 확인
@@ -121,7 +168,7 @@ app = FastAPI(
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://192.168.0.200:3001"],
+    allow_origins=["http://localhost:3000", "http://192.168.0.200:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -194,32 +241,6 @@ async def get_conversation_messages(conversation_id: int, limit: int = 50):
     except Exception as e:
         logger.error(f"메시지 목록 조회 실패: {e}")
         return create_error_response("메시지 목록 조회에 실패했습니다", "MESSAGE_LIST_ERROR")
-
-# ===== 블로그 마케팅 워크플로우 API =====
-
-class BlogMarketingRequest(BaseModel):
-    user_id: int
-    conversation_id: int
-    base_keyword: str
-
-@app.post("/blog/marketing/execute")
-async def execute_blog_marketing(request: BlogMarketingRequest):
-    """블로그 마케팅 워크플로우 실행"""
-    try:
-        workflow = get_workflow()
-        
-        unified_request = UnifiedRequest(
-            user_id=request.user_id,
-            conversation_id=request.conversation_id,
-            message=f"블로그 마케팅: {request.base_keyword}"
-        )
-        
-        response = await workflow.process_request(unified_request)
-        return create_success_response(response.dict())
-        
-    except Exception as e:
-        logger.error(f"블로그 마케팅 워크플로우 실행 실패: {e}")
-        return create_error_response("블로그 마케팅 워크플로우 실행에 실패했습니다", "BLOG_MARKETING_ERROR")
 
 # ===== 사용자 관리 API =====
 import requests
@@ -789,23 +810,155 @@ async def preview_template(template_id: int):
         return Response(content="<p>템플릿을 로드할 수 없습니다</p>", status_code=500, media_type="text/html")
 
 @app.get("/templates")
-async def get_templates(template_type: Optional[str] = None):
-    """템플릿 목록 조회"""
+def get_templates(user_id: int, db: Session = Depends(get_db_dependency)):
     try:
-        if template_type:
-            templates = get_templates_by_type(template_type)
-        else:
-            templates = get_templates_by_type("전체")
-        
-        return create_success_response({
-            "templates": templates,
-            "count": len(templates),
-            "type": template_type or "전체"
-        })
-        
+        templates = get_templates_by_user_and_type(db=db, user_id=user_id)
+        return {
+            "success": True,
+            "data": {
+                "templates": [t.to_dict() for t in templates],
+                "count": len(templates)
+            }
+        }
     except Exception as e:
-        logger.error(f"템플릿 목록 조회 실패: {e}")
-        return create_error_response("템플릿 목록 조회에 실패했습니다", "TEMPLATE_LIST_ERROR")
+        logger.error(f"[TEMPLATE_LIST_ERROR] {str(e)}")
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": "템플릿 목록 조회에 실패했습니다.",
+            "error_code": "TEMPLATE_LIST_ERROR"
+        }
+
+@app.get("/user/templates")
+async def get_user_templates(user_id: int):
+    """사용자 개인 템플릿 목록"""
+    try:
+        with get_session_context() as db:
+            templates = get_templates_by_user_and_type(db, user_id)
+            return create_success_response({
+                "templates": [t.to_dict() for t in templates],
+                "count": len(templates)
+            })
+    except Exception as e:
+        logger.error(f"사용자 템플릿 목록 조회 실패: {e}")
+        return create_error_response("템플릿 목록 조회에 실패했습니다", "USER_TEMPLATE_LIST_ERROR")
+    
+@app.put("/templates/{template_id}")
+async def update_user_template(template_id: int, data: dict = Body(...)):
+    """사용자 템플릿 수정"""
+    try:
+        with get_session_context() as db:
+            success = update_template_message(db, template_id, **data)
+            if not success:
+                return create_error_response("템플릿이 존재하지 않거나 수정에 실패했습니다", "TEMPLATE_UPDATE_FAILED")
+            return create_success_response({"template_id": template_id})
+    except Exception as e:
+        logger.error(f"템플릿 수정 실패: {e}")
+        return create_error_response("템플릿 수정 중 오류가 발생했습니다", "TEMPLATE_UPDATE_ERROR")
+    
+@app.post("/templates")
+async def create_template(req: TemplateCreateRequest):
+    try:
+        with get_session_context() as db:
+            template = create_template_message(
+                db=db,
+                user_id=req.user_id,
+                template_type=req.template_type,
+                channel_type=req.channel_type,
+                title=req.title,
+                content=req.content,
+                content_type=req.content_type
+            )
+            if template:
+                return create_success_response({"template_id": template.template_id})
+            else:
+                return create_error_response("템플릿 저장 실패", "TEMPLATE_CREATE_ERROR")
+    except Exception as e:
+        logger.error(f"템플릿 저장 오류: {e}")
+        return create_error_response("템플릿 저장 중 오류 발생", "TEMPLATE_CREATE_EXCEPTION")
+    
+
+@app.put("/templates/{template_id}")
+def update_template(template_id: int, request: TemplateUpdateRequest, db: Session = Depends(get_db_dependency)):
+    template = db.query(Template).filter(Template.template_id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # ✅ 공용 템플릿은 복제해서 저장 (user_id 3은 공용)
+    if template.user_id == 3:
+        new_template = Template(
+            user_id=request.user_id,  # request에서 전달받아야 함
+            title=request.title,
+            category=request.category,
+            description=request.description,
+            content=request.content,
+            template_type=template.template_type,
+            channel_type=template.channel_type,
+            is_custom=True
+        )
+        db.add(new_template)
+        db.commit()
+        db.refresh(new_template)
+
+        return {
+            "success": True,
+            "data": {
+                "template_id": new_template.template_id,
+                "title": new_template.title,
+                "category": new_template.category,
+                "description": new_template.description,
+                "content": new_template.content
+            }
+        }
+
+    # ✅ 일반 유저 템플릿은 수정
+    template.title = request.title
+    template.category = request.category
+    template.description = request.description
+    template.content = request.content
+    db.commit()
+    db.refresh(template)
+
+    return {
+        "success": True,
+        "data": {
+            "template_id": template.template_id,
+            "title": template.title,
+            "category": template.category,
+            "description": template.description,
+            "content": template.content
+        }
+    }
+
+@app.delete("/templates/{template_id}")
+def delete_template(template_id: int, db: Session = Depends(get_db_dependency)):
+    template = db.query(TemplateMessage).filter(TemplateMessage.template_id == template_id).first()
+    if not template:
+        return {"success": False, "error": "템플릿을 찾을 수 없습니다."}
+    
+    db.delete(template)
+    db.commit()
+    return {"success": True}
+
+
+# ===== 마이페이지 =====
+@app.put("/user/{user_id}")
+def update_user(user_id: int, data: dict = Body(...)):
+    try:
+        with get_session_context() as db:
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user.nickname = data.get("nickname", user.nickname)
+            user.business_type = data.get("business_type", user.business_type)
+            user.experience = data.get("experience", user.experience)
+            db.commit()
+            return create_success_response({"user_id": user_id})
+    except Exception as e:
+        logger.error(f"사용자 정보 수정 오류: {e}")
+        return create_error_response("사용자 정보 수정 실패", "USER_UPDATE_ERROR")
+
 
 # ===== 정신건강 전용 API =====
 
@@ -954,7 +1107,7 @@ async def handle_emergency(req: EmergencyRequest):
     except Exception as e:
         logger.error(f"긴급상황 처리 오류: {e}")
         return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
-    
+
 # ===== 업무지원 전용 API (예시) =====
 # 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다
 
@@ -1131,22 +1284,8 @@ async def root():
             <p><span class="endpoint">GET /docs</span> - API 문서</p>
             <p><span class="endpoint">GET /test-ui</span> - 웹 테스트 인터페이스</p>
             
-            <h3>📝 블로그 마케팅 자동화 API</h3>
-            <p><span class="endpoint">POST /blog/workflow/execute</span> - A2A 블로그 워크플로우 실행</p>
-            <p><span class="endpoint">GET /blog/contents/scheduled</span> - 예약된 콘텐츠 목록</p>
-            <p><span class="endpoint">POST /blog/contents/{id}/publish</span> - 콘텐츠 발행</p>
-            
             <h2>📊 시스템 상태</h2>
-            <p class="status">✅ 서비스 정상 운영 중 (블로그 A2A 워크플로우 통합)</p>
-            
-            <h3>✨ 새로운 기능</h3>
-            <ul>
-                <li>🔄 Task Agent ↔ Marketing Agent A2A 통신</li>
-                <li>🔑 네이버 API 기반 키워드 추천</li>
-                <li>✍️ 병렬 콘텐츠 생성</li>
-                <li>📅 자동 발행 스케줄링</li>
-                <li>💾 데이터베이스 자동 저장</li>
-            </ul>
+            <p class="status">✅ 서비스 정상 운영 중</p>
         </div>
     </body>
     </html>
@@ -1229,6 +1368,288 @@ async def get_conversation_messages(conversation_id: int, limit: int = 50):
     except Exception as e:
         logger.error(f"메시지 목록 조회 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+# === 프로젝트 ====
+UPLOAD_DIR = "uploads/documents"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/projects")
+def create_project(project: ProjectCreate, db: Session = Depends(get_db_dependency)):
+    new_project = Project(
+        user_id=project.user_id,
+        title=project.title,
+        description=project.description,
+        category=project.category,
+    )
+    db.add(new_project)
+    db.commit()
+    db.refresh(new_project)
+
+    return {
+        "success": True,
+        "data": {
+            "project": {
+                "id": new_project.id,
+                "title": new_project.title,
+                "description": new_project.description,
+                "category": new_project.category,
+                "createdAt": str(new_project.created_at),
+                "updatedAt": str(new_project.updated_at),
+                "documentCount": 0,
+                "chatCount": 0,
+            }
+        },
+    }
+
+@app.get("/projects")
+def get_projects(user_id: int, db: Session = Depends(get_db_dependency)):
+    projects = db.query(Project).filter(Project.user_id == user_id).all()
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": p.id,
+                "user_id": p.user_id,
+                "title": p.title,
+                "description": p.description,
+                "category": p.category,
+                "createdAt": str(p.created_at),
+                "updatedAt": str(p.updated_at),
+            }
+            for p in projects
+        ]
+    }
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db_dependency)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db.delete(project)
+    db.commit()
+    return {"success": True, "message": "Project deleted"}
+
+@app.put("/projects/{project_id}")
+def update_project(project_id: int, data: dict = Body(...), db: Session = Depends(get_db_dependency)):
+    """프로젝트 정보 수정"""
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # 프로젝트 정보 업데이트
+        if "title" in data:
+            project.title = data["title"]
+        if "description" in data:
+            project.description = data["description"]
+        if "category" in data:
+            project.category = data["category"]
+        
+        # updated_at은 자동으로 업데이트됨 (DB 설정에 따라)
+        db.commit()
+        db.refresh(project)
+
+        return {
+            "success": True,
+            "data": {
+                "id": project.id,
+                "title": project.title,
+                "description": project.description,
+                "category": project.category,
+                "createdAt": str(project.created_at),
+                "updatedAt": str(project.updated_at),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"프로젝트 수정 실패: {e}")
+        return create_error_response("프로젝트 수정에 실패했습니다", "PROJECT_UPDATE_ERROR")
+
+@app.post("/projects/{project_id}/documents")
+async def upload_project_document(
+    project_id: int,
+    conversation_id: Optional[int] = Form(None),
+    user_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db_dependency),
+):
+    try:
+        conv_id = int(conversation_id) if conversation_id and conversation_id.isdigit() else None
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        document = ProjectDocument(
+            project_id=project_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            file_name=file.filename,
+            file_path=file_path,
+        )
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+
+        return {
+            "success": True,
+            "data": {
+                "document_id": document.document_id,
+                "file_name": document.file_name,
+                "file_path": document.file_path,
+                "uploaded_at": str(document.uploaded_at),
+            },
+        }
+    except Exception as e:
+        logger.error(f"파일 업로드 실패: {e}")
+        return create_error_response("파일 업로드 실패", "DOCUMENT_UPLOAD_ERROR")
+
+    
+@app.get("/projects/{project_id}/documents")
+def get_documents_by_project(project_id: int, db: Session = Depends(get_db_dependency)):
+    try:
+        documents = db.query(ProjectDocument).filter(
+            ProjectDocument.project_id == project_id,
+            ProjectDocument.file_path != "/virtual/chat_link"  # 채팅 링크 제외
+        ).all()
+        return {
+            "success": True,
+            "data": [
+                {
+                    "document_id": d.document_id,
+                    "project_id":project_id, 
+                    "file_name": d.file_name,
+                    "file_path": d.file_path,
+                    "uploaded_at": str(d.uploaded_at),
+                }
+                for d in documents
+            ]
+        }
+    except Exception as e:
+        logger.error(f"문서 조회 실패: {e}")
+        return create_error_response("문서 조회 실패", "DOCUMENT_LIST_ERROR")
+
+@app.delete("/projects/{project_id}/documents/{document_id}")
+def delete_document(
+    project_id: int,
+    document_id: int,
+    db: Session = Depends(get_db_dependency),
+):
+    try:
+        document = db.query(ProjectDocument).filter_by(project_id=project_id, document_id=document_id).first()
+
+        if not document:
+            return {"success": False, "error": "문서를 찾을 수 없습니다."}
+
+        db.delete(document)
+        db.commit()
+        return {"success": True}
+    except Exception as e:
+        db.rollback()
+        print("문서 삭제 실패:", e)
+        return {"success": False, "error": "문서 삭제 중 오류 발생"}
+
+@app.get("/projects/{project_id}/chats")
+async def get_project_chats(project_id: int, db: Session = Depends(get_db_dependency)):
+    """특정 프로젝트의 채팅 목록 조회 (project_document 테이블 기반)"""
+    try:
+        # project_document 테이블에서 해당 프로젝트의 conversation_id들 조회
+        project_docs = db.query(ProjectDocument).filter(
+            ProjectDocument.project_id == project_id,
+            ProjectDocument.conversation_id.isnot(None)
+        ).all()
+        
+        # conversation_id별로 그룹화
+        conversation_ids = list(set([doc.conversation_id for doc in project_docs if doc.conversation_id]))
+        
+        chat_list = []
+        for conv_id in conversation_ids:
+            try:
+                # 대화 정보 조회
+                conversation = db.query(Conversation).filter(
+                    Conversation.conversation_id == conv_id
+                ).first()
+                
+                if not conversation:
+                    continue
+                
+                # 마지막 메시지 조회
+                from shared_modules.db_models import Message
+                last_message = db.query(Message).filter(
+                    Message.conversation_id == conv_id
+                ).order_by(Message.created_at.desc()).first()
+                
+                # 메시지 수 조회
+                message_count = db.query(Message).filter(
+                    Message.conversation_id == conv_id
+                ).count()
+                
+                chat_list.append({
+                    "conversation_id": conv_id,
+                    "title": f"채팅 {conv_id}",
+                    "lastMessage": last_message.content if last_message else "메시지 없음",
+                    "lastMessageTime": last_message.created_at.isoformat() if last_message else conversation.started_at.isoformat(),
+                    "messageCount": message_count,
+                    "createdAt": conversation.started_at.isoformat() if conversation.started_at else None
+                })
+                
+            except Exception as e:
+                logger.error(f"채팅 {conv_id} 정보 조회 실패: {e}")
+                continue
+        
+        # 최신순 정렬
+        chat_list.sort(key=lambda x: x["lastMessageTime"], reverse=True)
+        
+        return create_success_response(chat_list)
+        
+    except Exception as e:
+        logger.error(f"프로젝트 채팅 목록 조회 실패: {e}")
+        return create_error_response("채팅 목록 조회에 실패했습니다", "PROJECT_CHAT_LIST_ERROR")
+
+# 2. 프로젝트에 새 채팅 생성 (기존 conversation 생성 + project_document 연결)
+@app.post("/projects/{project_id}/chats")
+async def create_project_chat(
+    project_id: int, 
+    data: dict = Body(...), 
+    db: Session = Depends(get_db_dependency)
+):
+    """프로젝트에 새 채팅 생성"""
+    try:
+        user_id = data.get("user_id")
+        title = data.get("title", "새 채팅")
+        
+        if not user_id:
+            return create_error_response("사용자 ID가 필요합니다", "MISSING_USER_ID")
+        
+        # 새 대화 생성
+        conversation = create_conversation(db, user_id)
+        
+        # project_document 테이블에 연결 정보 생성 (더미 문서로)
+        # 실제 파일 없이도 프로젝트와 대화를 연결하기 위함
+        dummy_doc = ProjectDocument(
+            project_id=project_id,
+            conversation_id=conversation.conversation_id,
+            user_id=user_id,
+            file_name=f"chat_link_{conversation.conversation_id}",
+            file_path="/virtual/chat_link"  # 가상 경로
+        )
+        db.add(dummy_doc)
+        db.commit()
+        
+        response_data = {
+            "conversation_id": conversation.conversation_id,
+            "project_id": project_id,
+            "title": title,
+            "created_at": conversation.started_at.isoformat() if conversation.started_at else None
+        }
+        
+        return create_success_response(response_data)
+        
+    except Exception as e:
+        logger.error(f"프로젝트 채팅 생성 실패: {e}")
+        return create_error_response("채팅 생성에 실패했습니다", "PROJECT_CHAT_CREATE_ERROR")
+
 
 # ===== 시스템 관리 API ===== 
 
@@ -1355,6 +1776,49 @@ async def test_system():
         "total_tests": len(results)
     }
 
+# ===faq===
+
+@app.get("/faq")
+def get_faqs(
+    category: Optional[str] = None, 
+    search: Optional[str] = None, 
+    db: Session = Depends(get_db_dependency)
+):
+    """FAQ 목록 조회"""
+    try:
+        query = db.query(FAQ).filter(FAQ.is_active == True)
+        if category:
+            query = query.filter(FAQ.category == category)
+        if search:
+            query = query.filter(FAQ.question.ilike(f"%{search}%"))
+        faqs = query.order_by(FAQ.view_count.desc()).all()
+
+        return create_success_response([{
+            "faq_id": f.faq_id,
+            "category": f.category,
+            "question": f.question,
+            "answer": f.answer,
+            "view_count": f.view_count,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        } for f in faqs])
+    except Exception as e:
+        logger.error(f"FAQ 조회 오류: {e}")
+        return create_error_response("FAQ 조회 실패", "FAQ_LIST_ERROR")
+
+
+@app.patch("/faq/{faq_id}/view")
+def increase_faq_view(faq_id: int, db: Session = Depends(get_db_dependency)):
+    """FAQ 조회수 증가"""
+    try:
+        faq = db.query(FAQ).filter(FAQ.faq_id == faq_id).first()
+        if not faq:
+            return create_error_response("FAQ를 찾을 수 없습니다", "FAQ_NOT_FOUND")
+        faq.view_count += 1
+        db.commit()
+        return create_success_response({"faq_id": faq_id, "view_count": faq.view_count})
+    except Exception as e:
+        logger.error(f"FAQ 조회수 증가 오류: {e}")
+        return create_error_response("FAQ 조회수 업데이트 실패", "FAQ_VIEW_ERROR")
 
 if __name__ == "__main__":
     uvicorn.run(

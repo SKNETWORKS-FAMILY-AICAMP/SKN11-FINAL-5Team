@@ -23,6 +23,14 @@ const nextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      {
+        source: '/projects/:id/chat/:chatId',
+        destination: '/projects/[id]/chat/[chatId]',
+      },
+    ];
+  },
   // Google OAuth 관련 환경 변수 노출 허용
   env: {
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
