@@ -126,7 +126,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    process_initial_data()
+    try:
+        print("[LIFESPAN] Running init_qdrant()...")
+        process_initial_data("/app/data/pdf", "/app/data/json")
+        print("[LIFESPAN] Data initialization completed.")
+    except Exception as e:
+        print(f"[LIFESPAN] Error during lifespan init: {e}")
     yield
 
 app = FastAPI(lifespan=lifespan)
