@@ -29,6 +29,12 @@ from shared_modules import (
     get_conversation_by_id, 
     get_recent_messages,
     get_template_by_title,
+
+    create_report,
+    get_db_dependency,
+    get_user_reports,
+    get_report_by_id,
+
     insert_message_raw,
     load_prompt_from_file,
     create_success_response,
@@ -45,10 +51,11 @@ from core.models import UnifiedResponse, RoutingDecision, AgentType
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_core.output_parsers import StrOutputParser
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 # 로깅 설정 - 공통 모듈 활용
 logger = setup_logging("business_planning", log_file="logs/business_planning.log")
@@ -75,6 +82,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from task_agent.automation_task.google_drive_service import google_drive_router
+from draft import draft_router
+
+app.include_router(google_drive_router)
+app.include_router(draft_router)
 
 # 프롬프트 설정 - 공통 모듈의 유틸리티 활용
 try:
@@ -82,6 +94,8 @@ try:
 except ImportError:
     logger.warning("prompts_config.py를 찾을 수 없습니다. 기본 설정을 사용합니다.")
     PROMPT_META = {}
+
+from idea_market import get_persona_trend, get_market_analysis
 
 class BusinessPlanningService:
     """비즈니스 기획 서비스 클래스 - 공통 모듈 최대 활용"""
@@ -97,6 +111,7 @@ class BusinessPlanningService:
         
         logger.info("BusinessPlanningService 초기화 완료")
     
+    # 4. market_research(시장/경쟁 분석, 시장규모)
     def _load_classification_prompt(self) -> str:
         """분류 프롬프트 로드"""
         return """
@@ -108,10 +123,10 @@ class BusinessPlanningService:
         콤마(,)로 구분된 키만 출력하고, 설명은 하지마.
 
         가능한 토픽:
-        1. startup_preparation(창업 준비, 체크리스트)
-        2. idea_validation(아이디어 검증, 시장성 분석, 타겟 분석)
+        0. startup_preparation(창업 준비, 체크리스트)
+        1. idea_recommendation(창업 아이템, 트렌드, 아이디어 추천)
+        2. idea_validation(아이디어 검증, 시장성 분석, 시장규모, 타겟 분석, 사업기획서 작성)
         3. business_model(린캔버스, 수익 구조)
-        4. market_research(시장/경쟁 분석, 시장규모)
         5. mvp_development(MVP 기획, 초기 제품 설계)
         6. funding_strategy(투자유치, 정부지원, 자금 조달)
         7. business_registration(사업자등록, 면허, 신고 절차)
@@ -162,6 +177,7 @@ class BusinessPlanningService:
         
         return merged_prompts
     
+
     def build_agent_prompt(self, topics: List[str], user_input: str, persona: str, history: str) -> PromptTemplate:
         """에이전트 프롬프트 구성"""
         merged_prompts = self.load_prompt_texts(topics)
@@ -207,6 +223,72 @@ class BusinessPlanningService:
         # 공통 모듈의 format_conversation_history 활용
         return format_conversation_history(history_data, max_messages=10)
     
+    async def _handle_special_topic(self, topic: str, persona: str, user_input: str, prompt: PromptTemplate):
+        """idea_recommendation, idea_validation 공통 처리 함수"""
+        logger.info("handle_special_topic 시작")
+        topic_data_funcs = {
+            "idea_recommendation": get_persona_trend,
+            "idea_validation": get_market_analysis,
+        }
+       
+        get_data_func = topic_data_funcs.get(topic)
+        if not get_data_func:
+            raise ValueError(f"Unsupported topic for special handling: {topic}")
+
+        logger.info(f"get_data_func type: {type(get_data_func)}, value: {get_data_func}")
+
+        try:
+            if topic == "idea_recommendation":
+                logger.info(f"{get_data_func} 실행")
+                trend_data, mcp_source = await get_data_func(persona, user_input)
+                logger.info(f"{get_data_func} 실행완료")
+            elif topic == "idea_validation":
+                logger.info(f"{get_data_func} 실행")
+                trend_data = await get_data_func(user_input)
+                mcp_source = "smithery_ai/brightdata-search"
+                logger.info(f"{get_data_func} 실행완료")
+            else:
+                raise ValueError("Unsupported topic")
+        except Exception as e:
+            trend_data= "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
+            mcp_source = "fallback"
+        logger.info(f"trend_data type: {type(trend_data)}, value: {trend_data}")
+
+        # 1차 : 기본 요약 (answer)
+        prompt_str = prompt.template.format(context=trend_data)
+        messages = [{"role": "user", "content": prompt_str}]
+        logger.info(f"1차 기본 요약 : {messages}")
+
+        answer = await self.llm_manager.generate_response(
+            messages=messages,
+            provider="openai",
+        )
+        
+        # 2차 : 상세 기획서 (draft)
+        draft = ""
+        if topic == "idea_validation":
+             idea_validation_2_path = PROMPT_META.get("idea_validation_2", {}).get("file")
+             logger.info(f"idea_validation_2_path : {idea_validation_2_path}")
+             if idea_validation_2_path:
+                # idea_plan_prompt = load_prompt_from_file(idea_validation_2_path)
+                draft_prompt_template = self.build_agent_prompt(["idea_validation_2"], user_input, persona, history=answer)
+                draft_prompt = draft_prompt_template.template.format(context=trend_data)
+                logger.info(f"draft_prompt : {draft_prompt}")
+                draft_msg = [{"role": "user", "content": draft_prompt}]
+                draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
+                logger.info(f"draft {draft}")
+        
+        return {
+            "topics": [topic],
+            "answer": answer,
+            "sources": mcp_source,
+            "retrieval_used": False,
+            "metadata": {
+                "type": topic,
+                "content": draft
+            }
+        }
+    
     async def run_rag_query(
         self, 
         conversation_id: int, 
@@ -227,49 +309,56 @@ class BusinessPlanningService:
             # 3. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history)
             
-            # 4. 벡터 검색 설정 - 공통 모듈의 vector_manager 활용
-            if use_retriever and topics:
-                topic_filter = {
-                    "$and": [
-                        {"category": "business_planning"},
-                        {"topic": {"$in": topics}}
-                    ]
-                }
-                
-                # 공통 모듈의 벡터 매니저로 검색기 생성
-                retriever = self.vector_manager.get_retriever(
-                    collection_name="global-documents",
-                    k=5,
-                    search_kwargs={"filter": topic_filter}
-                )
-                
-                if retriever:
-                    # LLM으로 로드 밸런싱
-                    llm = self.llm_manager.get_llm(load_balance=True)
+            if "idea_recommendation" in topics:
+                logger.info("idea_recommendation 토픽 - handle_special_topic으로 이동")
+                return await self._handle_special_topic("idea_recommendation", persona, user_input, prompt)
+            elif "idea_validation" in topics:
+                logger.info("idea_validation 토픽 - handle_special_topic으로 이동")
+                return await self._handle_special_topic("idea_validation", persona, user_input, prompt)
+            else:
+                # 4. 벡터 검색 설정 - 공통 모듈의 vector_manager 활용
+                if use_retriever and topics:
+                    topic_filter = {
+                        "$and": [
+                            {"category": "business_planning"},
+                            {"topic": {"$in": topics}}
+                        ]
+                    }
                     
-                    # RetrievalQA 체인 생성
-                    qa_chain = RetrievalQA.from_chain_type(
-                        llm=llm,
-                        chain_type="stuff",
-                        retriever=retriever,
-                        chain_type_kwargs={"prompt": prompt},
-                        return_source_documents=True
+                    # 공통 모듈의 벡터 매니저로 검색기 생성
+                    retriever = self.vector_manager.get_retriever(
+                        collection_name="global-documents",
+                        k=5,
+                        search_kwargs={"filter": topic_filter}
                     )
                     
-                    result = qa_chain.invoke(user_input)
-                    
-                    # 소스 문서 정보 포맷팅
-                    sources = self._format_source_documents(result.get('source_documents', []))
-                    
-                    return {
-                        "topics": topics,
-                        "answer": result['result'],
-                        "sources": sources,
-                        "retrieval_used": True
-                    }
-            
-            # 5. 검색기 없이 기본 응답 생성
-            return await self._generate_fallback_response(topics, user_input, prompt)
+                    if retriever:
+                        # LLM으로 로드 밸런싱
+                        llm = self.llm_manager.get_llm(load_balance=True)
+                        
+                        # RetrievalQA 체인 생성
+                        qa_chain = RetrievalQA.from_chain_type(
+                            llm=llm,
+                            chain_type="stuff",
+                            retriever=retriever,
+                            chain_type_kwargs={"prompt": prompt},
+                            return_source_documents=True
+                        )
+                        
+                        result = qa_chain.invoke(user_input)
+                        
+                        # 소스 문서 정보 포맷팅
+                        sources = self._format_source_documents(result.get('source_documents', []))
+                        
+                        return {
+                            "topics": topics,
+                            "answer": result['result'],
+                            "sources": sources,
+                            "retrieval_used": True
+                        }
+                
+                # 5. 검색기 없이 기본 응답 생성
+                return await self._generate_fallback_response(topics, user_input, prompt)
             
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
@@ -381,37 +470,46 @@ async def process_user_query(request: UserQuery):
     """사용자 쿼리 처리 - 공통 모듈들 최대 활용"""
     try:
         start_time = time.time()
-        logger.info(f"쿼리 처리 시작 - user_id: {request.user_id}")
-        
+        logger.info(f"[START] 쿼리 처리 시작 - user_id: {request.user_id}")
+
         user_question = request.message
         user_id = request.user_id
         conversation_id = request.conversation_id
-        
-        # 1. 대화 세션 처리 - 통일된 로직 사용
+
+        # 1. 대화 세션 처리
+        logger.info("[STEP 1] 대화 세션 처리 시작")
         try:
             session_info = get_or_create_conversation_session(user_id, conversation_id)
             conversation_id = session_info["conversation_id"]
+            logger.info("[STEP 1] 대화 세션 처리 완료")
         except Exception as e:
-            logger.error(f"대화 세션 처리 실패: {e}")
+            logger.error(f"[STEP 1] 대화 세션 처리 실패: {e}")
             return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
 
         # 2. 사용자 메시지 저장
+        logger.info("[STEP 2] 사용자 메시지 저장 시작")
         try:
             with get_session_context() as db:
                 user_message = create_message(db, conversation_id, "user", "business_planning", user_question)
                 if not user_message:
-                    logger.warning("사용자 메시지 저장 실패")
+                    logger.warning("[STEP 2] 사용자 메시지 저장 실패")
+            logger.info("[STEP 2] 사용자 메시지 저장 완료")
         except Exception as e:
-            logger.warning(f"사용자 메시지 저장 실패: {e}")
-        
-        # 3. 린캔버스 요청 분기 처리
+            logger.warning(f"[STEP 2] 사용자 메시지 저장 실패: {e}")
+
+        # 3. 린캔버스 요청 분기
+        logger.info("[STEP 3] 린캔버스 여부 확인")
         if "린캔버스" in user_question:
+            logger.info("[STEP 3] 린캔버스 요청 분기 진입")
+            lean_canvas_start = time.time()
             lean_canvas_result = business_service.handle_lean_canvas_request(user_question)
+            logger.info(f"[STEP 3] 린캔버스 처리 완료 - 소요시간: {time.time() - lean_canvas_start:.2f}s")
+
             response_data = UnifiedResponse(
                 conversation_id=conversation_id,
                 agent_type=AgentType.BUSINESS_PLANNING,
                 response=lean_canvas_result["content"],
-                confidence=0.9,  # 린캔버스는 높은 신뢰도
+                confidence=0.9,
                 routing_decision=RoutingDecision(
                     agent_type=AgentType.BUSINESS_PLANNING,
                     confidence=0.9,
@@ -428,14 +526,18 @@ async def process_user_query(request: UserQuery):
             return create_success_response(response_data)
 
         # 4. 일반 RAG 쿼리 처리
+        logger.info("[STEP 4] RAG 쿼리 요청 시작")
+        rag_start = time.time()
         result = await business_service.run_rag_query(
             conversation_id,
             user_question,
             use_retriever=True,
             persona=request.persona or "common"
         )
+        logger.info(f"[STEP 4] RAG 쿼리 처리 완료 - 소요시간: {time.time() - rag_start:.2f}s")
 
-        # 5. 에이전트 응답 저장 - 공통 모듈의 DB 함수 활용
+        # 5. 에이전트 응답 저장
+        logger.info("[STEP 5] 에이전트 응답 저장 시작")
         try:
             insert_message_raw(
                 conversation_id=conversation_id,
@@ -443,28 +545,68 @@ async def process_user_query(request: UserQuery):
                 agent_type="business_planning",
                 content=result["answer"]
             )
+            logger.info("[STEP 5] 에이전트 응답 저장 완료")
         except Exception as e:
-            logger.warning(f"에이전트 메시지 저장 실패: {e}")
+            logger.warning(f"[STEP 5] 에이전트 메시지 저장 실패: {e}")
 
-        # 6. 응답 생성 - 표준 응답 구조 사용
+        # 6. 응답 생성
+        logger.info("[STEP 6] 응답 생성 및 반환")
+        if "metadata" in result and result["metadata"]:  # metadata가 있을 경우
+            response_data = UnifiedResponse(
+            conversation_id=conversation_id,
+            agent_type=AgentType.BUSINESS_PLANNING,
+            response=result["answer"],
+            confidence=0.85,  # 상황에 맞게 지정, 필요시 계산
+            routing_decision=RoutingDecision(
+                agent_type=AgentType.BUSINESS_PLANNING,
+                confidence=0.85,
+                reasoning="사업기획서 제공",
+                keywords=result.get("topics", [])
+                ),
+            sources=result.get("sources"),
+            metadata=result["metadata"],
+            processing_time=time.time() - start_time
+            )
+            return create_success_response(response_data)
+            
+        
         response_data = create_business_response(
             conversation_id=conversation_id,
             answer=result["answer"],
             topics=result.get("topics", []),
             sources=result.get("sources", "")
         )
-
+        logger.info(f"응답을 create_success_response에 넣기 전 :{response_data}")
+        logger.info(f"[END] 전체 처리 완료 - 총 소요시간: {time.time() - start_time:.2f}s")
         return create_success_response(response_data)
-        
+
     except Exception as e:
-        logger.error(f"쿼리 처리 중 오류 발생: {e}")
+        logger.error(f"[ERROR] 쿼리 처리 중 예외 발생: {e}")
         return create_error_response(f"쿼리 처리 중 오류가 발생했습니다: {str(e)}", "QUERY_PROCESSING_ERROR")
+
+# @app.get("/lean_canvas/{title}")
+# def preview_template(title: str):
+#     """린캔버스 템플릿 미리보기 - 통합 시스템 사용 권장"""
+#     return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /lean_canvas/{title}을 사용해주세요.", "API_MOVED")
 
 @app.get("/lean_canvas/{title}")
 def preview_template(title: str):
-    """린캔버스 템플릿 미리보기 - 통합 시스템 사용 권장"""
-    return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /lean_canvas/{title}을 사용해주세요.", "API_MOVED")
-
+    """린캔버스 템플릿 미리보기 - 공통 모듈 활용"""
+    try:
+        # sanitize_filename으로 안전한 파일명 보장
+        #safe_title = sanitize_filename(title)
+        
+        # 공통 모듈의 DB 함수로 템플릿 조회
+        template = get_template_by_title(title)
+        html = template["content"] if template else "<p>템플릿 없음</p>"
+        
+        return Response(content=html, media_type="text/html")
+        
+    except Exception as e:
+        logger.error(f"템플릿 미리보기 실패: {e}")
+        """린캔버스 템플릿 미리보기 - 통합 시스템 사용 권장"""
+        return create_error_response("이 API는 통합 시스템으로 이동되었습니다. 통합 시스템의 /lean_canvas/{title}을 사용해주세요.", "API_MOVED")
+    
 @app.get("/health")
 def health_check():
     """상태 확인 엔드포인트 - 공통 모듈들의 상태 체크"""
@@ -531,6 +673,153 @@ def detailed_status():
         logger.error(f"상세 상태 확인 실패: {e}")
         return create_error_response(f"상세 상태 확인 실패: {str(e)}", "DETAILED_STATUS_ERROR")
 
+
+### pdf 다운로드 추가 ###
+from fpdf import FPDF
+from io import BytesIO
+import uuid
+import tempfile
+import pdfkit
+
+def generate_pdf_from_html(html_content: str) -> bytes:
+    pdf_bytes = pdfkit.from_string(html_content, False)  # False: 메모리에 저장
+    return pdf_bytes
+
+
+def generate_pdf(content: str) -> bytes:
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, content)
+    pdf_output = BytesIO()
+    pdf.output(pdf_output)
+    return pdf_output.getvalue()
+
+def save_pdf_to_temp(pdf_bytes: bytes) -> str:
+    file_id = str(uuid.uuid4())
+    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}.pdf")
+    with open(temp_path, "wb") as f:
+        f.write(pdf_bytes)
+    return file_id
+
+def load_pdf_from_temp(file_id: str) -> bytes:
+    temp_path = os.path.join(tempfile.gettempdir(), f"{file_id}.pdf")
+    with open(temp_path, "rb") as f:
+        return f.read()
+
+### pdf 생성/다운로드 api###
+from fastapi.responses import StreamingResponse, JSONResponse
+
+# @app.post("/report/pdf/create")
+# async def create_pdf_report(data: dict = Body(...)):
+#     content = data.get("content", "리포트 내용이 없습니다.")
+#     pdf_bytes = generate_pdf(content)
+#     file_id = save_pdf_to_temp(pdf_bytes)
+#     return JSONResponse({"file_id": file_id})
+
+class PdfCreateRequest(BaseModel):
+    html: str
+    form_data: Optional[Dict[str, str]] = None
+    user_id: int                       
+    conversation_id: Optional[int] = None
+    title: Optional[str] = "린 캔버스_common" 
+
+## db에 저장
+@app.post("/report/pdf/create")
+async def create_pdf_from_html_api(data: PdfCreateRequest,
+    db: Session = Depends(get_db_dependency),):
+    html = data.html or "<p>내용 없음</p>"
+    form_data = data.form_data or {}
+   
+    try:
+        pdf_bytes = generate_pdf_from_html(html)
+        file_id = save_pdf_to_temp(pdf_bytes)
+        file_url = f"/report/pdf/download/{file_id}"  # 상대경로로 저장
+
+        report = create_report(
+            db=db,
+            user_id=data.user_id,  
+            conversation_id=data.conversation_id,
+            report_type="린캔버스",
+            title=data.title, # 프론트에서 주는 값 바꿔야함
+            content_data=form_data,  # JSON으로 저장
+            file_url=file_url,
+        )
+        if not report:
+            raise Exception("DB 저장 실패")
+        return JSONResponse({"file_id": file_id})
+    except Exception as e:
+        logger.error(f"PDF 생성 실패: {e}")
+    raise HTTPException(status_code=500, detail="PDF 생성 중 오류 발생")
+
+@app.get("/report/pdf/download/{file_id}")
+async def download_pdf_report(file_id: str):
+    pdf_bytes = load_pdf_from_temp(file_id)
+    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=report_{file_id}.pdf"
+    })
+
+# 리포트 조회
+@app.get("/reports/{report_id}")
+def get_report_detail(report_id: int, db: Session = Depends(get_db_dependency)):
+    """
+    리포트 상세 조회 API
+    """
+    report = get_report_by_id(db, report_id)
+
+    if not report:
+        raise HTTPException(status_code=404, detail="해당 리포트를 찾을 수 없습니다")
+
+    return {
+        "success": True,
+        "data": {
+            "report_id": report.report_id,
+            "report_type": report.report_type,
+            "title": report.title,
+            "status": "completed" if report.file_url else "generating",
+            "content_data": report.content_data,
+            "file_url": report.file_url,
+            "created_at": report.created_at.isoformat()
+        }
+    }
+
+
+@app.get("/reports")
+def get_report_list(
+    user_id: int = Query(...),  #  필수 파라미터
+    report_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    리포트 목록 조회 API (필수: user_id, 선택: report_type, status)
+    """
+    try:
+        reports = get_user_reports(db, user_id=user_id, report_type=report_type, limit=100)
+
+        if status:
+            if status == "completed":
+                reports = [r for r in reports if r.file_url]
+            elif status == "generating":
+                reports = [r for r in reports if not r.file_url]
+
+        return {
+            "success": True,
+            "data": [
+                {
+                    "report_id": r.report_id,
+                    "report_type": r.report_type,
+                    "title": r.title,
+                    "status": "completed" if r.file_url else "generating",
+                    "file_url": r.file_url,
+                    "created_at": r.created_at.isoformat()
+                }
+                for r in reports
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"리포트 조회 중 오류: {str(e)}")
+    
 # 메인 실행
 if __name__ == "__main__":
     import uvicorn
@@ -549,3 +838,5 @@ if __name__ == "__main__":
 # 실행 명령어:
 # uvicorn business_planning:app --reload --host 0.0.0.0 --port 8080
 # http://127.0.0.1:8080/docs
+
+# python -m uvicorn business_planning:app --reload --host 0.0.0.0 --port 8001
