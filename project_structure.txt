@@ -1,0 +1,679 @@
+폴더 PATH의 목록입니다.
+볼륨 일련 번호는 52DB-15D6입니다.
+C:.
+|   .gitignore
+|   key.pem
+|   project_structure.txt
+|   
++---.vscode
+|       launch.json
+|       settings.json
+|       
++---buisness_planning_agent
+|   |   business_planning.py
+|   |   
+|   +---config
+|   |       prompts_config.py
+|   |       __init__.py
+|   |       
+|   \---prompts
+|           business_model.txt
+|           business_registration.txt
+|           financial_planning.txt
+|           funding_strategy.txt
+|           growth_strategy.txt
+|           idea_validation.txt
+|           market_research.txt
+|           mvp_development.txt
+|           risk_management.txt
+|           startup_preparation.txt
+|           
++---customer_service_agent
+|   |   main.py
+|   |   
+|   \---customer_agent
+|       |   agent_runner.py
+|       |   prompts_config.py
+|       |   test_page.html
+|       |   __init__.py
+|       |   
+|       +---graph
+|       |       nodes.py
+|       |       state.py
+|       |       workflow.py
+|       |       __init__.py
+|       |       
+|       \---prompt
+|               community_building.txt
+|               customer_data.txt
+|               customer_etc.txt
+|               customer_feedback.txt
+|               customer_message.txt
+|               customer_retention.txt
+|               customer_satisfaction.txt
+|               customer_segmentation.txt
+|               customer_service.txt
+|               privacy_compliance.txt
+|               
++---data
+|   +---json
+|   |       Beautyshop_business_registration.json
+|   |       beautyshop_case0.json
+|   |       beautyshop_case1.json
+|   |       beautyshop_case2.json
+|   |       beautyshop_case3.json
+|   |       beautyshop_customer_retention_customer_service.json
+|   |       beautyshop_idea_validation.json
+|   |       beautyshop_market_research.json
+|   |       beautyshop_startup_preparation.json
+|   |       building_a_website.json
+|   |       Business_Planning.json
+|   |       business_registration.json
+|   |       common_blog_marketing.json
+|   |       common_business_model.json
+|   |       common_case0.json
+|   |       common_case1.json
+|   |       common_case2.json
+|   |       common_case3.json
+|   |       common_case4.json
+|   |       common_email_marketing.json
+|   |       common_instagram_marketing.json
+|   |       common_lean_canvas.json
+|   |       common_linkdin_marketing.json
+|   |       common_marketing_automation.json
+|   |       common_marketing_fundamentals.json
+|   |       common_personal_branding.json
+|   |       common_productivity.json
+|   |       common_tiktok_marketing.json
+|   |       common_youtube_marketing.json
+|   |       creater_case0.json
+|   |       creater_case1.json
+|   |       creator_market_research_0.json
+|   |       creator_market_research_1.json
+|   |       creator_market_research_idea_validation.json
+|   |       creator_tax_accounting.json
+|   |       e-commerce_idea_validation_1.json
+|   |       e-commerce_idea_validation_2.json
+|   |       e-commerce_market_research.json
+|   |       e_commerce_case0.json
+|   |       e_commerce_case1.json
+|   |       e_commerce_customer_retention_customer_service.json
+|   |       e_commerce_idea_validation_0.json
+|   |       happytalk_cs.json
+|   |       marketing.json
+|   |       operational_tips.json
+|   |       tax, hr, labor affairs.json
+|   |       
+|   \---pdf
+|           beautyshop_content_marketing.pdf
+|           beautyshop_conversion_optimization.pdf
+|           beautyshop_customer_feedback.pdf
+|           beautyshop_customer_retention.pdf
+|           beautyshop_customer_satisfaction0.pdf
+|           beautyshop_customer_satisfaction1.pdf
+|           beautyshop_customer_satisfaction10.pdf
+|           beautyshop_customer_satisfaction11.pdf
+|           beautyshop_customer_satisfaction12.pdf
+|           beautyshop_customer_satisfaction13.pdf
+|           beautyshop_customer_satisfaction14.pdf
+|           beautyshop_customer_satisfaction15.pdf
+|           beautyshop_customer_satisfaction2.pdf
+|           beautyshop_customer_satisfaction3.pdf
+|           beautyshop_customer_satisfaction4.pdf
+|           beautyshop_customer_satisfaction5.pdf
+|           beautyshop_customer_satisfaction6.pdf
+|           beautyshop_customer_satisfaction7.pdf
+|           beautyshop_customer_satisfaction8.pdf
+|           beautyshop_customer_satisfaction9.pdf
+|           beautyshop_idea_validation.pdf
+|           beautyshop_operation_tips0.pdf
+|           beautyshop_operation_tips1.pdf
+|           beautyshop_operation_tips2.pdf
+|           beautyshop_operation_tips3.pdf
+|           beautyshop_operation_tips4.pdf
+|           beautyshop_operation_tips5.pdf
+|           beautyshop_performance_tracking.pdf
+|           beautyshop_social_media_marketing.pdf
+|           beauty_customer_retention.pdf
+|           business_model_milestone.pdf
+|           common_customer_feedback.pdf
+|           common_customer_retention.pdf
+|           common_operation_tips.pdf
+|           common_productivity.pdf
+|           common_social_media_marketing.pdf
+|           creator_content_marketing.pdf
+|           creator_content_marketing0.pdf
+|           creator_content_marketing1.pdf
+|           creator_conversion_optimization0.pdf
+|           creator_conversion_optimization1.pdf
+|           creator_customer_retention.pdf
+|           creator_influencer_marketing.pdf
+|           creator_operation_tips.pdf
+|           creator_personal_branding0.pdf
+|           creator_personal_branding1.pdf
+|           creator_productivity.pdf
+|           creator_tool_stack.pdf
+|           e-commerce_marketing_fundamentals.pdf
+|           ecommerce_content_marketing.pdf
+|           ecommerce_customer_retention0.pdf
+|           ecommerce_customer_retention1.pdf
+|           ecommerce_marketing_fundamentals.pdf
+|           e_commers_growth_strategy.pdf
+|           e_commers_productivity.pdf
+|           e_commers_tool_stack.pdf
+|           ㄹㅣㄴㅋㅐㄴㅂㅓㅅㅡ.pdf
+|           ㅂㅠㅌㅣㅅㅑㅂㅂㅣㅈㅡㄴㅣㅅㅡㅁㅗㄷㅔㄹ.pdf
+|           ㅂㅠㅌㅣㅅㅑㅂㅊㅏㅇㅇㅓㅂㄱㅏㅇㅣㄷㅡ.pdf
+|           ㅅㅏㅇㅓㅂㅈㅏㄷㅡㅇㄹㅗㄱ.pdf
+|           ㅇㅠㅌㅠㅂㅡㅋㅡㄹㅣㅇㅔㅇㅣㅌㅓㄱㅏㅇㅣㄷㅡ.pdf
+|           ㅇㅣㅋㅓㅁㅓㅅㅡㅂㅣㅈㅡㄴㅣㅅㅡㅁㅗㄷㅔㄹ.pdf
+|           ㅇㅣㅋㅓㅁㅓㅅㅡㅊㅏㅇㅇㅓㅂㄱㅏㅇㅣㄷㅡ.pdf
+|           ㅈㅓㅇㅂㅜㅈㅣㅇㅝㄴㅅㅏㅇㅓㅂ.pdf
+|           ㅋㅡㄹㅣㅇㅔㅇㅣㅌㅓㅂㅣㅈㅡㄴㅣㅅㅡㅁㅗㄷㅔㄹ.pdf
+|           
++---front_chat
+|   |   .gitignore
+|   |   package-lock.json
+|   |   package.json
+|   |   postcss.config.js
+|   |   README.md
+|   |   tailwind.config.js
+|   |   
+|   +---public
+|   |   |   favicon.ico
+|   |   |   index.html
+|   |   |   logo192.png
+|   |   |   logo512.png
+|   |   |   manifest.json
+|   |   |   robots.txt
+|   |   |   
+|   |   \---images
+|   |           bad.png
+|   |           cat.png
+|   |           cat_mental_care.png
+|   |           comment.png
+|   |           fish.png
+|   |           foot.png
+|   |           good.png
+|   |           heart.png
+|   |           home.png
+|   |           magnifier.png
+|   |           megaphone.png
+|   |           paw.png
+|   |           pencil.png
+|   |           plus.png
+|   |           star.png
+|   |           tele.png
+|   |           up_arrow.png
+|   |           
+|   \---src
+|       |   App.css
+|       |   App.js
+|       |   App.test.js
+|       |   index.css
+|       |   index.js
+|       |   logo.svg
+|       |   reportWebVitals.js
+|       |   setupTests.js
+|       |   
+|       +---api
+|       |       ChatApi.js
+|       |       
+|       +---components
+|       |       Feedback.jsx
+|       |       Sidebar.jsx
+|       |       
+|       +---config
+|       |       agentConfig.js
+|       |       
+|       +---hooks
+|       |       useChat.js
+|       |       
+|       \---pages
+|           \---chat
+|                   ChatPage.jsx
+|                   ChatPage.module.css
+|                   MainPage.jsx
+|                   ScenarioPage.jsx
+|                   
++---init
+|       config.py
+|       init_vector_db.py
+|       init_vector_db_kure.py
+|       llm.py
+|       rag.py
+|       
++---marketing_agent
+|   |   new_crm_template.json
+|   |   rag.py
+|   |   test.html
+|   |   __init__.py
+|   |   
+|   +---agents
+|   |       base_agent.py
+|   |       branding_agent.py
+|   |       content_agent.py
+|   |       targeting_agent.py
+|   |       __init__.py
+|   |       
+|   +---config
+|   |       persona_config.py
+|   |       prompts_config.py
+|   |       __init__.py
+|   |       
+|   \---prompts
+|           blog_marketing.md
+|           content_marketing.md
+|           conversion_optimization.md
+|           digital_advertising.md
+|           email_marketing.md
+|           influencer_marketing.md
+|           local_marketing.md
+|           marketing_automation.md
+|           marketing_fundamentals.md
+|           marketing_metrics.md
+|           personal_branding.md
+|           social_media_marketing.md
+|           viral_marketing.md
+|           
++---mental_agent
+|       main.py
+|       mental_agent.py
+|       mental_agent_graph.py
+|       mental_agent_nodes.py
+|       models.py
+|       schemas.py
+|       
++---new_front
+|   |   .gitignore
+|   |   components.json
+|   |   next.config.mjs
+|   |   package-lock.json
+|   |   package.json
+|   |   pnpm-lock.yaml
+|   |   postcss.config.mjs
+|   |   tailwind.config.ts
+|   |   tsconfig.json
+|   |   
+|   +---app
+|   |   |   globals.css
+|   |   |   layout.tsx
+|   |   |   loading.tsx
+|   |   |   page.tsx
+|   |   |   
+|   |   +---admin
+|   |   |       loading.tsx
+|   |   |       page.tsx
+|   |   |       
+|   |   +---api
+|   |   |       agent.ts
+|   |   |       auth.ts
+|   |   |       
+|   |   +---auth
+|   |   |   \---naver
+|   |   |       \---callback
+|   |   |               page.tsx
+|   |   |               
+|   |   +---chat
+|   |   |   |   loading.tsx
+|   |   |   |   page.tsx
+|   |   |   |   
+|   |   |   \---room
+|   |   |           loading.tsx
+|   |   |           page.tsx
+|   |   |           
+|   |   +---login
+|   |   |       page.tsx
+|   |   |       
+|   |   +---mypage
+|   |   |       page.tsx
+|   |   |       
+|   |   \---signup
+|   |           page.tsx
+|   |           
+|   +---components
+|   |   |   GoogleLoginButton.tsx
+|   |   |   theme-provider.tsx
+|   |   |   
+|   |   \---ui
+|   |           accordion.tsx
+|   |           alert-dialog.tsx
+|   |           alert.tsx
+|   |           aspect-ratio.tsx
+|   |           avatar.tsx
+|   |           badge.tsx
+|   |           breadcrumb.tsx
+|   |           button.tsx
+|   |           calendar.tsx
+|   |           card.tsx
+|   |           carousel.tsx
+|   |           chart.tsx
+|   |           checkbox.tsx
+|   |           collapsible.tsx
+|   |           command.tsx
+|   |           context-menu.tsx
+|   |           dialog.tsx
+|   |           drawer.tsx
+|   |           dropdown-menu.tsx
+|   |           form.tsx
+|   |           hover-card.tsx
+|   |           input-otp.tsx
+|   |           input.tsx
+|   |           label.tsx
+|   |           menubar.tsx
+|   |           navigation-menu.tsx
+|   |           pagination.tsx
+|   |           popover.tsx
+|   |           progress.tsx
+|   |           radio-group.tsx
+|   |           resizable.tsx
+|   |           scroll-area.tsx
+|   |           select.tsx
+|   |           separator.tsx
+|   |           sheet.tsx
+|   |           sidebar.tsx
+|   |           skeleton.tsx
+|   |           slider.tsx
+|   |           sonner.tsx
+|   |           switch.tsx
+|   |           table.tsx
+|   |           tabs.tsx
+|   |           textarea.tsx
+|   |           toast.tsx
+|   |           toaster.tsx
+|   |           toggle-group.tsx
+|   |           toggle.tsx
+|   |           tooltip.tsx
+|   |           use-mobile.tsx
+|   |           use-toast.ts
+|   |           
+|   +---config
+|   |       constants.ts
+|   |       
+|   +---hooks
+|   |       use-mobile.tsx
+|   |       use-toast.ts
+|   |       
+|   +---lib
+|   |       utils.ts
+|   |       
+|   +---public
+|   |   |   3D_고양이.png
+|   |   |   3D_고양이2.png
+|   |   |   placeholder-logo.png
+|   |   |   placeholder-logo.svg
+|   |   |   placeholder-user.jpg
+|   |   |   placeholder.jpg
+|   |   |   placeholder.svg
+|   |   |   tinkerbell-mascot.png
+|   |   |   tinkerbell-mascot2.png
+|   |   |   tinkerbell-mascot3.png
+|   |   |   tinkerbell-mascot4.png
+|   |   |   고양이.png
+|   |   |   고양이얼굴.png
+|   |   |   고양이얼굴2.jpg
+|   |   |   마스코트.png
+|   |   |   
+|   |   \---icons
+|   |           3D_고객관리.png
+|   |           3D_고립감.png
+|   |           3D_돋보기.png
+|   |           3D_마케팅.png
+|   |           3D_메세지.png
+|   |           3D_멘탈케어.png
+|   |           3D_사업기획.png
+|   |           3D_새채팅.png
+|   |           3D_시장정보 획득.png
+|   |           3D_업무관리.png
+|   |           3D_전화.png
+|   |           3D_하트.png
+|   |           3D_홈.png
+|   |           3D_홈_.png
+|   |           고객관리.png
+|   |           마케팅_icon.png
+|   |           멘탈케어_icon.png
+|   |           사업기획_icon.png
+|   |           사회적고립_icon.png
+|   |           업무관리_icon.png
+|   |           정보분석_icon.png
+|   |           
+|   \---styles
+|           globals.css
+|           
++---shared_modules
+|   |   database.py
+|   |   db_models.py
+|   |   env_config.py
+|   |   llm_utils.py
+|   |   logging_utils.py
+|   |   queries.py
+|   |   utils.py
+|   |   vector_utils.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           database.cpython-311.pyc
+|           db_models.cpython-311.pyc
+|           env_config.cpython-311.pyc
+|           llm_utils.cpython-311.pyc
+|           logging_utils.cpython-311.pyc
+|           queries.cpython-311.pyc
+|           utils.cpython-311.pyc
+|           vector_utils.cpython-311.pyc
+|           __init__.cpython-311.pyc
+|           
++---task_agent
+|   |   .gitignore
+|   |   agent.py
+|   |   automation.py
+|   |   config.py
+|   |   llm_handler.py
+|   |   main.py
+|   |   models.py
+|   |   prompts.py
+|   |   rag.py
+|   |   requirements.txt
+|   |   utils.py
+|   |   __init__.py
+|   |   
+|   +---automation_task
+|   |   |   email_service.py
+|   |   |   google_calendar_service.py
+|   |   |   reminder_service.py
+|   |   |   sns_service.todo
+|   |   |   test_email.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---common
+|   |           auth_manager.py
+|   |           config_manager.py
+|   |           db_helper.py
+|   |           email_manager.py
+|   |           http_client.py
+|   |           notification_manager.py
+|   |           utils.py
+|   |           __init__.py
+|   |           
+|   \---tests
+|           __init__.py
+|           
++---tinkerbell-landing
+|   |   .gitignore
+|   |   components.json
+|   |   next.config.mjs
+|   |   package-lock.json
+|   |   package.json
+|   |   pnpm-lock.yaml
+|   |   postcss.config.mjs
+|   |   tailwind.config.ts
+|   |   tsconfig.json
+|   |   
+|   +---app
+|   |   |   globals.css
+|   |   |   layout.tsx
+|   |   |   page.tsx
+|   |   |   
+|   |   +---chat
+|   |   |   |   loading.tsx
+|   |   |   |   page.tsx
+|   |   |   |   
+|   |   |   \---room
+|   |   |           laoding.tsx
+|   |   |           page.tsx
+|   |   |           
+|   |   +---login
+|   |   |       page.tsx
+|   |   |       
+|   |   +---mypage
+|   |   |       page.tsx
+|   |   |       
+|   |   \---signup
+|   |           page.tsx
+|   |           
+|   +---components
+|   |   |   theme-provider.tsx
+|   |   |   
+|   |   \---ui
+|   |           accordion.tsx
+|   |           alert-dialog.tsx
+|   |           alert.tsx
+|   |           aspect-ratio.tsx
+|   |           avatar.tsx
+|   |           badge.tsx
+|   |           breadcrumb.tsx
+|   |           button.tsx
+|   |           calendar.tsx
+|   |           card.tsx
+|   |           carousel.tsx
+|   |           chart.tsx
+|   |           checkbox.tsx
+|   |           collapsible.tsx
+|   |           command.tsx
+|   |           context-menu.tsx
+|   |           dialog.tsx
+|   |           drawer.tsx
+|   |           dropdown-menu.tsx
+|   |           form.tsx
+|   |           hover-card.tsx
+|   |           input-otp.tsx
+|   |           input.tsx
+|   |           label.tsx
+|   |           menubar.tsx
+|   |           navigation-menu.tsx
+|   |           pagination.tsx
+|   |           popover.tsx
+|   |           progress.tsx
+|   |           radio-group.tsx
+|   |           resizable.tsx
+|   |           scroll-area.tsx
+|   |           select.tsx
+|   |           separator.tsx
+|   |           sheet.tsx
+|   |           sidebar.tsx
+|   |           skeleton.tsx
+|   |           slider.tsx
+|   |           sonner.tsx
+|   |           switch.tsx
+|   |           table.tsx
+|   |           tabs.tsx
+|   |           textarea.tsx
+|   |           toast.tsx
+|   |           toaster.tsx
+|   |           toggle-group.tsx
+|   |           toggle.tsx
+|   |           tooltip.tsx
+|   |           use-mobile.tsx
+|   |           use-toast.ts
+|   |           
+|   +---hooks
+|   |       use-mobile.tsx
+|   |       use-toast.ts
+|   |       
+|   +---lib
+|   |       utils.ts
+|   |       
+|   +---public
+|   |       cat-beauty.png
+|   |       cat-box.png
+|   |       cat-helper.png
+|   |       cat-in-box.png
+|   |       cat-laptop.png
+|   |       cat-selfie.png
+|   |       cat.png
+|   |       placeholder-logo.png
+|   |       placeholder-logo.svg
+|   |       placeholder-user.jpg
+|   |       placeholder.jpg
+|   |       placeholder.svg
+|   |       reference.png
+|   |       tinkerbell-logo-final.png
+|   |       tinkerbell-logo-new.png
+|   |       tinkerbell-logo.png
+|   |       
+|   \---styles
+|           globals.css
+|           
++---unified_agent_system
+|   |   .env
+|   |   compress.ipynb
+|   |   docker-compose.yml
+|   |   Dockerfile
+|   |   faq.py
+|   |   feedback.py
+|   |   main.py
+|   |   pdf_upload.py
+|   |   qdrant.py
+|   |   README.md
+|   |   regular_subscription.py
+|   |   requirements.txt
+|   |   run_system.py
+|   |   start_all.sh
+|   |   stop_all.sh
+|   |   web_interface.html
+|   |   __init__.py
+|   |   
+|   +---core
+|   |   |   agent_wrappers.py
+|   |   |   config.py
+|   |   |   models.py
+|   |   |   router.py
+|   |   |   workflow.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           agent_wrappers.cpython-311.pyc
+|   |           config.cpython-311.pyc
+|   |           models.cpython-311.pyc
+|   |           router.cpython-311.pyc
+|   |           workflow.cpython-311.pyc
+|   |           __init__.cpython-311.pyc
+|   |           
+|   +---qdrant_storage
+|   |   |   .qdrant_fs_check
+|   |   |   raft_state.json
+|   |   |   
+|   |   +---aliases
+|   |   |       data.json
+|   |   |       
+|   |   \---collections
+|   +---vector_db
+|   |   |   chroma.sqlite3
+|   |   |   
+|   |   \---bf56166a-0c8a-419e-973f-391797161e2f
+|   |           data_level0.bin
+|   |           header.bin
+|   |           index_metadata.pickle
+|   |           length.bin
+|   |           link_lists.bin
+|   |           
+|   \---__pycache__
+|           feedback.cpython-311.pyc
+|           main.cpython-311.pyc
+|           pdf_upload.cpython-311.pyc
+|           regular_subscription.cpython-311.pyc
+|           subscription.cpython-311.pyc
+|           __init__.cpython-311.pyc
+|           
+\---__pycache__
+        main.cpython-311.pyc
+        
