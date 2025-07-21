@@ -17,6 +17,16 @@ import uvicorn
 import sys
 import os
 
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 배포 시엔 특정 도메인으로 제한
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -50,6 +60,10 @@ from core.config import (
     SERVER_HOST, SERVER_PORT, DEBUG_MODE, 
     LOG_LEVEL, LOG_FORMAT
 )
+
+from api.admin import router as admin_router
+app.include_router(admin_router, prefix="/admin")
+
 from shared_modules.database import get_session_context as unified_get_session_context
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
@@ -109,23 +123,6 @@ async def lifespan(app: FastAPI):
     logger.info("통합 에이전트 시스템 종료")
     await workflow.cleanup()
 
-
-# FastAPI 앱 생성
-app = FastAPI(
-    title="통합 에이전트 시스템",
-    description="5개의 전문 에이전트를 통합한 AI 상담 시스템",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# CORS 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://192.168.0.200:3001"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ===== 공통 대화 관리 API =====
 

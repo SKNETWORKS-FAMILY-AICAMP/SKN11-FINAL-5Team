@@ -6,7 +6,7 @@ from .models import *
 from .config import *
 from .router import QueryRouter
 from .agent_wrappers import AgentManager
-from .workflow import UnifiedAgentWorkflow, get_workflow
+from unified_agent_system.core.workflow import UnifiedAgentWorkflow, get_workflow
 
 __all__ = [
     # Models
