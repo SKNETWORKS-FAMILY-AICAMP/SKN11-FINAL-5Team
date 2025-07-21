@@ -121,7 +121,8 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_qdrant()  # Qdrant 초기화
+    init_qdrant()
+    process_initial_data()
     yield
 
 app = FastAPI(lifespan=lifespan)
