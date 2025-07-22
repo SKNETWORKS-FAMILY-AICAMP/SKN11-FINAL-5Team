@@ -221,18 +221,37 @@ class BusinessPlanningService:
         return merged_prompts
     
 
-    def build_agent_prompt(self, topics: List[str], user_input: str, persona: str, history: str) -> PromptTemplate:
+    def build_agent_prompt(
+        self, topics: List[str], user_input: str, persona: str, history: str,
+        current_stage: str, progress: float, missing: List[str]
+    ) -> PromptTemplate:
         """
-        에이전트 프롬프트 구성 - LLM이 자연스럽게 대화를 시작하도록 지침만 제공.
+        에이전트 프롬프트 구성 - LLM이 부족한 정보나 진행률을 참고하여 자연스럽게 후속 질문을 생성.
         """
         merged_prompts = self.load_prompt_texts(topics)
         role_descriptions = [PROMPT_META[topic]["role"] for topic in topics if topic in PROMPT_META]
 
-        # 페르소나별 시스템 컨텍스트
+        # 페르소나별 컨텍스트
         if persona == "common":
             system_context = f"당신은 1인 창업 전문 컨설턴트입니다. {', '.join(role_descriptions)}"
         else:
             system_context = f"당신은 {persona} 전문 1인 창업 컨설턴트입니다. {', '.join(role_descriptions)}"
+
+        # 진행률 및 부족 정보 안내
+        progress_hint = ""
+        if progress >= 0.8:
+            next_stage = self.multi_turn.get_next_stage(current_stage)
+            if next_stage:
+                progress_hint = f"\n현재 '{current_stage}' 단계를 거의 마쳤습니다. 이제 '{next_stage}' 단계로 넘어갈 준비가 되었는지 자연스럽게 제안하세요."
+            else:
+                progress_hint = "\n모든 단계가 완료되었습니다. 이제 최종 사업기획서를 작성할 수 있음을 자연스럽게 알리세요."
+
+        missing_hint = ""
+        if missing:
+            missing_hint = (
+                f"\n'{current_stage}' 단계에서 부족한 정보: {', '.join(missing)}. "
+                f"이 정보를 알려줄까요? 또는 사용자에게 흥미를 유도할 질문을 만들어보세요."
+            )
 
         template = f"""{system_context}
 
@@ -248,40 +267,20 @@ class BusinessPlanningService:
     사용자 질문: "{user_input}"
 
     [응답 지침]
-    - 지나치게 기계적이지 않게, 자연스럽게 대화를 시작하세요.
-    - 첫 문장은 요약·재언급으로 시작할 수 있으나 매번 똑같지 않게 변형하세요.
-    - 답변 후, 필요한 경우 다음 스텝이나 보충 질문을 자연스럽게 제안하세요.
+    - 지나치게 기계적이지 않게, 컨설턴트처럼 자연스럽게 대화를 이어가세요.
+    - 부족한 정보가 있다면 자연스럽게 그 내용을 **알려드릴까요?** 같은 톤으로 유도하세요.
+    - 진행률이 높으면 다음 단계로 넘어가자는 제안을 해보세요.
+    {progress_hint}
+    {missing_hint}
     """
 
         return PromptTemplate(
-            input_variables=["context", "current_stage", "next_stage"],
+            input_variables=["context"],
             template=template
         )
 
+
     
-    async def auto_workflow(self, conversation_id: int, current_stage: str, progress: float, missing: List[str]) -> Optional[str]:
-        """
-        후속 질문 또는 다음 스테이지 자동 생성
-        """
-        # 1. 현재 스테이지의 누락된 정보가 있으면 해당 질문을 유도
-        if missing:
-            return f"현재 '{current_stage}' 단계에서 '{missing[0]}' 정보가 부족합니다. 추가로 알려주실 수 있을까요?"
-
-        # 2. 진행률이 높으면 다음 단계로 자연스럽게 전환
-        if progress >= 0.8:
-            next_stage = self.multi_turn.get_next_stage(current_stage)
-            if next_stage:
-                first_req = (
-                    self.multi_turn.STAGE_REQUIREMENTS[next_stage][0]
-                    if self.multi_turn.STAGE_REQUIREMENTS[next_stage]
-                    else "다음 단계의 핵심 정보를 알려주세요."
-                )
-                return f"'{current_stage}' 단계를 거의 완료했습니다. 이제 '{next_stage}' 단계로 넘어가 볼까요? 우선 {first_req}부터 이야기해볼까요?"
-            else:
-                # 3. 모든 단계 완료 시 최종 기획서 생성 유도
-                return "모든 단계를 마무리했습니다. 최종 사업기획서를 작성해드릴까요?"
-        return None
-
         
     def format_history(self, messages: List[Any]) -> str:
         """대화 히스토리 포맷팅 - 공통 모듈 활용"""
@@ -359,123 +358,78 @@ class BusinessPlanningService:
 
     
     async def run_rag_query(
-        self, 
-        conversation_id: int, 
-        user_input: str, 
-        use_retriever: bool = True, 
-        persona: str = "common"
+        self, conversation_id: int, user_input: str, use_retriever: bool = True, persona: str = "common"
     ) -> Dict[str, Any]:
-        """
-        RAG 쿼리 실행 - 멀티턴 진행률 관리 및 단계별 안내 포함
-        """
         try:
             # 1. 대화 히스토리
             with get_session_context() as db:
                 messages = get_recent_messages(db, conversation_id, 10)
                 history = self.format_history(messages)
 
-            # 2. 토픽 분류 및 단계
+            # 2. 토픽 및 단계
             topics = await self.classify_topics(user_input)
-            is_single = await self.is_single_question(user_input)
             current_stage = self.multi_turn.determine_stage(topics)
 
-            # 3. 진행률
+            # 3. 진행률 및 누락 정보
             progress_info = await self.multi_turn.check_overall_progress(conversation_id, history)
             progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
 
-            # 자동 후속 질문 생성
-            auto_next = await self.auto_workflow(conversation_id, current_stage, progress, missing)
-
-            # final_business_plan 자동 생성 시점
-            if not auto_next and current_stage == "final_business_plan" and progress >= 1.0:
-                final_plan = await self._generate_final_business_plan(conversation_id, history)
-                return {
-                    "topics": ["final_business_plan"],
-                    "answer": final_plan,
-                    "sources": "대화 히스토리 기반",
-                    "retrieval_used": False,
-                    "metadata": {
-                        "type": "final_business_plan",
-                        "current_stage": current_stage,
-                        "progress": 1.0,
-                        "missing": [],
-                        "next_stage": None,
-                        "auto_next_question": None
-                    }
-                }
-
-            # 특수 토픽 처리
-            if topics and topics[0] in ["idea_recommendation", "idea_validation"]:
-                prompt = self.build_agent_prompt(topics, user_input, persona, history)
-                special_result = await self._handle_special_topic(
-                    topic=topics[0],
-                    persona=persona,
-                    user_input=user_input,
-                    prompt=prompt,
-                    current_stage=current_stage,
-                    progress=progress,
-                    missing=missing,
-                    next_stage=None,
-                    next_question=None
-                )
-                if auto_next:
-                    special_result["answer"] += f"\n\n{auto_next}"
-                    special_result["metadata"]["auto_next_question"] = auto_next
-                return special_result
-
             # 4. 프롬프트 생성
-            prompt = self.build_agent_prompt(topics, user_input, persona, history)
+            prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)
 
-            # 5. 벡터 검색 (RAG)
+            # 5. RAG or Fallback
             if use_retriever and topics:
-                topic_filter = {"$and": [{"category": "business_planning"}, {"topic": {"$in": topics}}]}
-                retriever = self.vector_manager.get_retriever(
-                    collection_name="global-documents", k=5, search_kwargs={"filter": topic_filter}
-                )
-                if retriever:
-                    llm = self.llm_manager.get_llm(load_balance=True)
-                    qa_chain = RetrievalQA.from_chain_type(
-                        llm=llm,
-                        chain_type="stuff",
-                        retriever=retriever,
-                        chain_type_kwargs={"prompt": prompt},
-                        return_source_documents=True
+                try:
+                    topic_filter = {"$and": [{"category": "business_planning"}, {"topic": {"$in": topics}}]}
+                    retriever = self.vector_manager.get_retriever(
+                        collection_name="global-documents",
+                        k=5,
+                        search_kwargs={"filter": topic_filter}
                     )
-                    result = qa_chain.invoke(user_input)
-                    sources = self._format_source_documents(result.get("source_documents", []))
 
-                    final_answer = result['result']
-                    if auto_next:
-                        final_answer += f"\n\n{auto_next}"
+                    if retriever:
+                        llm = self.llm_manager.get_llm(load_balance=True)
+                        qa_chain = RetrievalQA.from_chain_type(
+                            llm=llm,
+                            chain_type="stuff",
+                            retriever=retriever,
+                            chain_type_kwargs={"prompt": prompt},
+                            return_source_documents=True
+                        )
 
-                    return {
-                        "topics": topics,
-                        "answer": final_answer,
-                        "sources": sources,
-                        "retrieval_used": True,
-                        "metadata": {
-                            "type": topics[0] if topics else "general",
-                            "current_stage": current_stage,
-                            "progress": progress,
-                            "missing": missing,
-                            "next_stage": None,
-                            "auto_next_question": auto_next
+                        result = qa_chain.invoke(user_input) or {}
+                        sources = self._format_source_documents(result.get("source_documents", []))
+
+                        return {
+                            "topics": topics,
+                            "answer": result.get('result', "관련 답변을 찾을 수 없습니다."),
+                            "sources": sources,
+                            "retrieval_used": True,
+                            "metadata": {
+                                "type": topics[0] if topics else "general",
+                                "current_stage": current_stage,
+                                "progress": progress,
+                                "missing": missing,
+                                "next_stage": self.multi_turn.get_next_stage(current_stage),
+                                "next_question": None
+                            }
                         }
-                    }
+                    else:
+                        logger.warning("Retriever 생성 실패, 폴백으로 전환")
 
-            # 6. 폴백
-            fallback_result = await self._generate_fallback_response(
+                except Exception as e:
+                    logger.warning(f"RAG 검색 중 오류 발생. 폴백으로 전환: {e}")
+
+            # Fallback 경로
+            return await self._generate_fallback_response(
                 topics, user_input, prompt, current_stage, None, progress, missing
             )
-            if auto_next:
-                fallback_result["answer"] += f"\n\n{auto_next}"
-                fallback_result["metadata"]["auto_next_question"] = auto_next
-            return fallback_result
 
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
-            return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, ""), "아이디어 탐색", None, 0.0, [])
+            return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, "", "아이디어 탐색", 0.0, []))
+
 
     async def _generate_final_business_plan(self, conversation_id: int, history: str) -> str:
         """
