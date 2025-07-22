@@ -10,3 +10,6 @@ __pycache__
 *.log
 *package*
 node_modules
+
+automation_config.json
+buisness_planning_agent/tokens/*.json

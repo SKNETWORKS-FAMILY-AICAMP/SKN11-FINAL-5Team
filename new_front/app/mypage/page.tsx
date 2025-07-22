@@ -12,6 +12,19 @@ import Image from "next/image"
 import Link from "next/link"
 import { useState } from "react"
 import { User, LogOut, CreditCard, FileText, HelpCircle, MessageSquare } from "lucide-react"
+import { useReportList } from "@/hooks/useReport"
+import { useMemo } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useEffect } from "react"
+
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
+import html2pdf from "html2pdf.js" 
+
+import { useRef } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import rehypeRaw from "rehype-raw"
 
 export default function MyPage() {
   const [activeTab, setActiveTab] = useState("profile")
@@ -23,9 +36,195 @@ export default function MyPage() {
     phone: "010-1234-5678",
   })
 
+  const userId = 10// 실제론 로그인 정보에서 받아와야 함
+  const reportParams = useMemo(() => ({
+    user_id: userId,
+    report_type: undefined,
+    status: undefined,
+  }), [userId])
+
+  const showReports = activeTab === "report"
+  const { list: reports = [], loading: reportLoading, error: reportError } = useReportList(reportParams, showReports)
+
+    
+  const [selectedReport, setSelectedReport] = useState<any>(null)
+  const [htmlPreview, setHtmlPreview] = useState<string>("")
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [previewType, setPreviewType] = useState<"html" | "markdown">("html")
+  const previewRef = useRef<HTMLDivElement>(null)
+
+  // pdf 변환: html2pdf 사용 (마크다운)
+  const downloadMarkdownAsPdf = async () => {
+  if (!previewRef.current) {
+    alert("미리보기 영역이 없습니다!");
+    return; 
+  }
+  // 옵션 지정 (디자인 커스텀 & a4 종이 기준, 필요시 수정)
+  await html2pdf()
+    .set({
+      margin: [10, 10, 10, 10],
+      filename: "report.pdf",
+      html2canvas: { scale: 2, backgroundColor: "#fff" },
+      jsPDF: { unit: "pt", format: "a4", orientation: "portrait" }
+    })
+    .from(previewRef.current)
+    .save();
+};
+
+// PDF 다운로드용 임시 DOM 영역 생성
+const createPreviewDOM = (html: string) => {
+  const tempDiv = document.createElement("div")
+  tempDiv.innerHTML = html
+  tempDiv.style.position = "absolute"
+  tempDiv.style.left = "-9999px"
+  tempDiv.id = "preview-temp"
+  document.body.appendChild(tempDiv)
+  return tempDiv
+}
+
+const removePreviewDOM = () => {
+  const existing = document.getElementById("preview-temp")
+  if (existing) document.body.removeChild(existing)
+}
+
+const downloadHtmlAsPdf = async () => {
+  removePreviewDOM() // 혹시 남아있던 이전 DOM 제거
+  const tempDOM = createPreviewDOM(htmlPreview)
+
+  const textareas = tempDOM.querySelectorAll("textarea")
+  const formData: Record<string, string> = {}
+
+  textareas.forEach((textarea) => {
+    const value = textarea.value
+    const wrapper = textarea.closest(".textarea-wrapper")
+    const preview = wrapper?.querySelector(".preview-textarea") as HTMLDivElement
+    if (preview) preview.textContent = value
+    textarea.style.display = "none"
+    preview.style.display = "block"
+    formData[textarea.name] = value
+  })
+
+  const canvas = await html2canvas(tempDOM, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: null,
+  })
+
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "px",
+    format: [canvas.width, canvas.height],
+  })
+  const imgData = canvas.toDataURL("image/png")
+  pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height)
+  pdf.save("lean-canvas.pdf")
+
+  removePreviewDOM()
+}
+
+  
+  const openPreview = async (report_id: number) => {
+    try {
+      const res = await fetch(`http://localhost:8001/reports/${report_id}`)
+      const result = await res.json()
+
+      console.log("리포트 데이터:", result)
+
+      if (!res.ok || !result.success) {
+        alert("리포트를 불러오지 못했습니다.")
+        return
+      }
+
+      const report = result.data
+      const report_type = report.report_type || "default"
+      const contentJson = report.content_data || {}
+      const title = report.title
+
+      console.log("리포트 내용:", contentJson)
+
+      // 마크다운 리포트 처리
+      if (contentJson.markdown) {
+        setHtmlPreview(contentJson.markdown)
+        setPreviewType("markdown")
+        setSelectedReport(report)
+        setIsPreviewOpen(true)
+        console.log("마크다운 처리")
+        return
+      }
+
+      // HTML 린 캔버스 처리
+      if (report_type === "린캔버스") {
+        const templateRes = await fetch(`http://localhost:8001/lean_canvas/${encodeURIComponent(title)}`)
+        let templateHtml = await templateRes.text()
+        
+        console.log("템플릿 HTML:", templateHtml)
+        if (!templateHtml) {
+          console.warn("⚠️ 템플릿 HTML이 비어있습니다.")
+          templateHtml = "<p>템플릿을 불러올 수 없습니다.</p>"
+        }
+
+        // 다운로드 섹션 제거
+        templateHtml = templateHtml.replace(
+          /<div class="download-section[^"]*">[\s\S]*?<\/div>/g,
+          ""
+        )
+
+        try {
+          const contentObj = typeof contentJson === "string" ? JSON.parse(contentJson) : contentJson
+
+          Object.entries(contentObj).forEach(([key, value]) => {
+            const safeValue = String(value).trim()
+
+            // <textarea name="key"> 치환
+            templateHtml = templateHtml.replace(
+              new RegExp(`(<textarea[^>]*name="${key}"[^>]*>)[\\s\\S]*?(</textarea>)`, "g"),
+              `$1${safeValue}$2`
+            )
+
+            // <div class="preview-textarea"> 치환
+            templateHtml = templateHtml.replace(
+              new RegExp(`(<div[^>]*class="preview-textarea"[^>]*>)[\\s\\S]*?(</div>)`, "g"),
+              `$1${safeValue}$2`
+            )
+          })
+
+          // body 안만 추출
+          const match = templateHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+          const bodyContent = match ? match[1] : templateHtml;
+
+          // style 태그 추출
+          const styleMatch = templateHtml.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+          const styleContent = styleMatch ? styleMatch[1] : "";
+
+          //setHtmlPreview(templateHtml || "<p>내용 없음</p>")
+          // 미리보기용 HTML 조각 생성
+          setHtmlPreview(`
+            <style>
+              ${styleContent}
+            </style>
+            ${bodyContent}
+          `);
+          
+          setPreviewType("html")
+          setSelectedReport(report)
+          setIsPreviewOpen(true)
+          console.log("HTML 처리 완료")
+
+        } catch (err) {
+          console.warn("⚠️ content JSON 파싱 실패", err)
+        }
+      } // <-- HTML 린 캔버스 if 닫기
+    } catch (e) {  // try catch 닫기
+      alert("오류 발생: " + e)
+    } 
+  } 
+  
+
+
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
     { id: "subscription", label: "구독 관리", icon: CreditCard },
+    { id: "report", label: "리포트 조회", icon: FileText },
     { id: "support", label: "고객 지원", icon: HelpCircle },
   ]
 
@@ -264,6 +463,138 @@ export default function MyPage() {
                 </CardContent>
               </Card>
             )}
+
+            {activeTab === "report" && (
+            <>
+              <Card className="border-0 shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <FileText className="h-5 w-5" />
+                    <span>리포트 조회</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="text-sm text-gray-600">
+                    생성된 리포트 목록을 확인하고 다운로드할 수 있어요.
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    {/* 여기에 API로 불러온 리포트 목록 map 렌더링 */}
+                    {reportLoading && <p className="text-sm text-gray-500">불러오는 중...</p>}
+                    {reportError && <p className="text-sm text-red-500">{reportError}</p>}
+                    {!reportLoading && reports.length === 0 && (
+                      <p className="text-sm text-gray-500">생성된 리포트가 없습니다.</p>
+                    )}
+
+                    {reports.map((report) => (
+                      <div
+                        key={report.report_id}
+                        className="flex justify-between items-center bg-white p-4 border border-gray-100 rounded-lg shadow-sm"
+                      >
+                        <div>
+                          <p className="font-semibold text-gray-800">{report.title}</p>
+                          <p className="text-sm text-gray-500">생성일: {new Date(report.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          {report.file_url ? (
+                            <a
+                              href={`http://localhost:8001${report.file_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                            </a>
+                          ) : (
+                            <span className="text-sm text-yellow-600">생성 중...</span>
+                          )}
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openPreview(report.report_id)}
+                          >
+                            보기
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+                <DialogContent className="max-w-[1400px] w-full h-[80vh] overflow-auto">
+                  <DialogHeader>
+                    <DialogTitle>{selectedReport?.title || "리포트 보기"}</DialogTitle>
+                  </DialogHeader>
+                  
+                  <div className="prose max-w-none overflow-y-auto" style={{ maxHeight: "70vh" }}>
+                    <div ref={previewRef} className="prose prose-lg text-gray-800">
+                      {previewType === "markdown" ? (
+                        <>
+                          <div className="markdown-content">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeRaw]}
+                              components={{
+                                p: ({ node, ...props }) => <p className="text-lg leading-relaxed mb-3" {...props} />,
+                                h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mb-4" {...props} />,
+                                h2: ({ node, ...props }) => <h2 className="text-xl font-semibold mb-3" {...props} />,
+                              }}
+                            >
+                              {htmlPreview}
+                            </ReactMarkdown>
+                          </div>
+
+                          {/* 마크다운 전용 스타일 */}
+                          <style jsx global>{`
+                            .markdown-content table,
+                            .markdown-content th,
+                            .markdown-content td {
+                              border: 1.5px solid #7b7b7bff !important;
+                            }
+                            .markdown-content table {
+                              border-collapse: collapse !important;
+                              width: 100%;
+                              margin: 1em 0 2em 0;
+                              background: white;
+                            }
+                            .markdown-content th {
+                              background-color: #f8f8f8;
+                              font-weight: bold;
+                            }
+                            .markdown-content th,
+                            .markdown-content td {
+                              padding: 8px;
+                              text-align: left;
+                            }
+                          `}</style>
+                        </>
+                      ) : (
+                        <div
+                          className="prose max-w-none"
+                          dangerouslySetInnerHTML={{ __html: htmlPreview }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      variant="default"
+                      className="mt-4 bg-green-600 hover:bg-green-700"
+                      onClick={
+                        previewType === "markdown"
+                          ? downloadMarkdownAsPdf
+                          : downloadHtmlAsPdf
+                      }
+                    >
+                      PDF 다운로드
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+            </>
+            )} 
 
             {activeTab === "support" && (
               <Card className="border-0 shadow-lg bg-white">
