@@ -1,5 +1,6 @@
 "use client"
 
+import { API_BASE_URL } from "@/config/constants"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -8,26 +9,356 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import Image from "next/image"
 import Link from "next/link"
-import { useState } from "react"
-import { User, LogOut, CreditCard, FileText, HelpCircle, MessageSquare } from "lucide-react"
+import { useState, useEffect } from "react"
+import { 
+  User, 
+  LogOut, 
+  CreditCard, 
+  FileText, 
+  HelpCircle, 
+  MessageSquare,
+  Eye,
+  Download,
+  Copy,
+  Trash2,
+  Search,
+  RefreshCw,
+  Edit,
+  Save,
+  X,
+  ChevronDown
+} from "lucide-react"
+
+interface Template {
+  template_id: number
+  user_id: number
+  title: string
+  content: string
+  template_type: string
+  channel_type: string
+  content_type?: string
+  created_at: string
+  is_custom: boolean
+  conversation_id?: number
+  description?: string
+}
 
 export default function MyPage() {
   const [activeTab, setActiveTab] = useState("profile")
   const [profileData, setProfileData] = useState({
-    name: "김창업",
-    email: "startup@example.com",
-    businessField: "ecommerce",
-    businessYears: "1-3years",
-    phone: "010-1234-5678",
+    name: "",
+    email: "",
+    businessField: "",
+    businessYears: "",
   })
+
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [filteredTemplates, setFilteredTemplates] = useState<Template[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState<number | null>(null)
+  const [editData, setEditData] = useState({ title: "", content: "" })
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
+
+  // 현재 로그인된 사용자 ID (실제로는 인증 컨텍스트에서 가져와야 함)
+  const [userId, setUserId] = useState<number | null>(null)
+
 
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
+    { id: "templates", label: "내 템플릿", icon: FileText },
     { id: "subscription", label: "구독 관리", icon: CreditCard },
     { id: "support", label: "고객 지원", icon: HelpCircle },
   ]
+
+  // 템플릿 불러오기
+  const fetchTemplates = async () => {
+    try {
+      setIsLoading(true)
+
+      if (!userId) throw new Error("userId 없음")
+
+      const response = await fetch(`${API_BASE_URL}/templates?user_id=${userId}`)  // ✅ 여기 수정
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("응답이 JSON이 아닙니다:", await response.text())
+        setTemplates([])
+        return
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        setTemplates(data.data?.templates || [])
+        console.log(`✅ ${data.data?.count || 0}개 템플릿 로드 완료`)
+      } else {
+        console.error('템플릿 조회 실패:', data.error)
+        setTemplates([])
+      }
+    } catch (error) {
+      console.error('템플릿 조회 오류:', error)
+      setTemplates([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+
+  // 템플릿 수정 시작
+  const startEditTemplate = (template: Template) => {
+    setEditingTemplate(template.template_id)
+    setEditData({
+      title: template.title,
+      content: template.content
+    })
+  }
+
+  // 템플릿 수정 취소
+  const cancelEditTemplate = () => {
+    setEditingTemplate(null)
+    setEditData({ title: "", content: "" })
+  }
+
+  // 템플릿 수정 저장
+ 
+  const saveTemplateEdit = async (templateId: number) => {
+    try {
+      const targetTemplate = templates.find(t => t.template_id === templateId)
+      if (!targetTemplate) throw new Error("템플릿을 찾을 수 없습니다.")
+
+      const isPublic = targetTemplate.user_id === 3
+
+      let response
+
+      if (isPublic) {
+        // ✅ 먼저 body 객체 정의
+        const body: Record<string, any> = {
+          user_id: userId,
+          title: editData.title,
+          content: editData.content,
+          template_type: targetTemplate.template_type,
+          channel_type: targetTemplate.channel_type,
+          content_type: targetTemplate.content_type || "text",
+          is_custom: true
+        }
+
+        // ✅ optional 필드 안전하게 추가
+        if (targetTemplate.conversation_id !== undefined) {
+          body.conversation_id = targetTemplate.conversation_id
+        }
+
+        if (targetTemplate.description !== undefined) {
+          body.description = targetTemplate.description
+        }
+
+        // ✅ fetch는 나중에
+        response = await fetch(`${API_BASE_URL}/templates`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(body)
+        })
+      } else {
+        // 일반 템플릿 수정
+        response = await fetch(`${API_BASE_URL}/templates/${templateId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(editData)
+        })
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        alert(isPublic ? "복사하여 저장되었습니다." : "템플릿이 수정되었습니다.")
+        setEditingTemplate(null)
+        setEditData({ title: "", content: "" })
+        fetchTemplates()
+      } else {
+        alert(data.error || "저장에 실패했습니다.")
+      }
+    } catch (error) {
+      console.error("템플릿 저장 실패:", error)
+      alert("저장에 실패했습니다.")
+    }
+  }
+
+
+
+  // 템플릿 삭제
+  const handleTemplateDelete = async (templateId: number) => {
+    if (!confirm('정말 삭제하시겠습니까?')) return
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/templates/${templateId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setTemplates(templates.filter(t => t.template_id !== templateId))
+        alert('템플릿이 삭제되었습니다.')
+      } else {
+        alert(data.error || '삭제에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('삭제 실패:', error)
+      alert('삭제에 실패했습니다.')
+    }
+  }
+
+  // 템플릿 미리보기
+  const handleTemplatePreview = (template: Template) => {
+    setSelectedTemplate(template)
+    setIsPreviewOpen(true)
+  }
+
+  // 템플릿 다운로드
+  const handleTemplateDownload = (template: Template) => {
+    const element = document.createElement('a')
+    const file = new Blob([template.content], { 
+      type: template.content_type === 'html' ? 'text/html' : 'text/plain' 
+    })
+    element.href = URL.createObjectURL(file)
+    element.download = `${template.title}.${template.content_type === 'html' ? 'html' : 'txt'}`
+    document.body.appendChild(element)
+    element.click()
+    document.body.removeChild(element)
+  }
+
+  // 템플릿 복사
+  const handleTemplateCopy = async (template: Template) => {
+    try {
+      await navigator.clipboard.writeText(template.content)
+      alert('템플릿이 클립보드에 복사되었습니다!')
+    } catch (error) {
+      console.error('복사 실패:', error)
+      alert('복사에 실패했습니다.')
+    }
+  }
+
+  // 로그아웃 처리
+  const handleLogout = () => {
+    // 로그아웃 로직 (localStorage 클리어, 리다이렉트 등)
+    localStorage.clear()
+    window.location.href = "/login"
+  }
+
+  // 템플릿 타입 라벨 변환
+  const getTemplateTypeLabel = (type: string) => {
+    const typeMap: Record<string, string> = {
+      'business_plan': '사업계획서',
+      'marketing': '마케팅',
+      'proposal': '제안서',
+      'contract': '계약서',
+      'presentation': '프레젠테이션',  
+      'other': '기타'
+    }
+    return typeMap[type] || type
+  }
+
+  // 템플릿 타입별 배지 색상
+  const getTemplateTypeBadgeColor = (type: string) => {
+    const colorMap: Record<string, string> = {
+      'business_plan': 'bg-blue-100 text-blue-800',
+      'marketing': 'bg-green-100 text-green-800',
+      'proposal': 'bg-orange-100 text-orange-800',
+      'contract': 'bg-red-100 text-red-800',
+      'presentation': 'bg-indigo-100 text-indigo-800',
+      'other': 'bg-gray-100 text-gray-800'
+    }
+    return colorMap[type] || 'bg-gray-100 text-gray-800'
+  }
+
+  // 템플릿 탭 활성화 시 데이터 로드
+  useEffect(() => {
+    if (activeTab === "templates") {
+      fetchTemplates()
+    }
+  }, [activeTab])
+
+  // 템플릿 검색
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setFilteredTemplates(templates)
+    } else {
+      const filtered = templates.filter(template => 
+        template.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        template.content.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      setFilteredTemplates(filtered)
+    }
+  }, [templates, searchQuery])
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user")
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      setProfileData((prev) => ({
+        ...prev,
+        name: user.username || prev.name,
+        email: user.email || prev.email,
+      }))
+      setUserId(user.user_id)
+    } else {
+      alert("로그인 정보가 없습니다. 로그인 후 이용해주세요.")
+      window.location.href = "/login"
+    }
+  }, [])
+
+  const handleSaveProfile = async () => {
+    const experienceMap: Record<string, number> = {
+      preparing: 0,
+      experirence: 1,
+    };
+
+    const payload = {
+      nickname: profileData.name,
+      business_type: profileData.businessField,
+      experience: experienceMap[profileData.businessYears as keyof typeof experienceMap] ?? 0,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/${userId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert("✅ 저장 완료");
+      } else {
+        alert(data.error || "❌ 저장 실패");
+      }
+    } catch (e) {
+      console.error("저장 중 오류:", e);
+      alert("❌ 네트워크 오류 발생");
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
@@ -35,21 +366,42 @@ export default function MyPage() {
       <nav className="px-6 py-4 bg-white/90 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <Link href="/" className="flex items-center space-x-3">
-            <Image
-              src="/placeholder.svg?height=32&width=32"
-              alt="TinkerBell Logo"
-              width={32}
-              height={32}
-              className="rounded-full"
-            />
+            <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+              <span className="text-white font-bold text-sm">T</span>
+            </div>
             <span className="text-xl font-bold text-gray-900">TinkerBell</span>
           </Link>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">안녕하세요, {profileData.name}님</span>
-            <Avatar className="h-8 w-8">
-              <AvatarImage src="/placeholder.svg?height=32&width=32" />
-              <AvatarFallback className="bg-green-100 text-green-600">{profileData.name.charAt(0)}</AvatarFallback>
-            </Avatar>
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center space-x-1"
+              >
+                <Avatar className="h-8 w-8 cursor-pointer hover:ring-2 hover:ring-green-300">
+                  <AvatarFallback className="bg-green-100 text-green-600">{profileData.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <ChevronDown className="h-4 w-4 text-gray-500" />
+              </button>
+              
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg z-50">
+                  <div className="py-1">
+                    <Link href="/chat" className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                      <MessageSquare className="h-4 w-4" />
+                      <span>상담으로 돌아가기</span>
+                    </Link>
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>로그아웃</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </nav>
@@ -62,7 +414,6 @@ export default function MyPage() {
               <CardHeader className="pb-4">
                 <div className="flex items-center space-x-3">
                   <Avatar className="h-12 w-12">
-                    <AvatarImage src="/placeholder.svg?height=48&width=48" />
                     <AvatarFallback className="bg-green-100 text-green-600 text-lg">
                       {profileData.name.charAt(0)}
                     </AvatarFallback>
@@ -87,11 +438,6 @@ export default function MyPage() {
                       <span className="text-sm font-medium">{item.label}</span>
                     </button>
                   ))}
-                  <Separator className="my-4" />
-                  <button className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left text-red-600 hover:bg-red-50 transition-colors">
-                    <LogOut className="h-4 w-4" />
-                    <span className="text-sm font-medium">로그아웃</span>
-                  </button>
                 </nav>
               </CardContent>
             </Card>
@@ -108,20 +454,6 @@ export default function MyPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="flex items-center space-x-6">
-                    <Avatar className="h-20 w-20">
-                      <AvatarImage src="/placeholder.svg?height=80&width=80" />
-                      <AvatarFallback className="bg-green-100 text-green-600 text-2xl">
-                        {profileData.name.charAt(0)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <Button variant="outline" size="sm">
-                        프로필 사진 변경
-                      </Button>
-                      <p className="text-xs text-gray-500 mt-1">JPG, PNG 파일만 업로드 가능합니다</p>
-                    </div>
-                  </div>
 
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -139,15 +471,6 @@ export default function MyPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="phone">전화번호</Label>
-                      <Input
-                        id="phone"
-                        value={profileData.phone}
-                        onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
                       <Label>사업 분야</Label>
                       <Select
                         value={profileData.businessField}
@@ -158,10 +481,9 @@ export default function MyPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="ecommerce">온라인 쇼핑몰</SelectItem>
-                          <SelectItem value="cafe">카페/음식점</SelectItem>
+                          <SelectItem value="programmer">개발자</SelectItem>
                           <SelectItem value="beauty">미용/뷰티</SelectItem>
-                          <SelectItem value="consulting">컨설팅</SelectItem>
-                          <SelectItem value="education">교육</SelectItem>
+                          <SelectItem value="creator">크리에이터</SelectItem>
                           <SelectItem value="other">기타</SelectItem>
                         </SelectContent>
                       </Select>
@@ -177,11 +499,8 @@ export default function MyPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="preparing">창업 준비중</SelectItem>
-                          <SelectItem value="1year">1년 미만</SelectItem>
-                          <SelectItem value="1-3years">1-3년</SelectItem>
-                          <SelectItem value="3-5years">3-5년</SelectItem>
-                          <SelectItem value="5years+">5년 이상</SelectItem>
+                          <SelectItem value="preparing">창업 경험 없음</SelectItem>
+                          <SelectItem value="experience">창업 경험 있음</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -189,8 +508,200 @@ export default function MyPage() {
 
                   <div className="flex justify-end space-x-3">
                     <Button variant="outline">취소</Button>
-                    <Button className="bg-green-600 hover:bg-green-700">저장하기</Button>
+                    <Button className="bg-green-600 hover:bg-green-700" onClick={handleSaveProfile}>저장하기</Button>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === "templates" && (
+              <Card className="border-0 shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <FileText className="h-5 w-5" />
+                      <span>내 템플릿</span>
+                      <Badge variant="secondary">{filteredTemplates.length}</Badge>
+                    </div>
+                    <Button 
+                      onClick={fetchTemplates} 
+                      variant="outline" 
+                      size="sm"
+                      disabled={isLoading}
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                      새로고침
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {/* 검색 */}
+                  <div className="mb-6">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="템플릿 제목이나 내용으로 검색..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 로딩 표시 */}
+                  {isLoading ? (
+                    <div className="text-center py-12">
+                      <RefreshCw className="h-8 w-8 text-gray-400 mx-auto mb-4 animate-spin" />
+                      <p className="text-gray-500">템플릿을 불러오는 중...</p>
+                    </div>
+                  ) : filteredTemplates.length === 0 ? (
+                    <div className="text-center py-12">
+                      <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        {searchQuery ? "검색 결과가 없습니다" : "템플릿이 없습니다"}
+                      </h3>
+                      <p className="text-gray-500 mb-4">
+                        {searchQuery 
+                          ? "다른 키워드로 검색해보세요."
+                          : "AI 상담을 통해 템플릿을 생성해보세요!"}
+                      </p>
+                      {!searchQuery && (
+                        <Link href="/chat">
+                          <Button className="bg-green-600 hover:bg-green-700">
+                            <MessageSquare className="h-4 w-4 mr-2" />
+                            AI 상담 받기
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {filteredTemplates.map((template) => (
+                        <Card key={template.template_id} className="border border-gray-200 hover:border-green-300 transition-colors">
+                          <CardContent className="p-6">
+                            {editingTemplate === template.template_id ? (
+                              // 편집 모드
+                              <div className="space-y-4">
+                                <div>
+                                  <Label className="text-sm font-medium mb-2 block">템플릿 제목</Label>
+                                  <Input
+                                    value={editData.title}
+                                    onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                                    placeholder="템플릿 제목을 입력하세요"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-sm font-medium mb-2 block">템플릿 내용</Label>
+                                  <textarea
+                                    className="w-full p-3 border border-gray-300 rounded-md min-h-[300px] resize-y focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                    value={editData.content}
+                                    onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                                    placeholder="템플릿 내용을 입력하세요..."
+                                  />
+                                </div>
+                                <div className="flex justify-end space-x-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={cancelEditTemplate}
+                                  >
+                                    <X className="h-4 w-4 mr-1" />
+                                    취소
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => saveTemplateEdit(template.template_id)}
+                                    className="bg-green-600 hover:bg-green-700"
+                                  >
+                                    <Save className="h-4 w-4 mr-1" />
+                                    저장
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              // 일반 보기 모드
+                              <>
+                                <div className="flex justify-between items-start mb-4">
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-gray-900 text-lg mb-2">{template.title}</h4>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Badge className={`text-xs ${getTemplateTypeBadgeColor(template.template_type)}`}>
+                                        {getTemplateTypeLabel(template.template_type)}
+                                      </Badge>
+                                      {template.is_custom && (
+                                        <Badge variant="outline" className="text-xs">
+                                          커스텀
+                                        </Badge>
+                                      )}
+                                      <Badge variant="secondary" className="text-xs">
+                                        {template.channel_type}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                  <div className="flex space-x-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => startEditTemplate(template)}
+                                      className="text-blue-600 hover:text-blue-700"
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleTemplatePreview(template)}
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleTemplateDownload(template)}
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleTemplateCopy(template)}
+                                    >
+                                      <Copy className="h-4 w-4" />
+                                    </Button>
+                                
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleTemplateDelete(template.template_id)}
+                                        className="text-red-600 hover:text-red-700"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+          
+                                  </div>
+                                </div>
+
+                                <div className="bg-gray-50 p-4 rounded-md mb-4">
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                    {template.content.replace(/<[^>]*>/g, '').substring(0, 300)}
+                                    {template.content.length > 300 && '...'}
+                                  </p>
+                                </div>
+
+                                <div className="text-xs text-gray-500">
+                                  생성일: {new Date(template.created_at).toLocaleDateString('ko-KR', {
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -232,24 +743,6 @@ export default function MyPage() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <ul className="space-y-2 text-sm text-gray-600">
-                          <li>• 무제한 AI 상담</li>
-                          <li>• 고급 분석 도구</li>
-                          <li>• 우선 고객 지원</li>
-                          <li>• 자동화 기능</li>
-                        </ul>
-                        <Button className="w-full bg-green-600 hover:bg-green-700">업그레이드</Button>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-lg">비즈니스 플랜</CardTitle>
-                        <div className="text-2xl font-bold text-gray-900">
-                          ₩59,000<span className="text-sm font-normal text-gray-500">/월</span>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <ul className="space-y-2 text-sm text-gray-600">
                           <li>• 프로 플랜 모든 기능</li>
                           <li>• 전담 컨설턴트</li>
                           <li>• 맞춤형 솔루션</li>
@@ -280,11 +773,14 @@ export default function MyPage() {
                         <FileText className="h-8 w-8 text-green-600 mx-auto mb-3" />
                         <h4 className="font-medium mb-2">도움말 센터</h4>
                         <p className="text-sm text-gray-500 mb-4">자주 묻는 질문과 가이드를 확인하세요</p>
-                        <Button variant="outline" size="sm">
-                          바로가기
-                        </Button>
+                        <Link href="/faq">
+                          <Button variant="outline" size="sm" className="w-full">
+                            바로가기
+                          </Button>
+                        </Link>
                       </CardContent>
                     </Card>
+
 
                     <Card className="border border-gray-200">
                       <CardContent className="p-6 text-center">
@@ -312,6 +808,51 @@ export default function MyPage() {
           </div>
         </div>
       </div>
+
+      {/* 템플릿 미리보기 다이얼로그 */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>{selectedTemplate?.title}</span>
+              <div className="flex space-x-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectedTemplate && handleTemplateDownload(selectedTemplate)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  다운로드
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectedTemplate && handleTemplateCopy(selectedTemplate)}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  복사
+                </Button>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {selectedTemplate && (
+              <div 
+                className="p-4 border rounded-lg bg-white prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: selectedTemplate.content }}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 프로필 메뉴 외부 클릭 감지 */}
+      {showProfileMenu && (
+        <div 
+          className="fixed inset-0 z-30 pointer-events-none" 
+          onClick={() => setShowProfileMenu(false)}
+        />
+      )}
     </div>
   )
 }
