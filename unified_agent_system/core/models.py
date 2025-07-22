@@ -92,7 +92,7 @@ class AgentConfig(BaseModel):
     name: str
     description: str
     endpoint: str
-    timeout: int = Field(default=30, description="타임아웃 (초)")
+    timeout: int = Field(default=120, description="타임아웃 (초)")
     enabled: bool = Field(default=True, description="활성화 여부")
     keywords: List[str] = Field(default_factory=list, description="관련 키워드")
     confidence_threshold: float = Field(default=0.7, description="신뢰도 임계값")
