@@ -103,16 +103,7 @@ async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행되는 라이프사이클 함수"""
     # 시작 시
     logger.info("통합 에이전트 시스템 시작")
-    
-    # Qdrant 초기화 추가
-    try:
-        from qdrant import init_qdrant, process_initial_data
-        init_qdrant()
-        logger.info("Qdrant 컬렉션 초기화 완료")
-        process_initial_data()
-        logger.info("초기 데이터 인덱싱 완료")
-    except Exception as e:
-        logger.error(f"Qdrant 초기화 중 오류 발생: {e}")
+
     
     workflow = get_workflow()
     

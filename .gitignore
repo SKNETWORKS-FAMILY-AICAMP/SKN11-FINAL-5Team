@@ -11,3 +11,5 @@ __pycache__
 *package*
 node_modules
 *.pem
+snapshot
+qdrant_data
