@@ -621,7 +621,12 @@ export default function ChatRoomPage() {
         throw new Error(result.error || "응답을 받지 못했습니다")
       }
       //progress가 0.8이상이 아니면 마크다운이 안오니까 고쳐야함 // 버튼도 다시 사라지게
-      if (result.data.metadata?.type === "final_business_plan") {
+      const isFinalBusinessPlan=result.data.metadata?.type === "final_business_plan" ||
+          (result.data.answer.includes("## 1. 창업 아이디어 요약") &&
+          result.data.answer.includes("## 2. 시장 조사 요약") &&
+          result.data.answer.includes("## 3. 비즈니스 모델"));
+
+        if (isFinalBusinessPlan){
         console.log("사업기획서 도착")
         setDraftContent(result.data.answer)
         console.log("result.data.answer: ",result.data.answer)

@@ -128,7 +128,6 @@ class BusinessPlanningService:
         - 관련성이 있으면 무조건 multi, 아니면 single/multi 판단
         """
         try:
-            # LLM 기반 판별
             judge_prompt = f"""
             다음 질문이 아래 단계 주제와 관련이 있으면 무조건 multi를 출력하세요.
             - 단계 주제: "아이디어 탐색 및 추천", "시장 검증", "비즈니스 모델링", "실행 계획 수립", "성장 전략 & 리스크 관리"
@@ -146,14 +145,12 @@ class BusinessPlanningService:
 
             result = await self.llm_manager.generate_response(messages=messages, provider="openai")
             result_clean = result.strip().lower()
-            logger.info(f"[is_single_question] LLM 응답: {result_clean}")
 
-            if result_clean.startswith("single "):
-                return True
-            return False  # multi가 포함되거나 예외가 발생하면 multi 처리
+            return "single" in result_clean and "multi" not in result_clean
         except Exception as e:
             logger.error(f"[is_single_question] 판별 실패: {e}")
             return False  # 에러 시 멀티턴 진행
+
 
     # 11. final_business_plan(사업 기획서 작성)
     # 4. market_research(시장/경쟁 분석, 시장규모)
@@ -341,113 +338,62 @@ class BusinessPlanningService:
         use_retriever: bool = True, 
         persona: str = "common"
     ) -> Dict[str, Any]:
-        """RAG 쿼리 실행 - 공통 모듈들 최대 활용"""
+        """
+        RAG 쿼리 실행 - 멀티턴 진행률 관리 및 단계별 안내 포함
+        """
         try:
-            # 3. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
+            # 1. 대화 히스토리
             with get_session_context() as db:
                 messages = get_recent_messages(db, conversation_id, 10)
                 history = self.format_history(messages)
-                logger.info(f"history:{history}")
 
-                # 최근 1개 agent 메세지
-                last_agent_msg = next(
-                    (m for m in reversed(messages) if m.sender_type == "agent"), None
-                )
-            
-            if last_agent_msg and last_agent_msg.content.strip().endswith("준비해드릴까요?"):
-                prev_agent_msg = next(
-                    (m for m in reversed(messages[:-1]) if m.sender_type == "agent"), None
-                )
-
-                missing_str = ""
-                if prev_agent_msg:
-                    match = re.search(r"아직\s+(.+?)에 대한 정보가 부족합니다", prev_agent_msg.content)
-                    if match:
-                        missing_str = match.group(1)
-                        user_input = f"({missing_str}) " + user_input
-                        logger.info(f"user_input 보강: {user_input}")
-                    else:
-                        logger.info("prev_agent_msg에서 missing_str을 찾지 못함")
-
-            # 1. 토픽 분류
+            # 2. 토픽 분류 및 단계
             topics = await self.classify_topics(user_input)
-            
-            # 2. 현재 단계/다음 단계 결정
             is_single = await self.is_single_question(user_input)
             current_stage = self.multi_turn.determine_stage(topics)
-            
-            # **에러 방지를 위해 초기화**
-            next_stage: Optional[str] = None
-            next_question: Optional[str] = None
-            
 
-            # 4. 단계별 진행률 체크 (멀티턴)
-            progress_info = await self.multi_turn.check_overall_progress(history)
+            # 3. 진행률
+            progress_info = await self.multi_turn.check_overall_progress(conversation_id, history)
             progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
-            
-            logger.info(f"[멀티턴] 현재 단계: {current_stage}, 진행률: {progress}, 누락 항목: {missing}")
 
-            # 5. 다음 단계 판단
+            next_stage: Optional[str] = None
+            next_question: Optional[str] = None
+
             if progress >= 0.8 and not is_single:
                 next_stage = self.multi_turn.get_next_stage(current_stage)
-                next_question = f"{current_stage} 정보를 수집 완료했습니다. 사업기획서 완성을 위해 ({next_stage}) 정보도 모아볼까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
+                next_question = (
+                    f"{current_stage} 정보를 수집 완료했습니다. "
+                    f"사업기획서 완성을 위해 ({next_stage}) 단계로 진행할까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
+                )
             elif missing:
-                # 진행률이 낮으면 누락 정보에 대해 되묻기
-                next_stage = current_stage
-                missing_str = " / ".join(missing[:2]) 
-                next_question = f"아직 '{missing_str}'에 대한 정보가 부족합니다. 해당 정보를 준비해드릴까요?"
-
-                
-            # 6. 프롬프트 생성
+                missing_str = " / ".join(missing[:2])
+                next_question = f"아직 '{missing_str}' 정보가 부족합니다. 준비해드릴까요?"
+            
+            # **특수 토픽 처리 (idea_recommendation / idea_validation)**
+            if topics and topics[0] in ["idea_recommendation", "idea_validation"]:
+                prompt = self.build_agent_prompt(topics, user_input, persona, history)
+                return await self._handle_special_topic(
+                    topic=topics[0],
+                    persona=persona,
+                    user_input=user_input,
+                    prompt=prompt,
+                    current_stage=current_stage,
+                    progress=progress,
+                    missing=missing,
+                    next_stage=next_stage,
+                    next_question=next_question
+                )
+    
+            # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history)
 
-            # === 마지막 단계 (최종 기획서 작성) ===
-            if current_stage == "최종 기획서 작성":
-                logger.info("[FINAL STAGE] 최종 사업기획서 작성 단계 감지")
-                try:
-                    final_plan_path = PROMPT_META.get("final_business_plan", {}).get("file")
-                    if final_plan_path:
-                        draft_prompt_template = self.build_agent_prompt(["final_business_plan"], user_input, persona, history=history)
-                        draft_prompt = draft_prompt_template.template.format(
-                            context="잡담을 제외한 지금까지의 대화와 시장 데이터 기반 기획서를 작성하세요"
-                        )
-                        draft_msg = [{"role": "user", "content": draft_prompt}]
-                        draft = await self.llm_manager.generate_response(messages=draft_msg, provider="openai")
-
-                        return {
-                            "topics": ["final_business_plan"],
-                            "answer": "최종 사업기획서가 작성되었습니다.",
-                            "sources": "history 기반 종합 기획서",
-                            "retrieval_used": False,
-                            "metadata": {
-                                "type": "final_business_plan",
-                                "content": draft,
-                                "current_stage": "최종 기획서 작성",
-                                "progress": 1.0,
-                                "missing": [],
-                                "next_stage": None,
-                                "next_question": None
-                            }
-                        }
-                except Exception as e:
-                    logger.error(f"[FINAL STAGE] 최종 기획서 작성 실패: {e}")
-
-
-            # 7. === MCP 사용하는 topic 처리 ===
-            if "idea_recommendation" in topics:
-                return await self._handle_special_topic("idea_recommendation", persona, user_input, prompt, current_stage, progress, missing, next_stage, next_question)
-            elif "idea_validation" in topics:
-                return await self._handle_special_topic("idea_validation", persona, user_input, prompt, current_stage, progress, missing, next_stage, next_question)
-            
-            # === 8. 벡터 검색 ===
+            # 5. 벡터 검색 (RAG)
             if use_retriever and topics:
-                logger.info("RAG 쿼리 실행 시작")
                 topic_filter = {"$and": [{"category": "business_planning"}, {"topic": {"$in": topics}}]}
                 retriever = self.vector_manager.get_retriever(
                     collection_name="global-documents", k=5, search_kwargs={"filter": topic_filter}
                 )
-
                 if retriever:
                     llm = self.llm_manager.get_llm(load_balance=True)
                     qa_chain = RetrievalQA.from_chain_type(
@@ -455,15 +401,23 @@ class BusinessPlanningService:
                         chain_type="stuff",
                         retriever=retriever,
                         chain_type_kwargs={"prompt": prompt},
-                                       
                         return_source_documents=True
                     )
                     result = qa_chain.invoke(user_input)
                     sources = self._format_source_documents(result.get("source_documents", []))
 
+                    # **UX 개선된 진행 메시지**
+                    progress_msg = f"현재 '{current_stage}' 단계 (진행률 {int(progress * 100)}%)입니다."
+                    if missing:
+                        progress_msg += f" 아직 '{', '.join(missing[:2])}' 정보가 필요합니다."
+                    if next_question:
+                        progress_msg += f" {next_question}"
+
+                    final_answer = f"{result['result']}\n\n{progress_msg}"
+
                     return {
                         "topics": topics,
-                        "answer": result["result"],
+                        "answer": final_answer,
                         "sources": sources,
                         "retrieval_used": True,
                         "metadata": {
@@ -474,16 +428,17 @@ class BusinessPlanningService:
                             "next_stage": next_stage,
                             "next_question": next_question
                         }
-                    }                   
-            
-            # === 9. 기본 폴백 ===
+                    }
+
+            # 6. 폴백
             return await self._generate_fallback_response(topics, user_input, prompt, current_stage, next_stage, progress, missing)
 
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
-            return await self._generate_fallback_response(topics, user_input, prompt, current_stage, next_stage, progress, missing)
-            # return await self._generate_error_fallback(user_input)
-    
+            return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, ""), "아이디어 탐색", None, 0.0, [])
+
+
+
     def _format_source_documents(self, documents: List[Any]) -> str:
         """소스 문서 포맷팅"""
         if not documents:

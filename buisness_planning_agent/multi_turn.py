@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import List, Dict, Any
 
 class MultiTurnManager:
@@ -7,7 +6,6 @@ class MultiTurnManager:
     멀티턴 대화 흐름 및 단계별 정보 수집을 관리하는 매니저
     """
 
-    # 단계와 토픽 매핑
     STAGE_TOPIC_MAP = {
         "아이디어 탐색": ["idea_recommendation"],
         "시장 검증": ["idea_validation"],
@@ -19,50 +17,46 @@ class MultiTurnManager:
 
     STAGES = list(STAGE_TOPIC_MAP.keys())
 
-    # 각 단계별 요구 정보 
     STAGE_REQUIREMENTS = {
         "아이디어 탐색": ["창업 아이디어"],
         "시장 검증": ["시장 정보"],
         "비즈니스 모델링": ["BMC", "MVP 개발 계획"],
         "실행 계획 수립": ["자금 조달 계획", "재무 계획", "창업 준비 체크리스트"],
         "성장 전략 & 리스크 관리": ["사업 확장 전략", "리스크 관리 방안"],
-        "최종 기획서 작성": []  # 계산에서 제외할 항목
+        "최종 기획서 작성": []
     }
 
     def __init__(self, llm_manager):
         self.llm_manager = llm_manager
-        self.current_progress = 0.0  # 전체 진행률 (0~1)
+        self.progress_cache = {}  # {conversation_id: float}
 
     def determine_stage(self, topics: List[str]) -> str:
-        """토픽 기반으로 현재 상담 단계 추론"""
         for stage, mapped_topics in self.STAGE_TOPIC_MAP.items():
             if any(t in mapped_topics for t in topics):
                 return stage
-        return "아이디어 탐색"  # 기본값
+        return "아이디어 탐색"
 
     def get_next_stage(self, current_stage: str) -> str:
-        """다음 단계 반환 (없으면 None)"""
         try:
             idx = self.STAGES.index(current_stage)
             return self.STAGES[idx + 1] if idx + 1 < len(self.STAGES) else None
         except ValueError:
             return None
 
-    async def check_overall_progress(self, history: str) -> Dict[str, Any]:
+    async def check_overall_progress(self, conversation_id: int, history: str) -> Dict[str, Any]:
         """
-        전체 단계 요구 정보 기준으로 진행률 계산.
-        '최종 기획서 작성'은 진행률 계산에서 제외.
+        대화(conversation_id) 기준으로 진행률 캐싱 및 업데이트
         """
         all_requirements = []
         for stage, items in self.STAGE_REQUIREMENTS.items():
-            if stage != "최종 기획서 작성":  # 제외
+            if stage != "최종 기획서 작성":
                 all_requirements.extend(items)
 
         if not all_requirements:
             return {"progress": 0.0, "missing": []}
 
         prompt = f"""
-        다음 대화 기록에서 아래 전체 요구 정보 항목이 얼마나 수집되었는지 평가하세요.
+        다음 대화 기록에서 아래 요구 정보 항목이 얼마나 수집되었는지 평가하세요.
         전체 항목: {', '.join(all_requirements)}
         대화 기록:
         {history}
@@ -85,14 +79,15 @@ class MultiTurnManager:
             result = self._parse_progress_json(result)
 
             new_progress = float(result.get("progress", 0.0))
+            current_progress = self.progress_cache.get(conversation_id, 0.0)
+
             if new_progress >= 1.0:
-                # 최종 기획서 작성 후 진행률 초기화
-                self.current_progress = 0.0
-                result["current_progress"] = 1.0  # 이번에 반환하는 값은 1.0
+                self.progress_cache[conversation_id] = 0.0
+                result["current_progress"] = 1.0
                 result["missing"] = []
             else:
-                self.current_progress = max(self.current_progress, new_progress)
-                result["current_progress"] = self.current_progress
+                self.progress_cache[conversation_id] = max(current_progress, new_progress)
+                result["current_progress"] = self.progress_cache[conversation_id]
             return result
 
         except Exception as e:
@@ -100,8 +95,6 @@ class MultiTurnManager:
             return {"progress": 0.0, "missing": all_requirements}
 
     def _parse_progress_json(self, result: str) -> Dict[str, Any]:
-        """LLM의 JSON 응답 파싱"""
-        print("LLM의 progress 판단 답변", result)
         try:
             clean_result = result.strip().strip("`")
             if clean_result.startswith("json"):
