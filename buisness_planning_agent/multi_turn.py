@@ -81,7 +81,7 @@ class MultiTurnManager:
             new_progress = float(result.get("progress", 0.0))
             current_progress = self.progress_cache.get(conversation_id, 0.0)
 
-            if new_progress >= 1.0:
+            if new_progress >= 0.999:
                 self.progress_cache[conversation_id] = 0.0
                 result["current_progress"] = 1.0
                 result["missing"] = []
