@@ -11,7 +11,7 @@ def simulate_multiturn_conversation():
     """멀티턴 대화 시뮬레이션"""
     
     # 마케팅 매니저 초기화
-    from marketing_agent.core.marketing_manager import MarketingAgentManager
+    from marketing_agent.core.marketing_manager_old import MarketingAgentManager
     
     print("🚀 멀티턴 마케팅 대화 시스템 시작!")
     print("=" * 60)
@@ -111,7 +111,7 @@ def simulate_multiturn_conversation():
 def demonstrate_agent_features():
     """에이전트 기능 데모"""
     
-    from marketing_agent.core.marketing_manager import MarketingAgentManager
+    from marketing_agent.core.marketing_manager_old import MarketingAgentManager
     
     print("\n🔍 **에이전트 기능 소개**")
     print("=" * 60)
@@ -151,7 +151,7 @@ def advanced_usage_example():
     print("\n🎓 **고급 사용법**")
     print("=" * 60)
     
-    from marketing_agent.core.marketing_manager import MarketingAgentManager
+    from marketing_agent.core.marketing_manager_old import MarketingAgentManager
     
     manager = MarketingAgentManager()
     

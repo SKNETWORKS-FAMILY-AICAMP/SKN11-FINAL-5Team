@@ -56,7 +56,7 @@ def list_personas() -> list:
 
 def get_marketing_manager():
     """통합 마케팅 매니저 반환"""
-    from marketing_agent.core.marketing_manager import MarketingAgentManager
+    from marketing_agent.core.marketing_manager_old import MarketingAgentManager
     return MarketingAgentManager()
 
 # 패키지 초기화

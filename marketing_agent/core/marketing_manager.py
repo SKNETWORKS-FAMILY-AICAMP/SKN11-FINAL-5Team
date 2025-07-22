@@ -1,6 +1,10 @@
 """
-통합 마케팅 에이전트 매니저 - 멀티턴 대화 시스템
-정보 수집 → 분석 → 제안 → 피드백 → 수정 → 최종 결과 플로우
+LLM 기반 유연한 4단계 마케팅 에이전트 매니저
+- 순서 무관 즉시 응답
+- 중간 단계부터 시작
+- 단계 건너뛰기
+- 모든 의도 분석 LLM 기반
+- 마케팅 툴 자동 활용
 """
 
 import logging
@@ -11,116 +15,89 @@ from enum import Enum
 import json
 from datetime import datetime
 
-# 공통 모듈 임포트
-from shared_modules import (
-    get_config,
-    get_llm_manager,
-    get_vector_manager,
-    get_or_create_conversation_session,
-    create_message,
-    get_recent_messages,
-    insert_message_raw,
-    get_session_context,
-    create_success_response,
-    create_error_response,
-    create_marketing_response,
-    get_current_timestamp,
-    format_conversation_history,
-    load_prompt_from_file,
-    PromptTemplate
-)
+# LangChain imports
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
-from marketing_agent.config.persona_config import PERSONA_CONFIG
-from marketing_agent.config.prompts_config import PROMPT_META
-from marketing_agent.utils import get_marketing_analysis_tools
+# 공통 모듈 임포트 (안전한 import)
+try:
+    from shared_modules import (
+        get_config,
+        get_llm_manager,
+        get_vector_manager,
+        get_or_create_conversation_session,
+        create_message,
+        get_recent_messages,
+        insert_message_raw,
+        get_session_context,
+        create_success_response,
+        create_error_response,
+        create_marketing_response,
+        get_current_timestamp,
+        format_conversation_history,
+        load_prompt_from_file,
+        PromptTemplate
+    )
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"shared_modules import 실패: {e}")
+
+try:
+    from marketing_agent.config.persona_config import PERSONA_CONFIG
+except ImportError:
+    PERSONA_CONFIG = {}
+
+try:
+    from marketing_agent.config.prompts_config import PROMPT_META
+except ImportError:
+    PROMPT_META = {}
+
+try:
+    from marketing_agent.utils import get_marketing_analysis_tools
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"analysis_tools import 실패: {e}")
+    def get_marketing_analysis_tools():
+        return None
 
 logger = logging.getLogger(__name__)
 
-class ConversationStage(Enum):
-    """대화 단계 정의"""
-    INITIAL = "initial"                    # 초기 접촉
-    INFORMATION_GATHERING = "info_gathering"  # 정보 수집
-    ANALYSIS = "analysis"                  # 분석
-    PROPOSAL = "proposal"                  # 제안
-    FEEDBACK = "feedback"                  # 피드백 수집
-    REFINEMENT = "refinement"              # 수정
-    FINAL_RESULT = "final_result"          # 최종 결과
-    COMPLETED = "completed"                # 완료
+class MarketingStage(Enum):
+    """4단계 마케팅 프로세스"""
+    ANY_QUESTION = "any_question"                   # 순서 무관 즉시 응답
+    STAGE_1_GOAL = "stage_1_goal"                   # 1단계: 목표 정의
+    STAGE_2_TARGET = "stage_2_target"               # 2단계: 타겟 분석
+    STAGE_3_STRATEGY = "stage_3_strategy"           # 3단계: 전략 기획
+    STAGE_4_EXECUTION = "stage_4_execution"         # 4단계: 실행 계획
+    COMPLETED = "completed"                         # 완료
 
-class ConversationState:
-    """대화 상태 관리 클래스"""
-    
-    def __init__(self, conversation_id: int, user_id: int):
-        self.conversation_id = conversation_id
-        self.user_id = user_id
-        self.stage = ConversationStage.INITIAL
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
-        
-        # 수집된 정보
-        self.collected_info = {
-            "business_type": None,
-            "target_audience": None,
-            "product_service": None,
-            "current_challenges": None,
-            "goals": None,
-            "budget": None,
-            "timeline": None,
-            "platforms": [],
-            "industry": None,
-            "competitors": [],
-            "additional_context": {}
-        }
-        
-        # 분석 결과
-        self.analysis_results = {
-            "primary_topics": [],
-            "intent_analysis": {},
-            "mcp_results": {},
-            "recommendations": []
-        }
-        
-        # 제안 및 피드백
-        self.proposals = []
-        self.feedback_history = []
-        self.refinements = []
-        
-        # 최종 결과
-        self.final_strategy = None
-        self.action_plan = None
-        
-        # 단계별 프롬프트 기록
-        self.stage_prompts = {}
-        
-    def update_stage(self, new_stage: ConversationStage):
-        """단계 업데이트"""
-        self.stage = new_stage
-        self.updated_at = datetime.now()
-        
-    def add_collected_info(self, key: str, value: Any):
-        """수집된 정보 추가"""
-        self.collected_info[key] = value
-        self.updated_at = datetime.now()
-        
-    def add_feedback(self, feedback: Dict[str, Any]):
-        """피드백 추가"""
-        feedback["timestamp"] = datetime.now()
-        self.feedback_history.append(feedback)
-        self.updated_at = datetime.now()
-        
-    def is_information_complete(self) -> bool:
-        """정보 수집 완료 여부 확인"""
-        required_fields = ["business_type", "target_audience", "product_service", "goals"]
-        return all(self.collected_info.get(field) for field in required_fields)
-        
-    def get_completion_rate(self) -> float:
-        """정보 수집 완료율"""
-        total_fields = len(self.collected_info)
-        completed_fields = len([v for v in self.collected_info.values() if v])
-        return completed_fields / total_fields if total_fields > 0 else 0.0
+class ResponseType(Enum):
+    """응답 타입"""
+    IMMEDIATE_ANSWER = "immediate_answer"           # 즉시 응답
+    STAGE_PROGRESS = "stage_progress"               # 단계 진행
+    FLOW_CONTROL = "flow_control"                   # 진행 제어
+    COMPREHENSIVE = "comprehensive"                 # 종합 전략
+    CLARIFICATION = "clarification"                 # 명확화 필요
+    TOOL_REQUIRED = "tool_required"                 # 마케팅 툴 필요
 
-class MarketingAgentManager:
-    """통합 마케팅 에이전트 관리자 - 멀티턴 대화 시스템"""
+
+def clean_json_response(response: str) -> str:
+    """
+    LLM 응답에서 코드블록(````json ... ````)을 제거하고 JSON만 추출
+    """
+    cleaned = response.strip()
+    if cleaned.startswith("```"):
+        # 첫번째 ``` 제거
+        cleaned = cleaned.strip("`")
+        # "json" 태그 제거
+        cleaned = cleaned.replace("json", "", 1).strip()
+        # 마지막 ``` 제거
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:cleaned.rfind("```")].strip()
+    return cleaned
+
+class Enhanced4StageMarketingManager:
+    """LLM 기반 유연한 4단계 마케팅 에이전트 관리자"""
     
     def __init__(self):
         """마케팅 매니저 초기화"""
@@ -132,813 +109,1089 @@ class MarketingAgentManager:
         # 프롬프트 디렉토리 설정
         self.prompts_dir = Path(__file__).parent.parent / 'prompts'
         
-        # 전문 지식 벡터 스토어 설정
-        self.knowledge_collection = 'marketing-knowledge'
-        
-        # 마케팅 토픽 정의
-        self.marketing_topics = {
-            "marketing_fundamentals": "마케팅 기초 이론",
-            "social_media_marketing": "SNS 전반 전략",
-            "email_marketing": "이메일, 뉴스레터",
-            "content_marketing": "콘텐츠 전략, 포맷 기획",
-            "personal_branding": "퍼스널 및 브랜드 포지셔닝",
-            "digital_advertising": "페이드 미디어, 광고 채널",
-            "conversion_optimization": "전환 퍼널, A/B 테스트",
-            "influencer_marketing": "협업, 제휴 마케팅",
-            "marketing_automation": "자동화, 캠페인 설정",
-            "viral_marketing": "바이럴, 입소문 전략",
-            "blog_marketing": "블로그 마케팅",
-            "marketing_metrics": "ROAS, CAC 등 성과 지표",
-            "local_marketing": "지역 기반 마케팅"
-        }
-        
         # 대화 상태 관리 (메모리 기반)
-        self.conversation_states: Dict[int, ConversationState] = {}
+        self.conversation_states: Dict[int, 'FlexibleConversationState'] = {}
         
-        # 단계별 정보 수집 질문 템플릿
-        self.info_gathering_questions = {
-            "business_type": "어떤 비즈니스/업종에서 활동하고 계신가요?",
-            "target_audience": "주요 타겟 고객층은 누구인가요? (연령, 성별, 관심사 등)",
-            "product_service": "구체적으로 어떤 제품이나 서비스를 제공하시나요?",
-            "current_challenges": "현재 마케팅에서 가장 큰 어려움은 무엇인가요?",
-            "goals": "달성하고 싶은 마케팅 목표는 무엇인가요?",
-            "budget": "월 마케팅 예산은 대략 어느 정도인가요?",
-            "timeline": "언제까지 결과를 보고 싶으신가요?",
-            "platforms": "현재 활용하고 있거나 관심있는 마케팅 채널은?",
-            "industry": "업계 특성이나 경쟁 상황을 알려주세요",
-            "competitors": "주요 경쟁사나 벤치마킹하는 브랜드가 있나요?"
+        # LLM 프롬프트 템플릿들
+        self.intent_analysis_system_prompt = self._create_intent_analysis_prompt()
+        self.response_generation_system_prompt = self._create_response_generation_prompt()
+        self.flow_control_system_prompt = self._create_flow_control_prompt()
+    
+    def _create_intent_analysis_prompt(self) -> str:
+        """의도 분석 시스템 프롬프트"""
+        return """당신은 마케팅 상담 전문가입니다. 사용자의 입력을 분석하여 최적의 응답 방식을 결정합니다.
+
+분석 기준:
+1. 응답 타입 결정:
+   - immediate_answer: 바로 답변 가능한 일반적 질문
+   - stage_progress: 특정 단계 진행 관련
+   - flow_control: 대화 제어 (중단/재개/건너뛰기)
+   - comprehensive: 종합적 전략 필요
+   - clarification: 추가 정보 필요
+   - tool_required: 마케팅 툴 사용 필요
+
+2. 사용자 의도:
+   - 주요 목적과 정보 필요도
+   - 긴급도와 구체성 수준
+   - 진행 방식 선호도
+
+3. 컨텍스트 활용:
+   - 기존 정보 활용 필요성
+   - 개인화 수준
+   - 업종별 맞춤화
+
+4. 마케팅 툴 필요성 판단:
+   - 트렌드 분석: 키워드 트렌드, 검색량 분석이 필요한 경우 (모든 단계에서 가능)
+   - 해시태그 분석: 인스타그램, SNS 마케팅 관련 질문 (모든 단계에서 가능)
+   - 콘텐츠 생성: 블로그, 인스타그램 콘텐츠 제작 요청 (**단, 4단계(실행 계획)에서만 가능**)
+   - 키워드 연구: SEO, 검색 마케팅 관련 질문 (모든 단계에서 가능)
+
+5. 단계별 제한 사항:
+   - 콘텐츠 생성은 반드시 4단계(실행 계획)에서만 수행
+   - 다른 단계에서 콘텐츠 생성 요청시 flow_control로 처리하거나 단계 이동 안내
+
+응답은 반드시 JSON 형태로 제공하세요."""
+
+    def _create_response_generation_prompt(self) -> str:
+        """응답 생성 시스템 프롬프트"""
+        return """당신은 친근하고 전문적인 마케팅 컨설턴트입니다. 
+사용자의 상황을 고려한 맞춤형 조언을 제공합니다.
+
+응답 원칙:
+1. 개인화된 구체적 조언
+2. 즉시 실행 가능한 팁
+3. 친근하고 이해하기 쉬운 톤
+4. 적절한 이모지 사용
+5. 300-500자 내외로 간결하게
+
+업종별 전문성과 사용자 컨텍스트를 최대한 활용하세요."""
+
+    def _create_flow_control_prompt(self) -> str:
+        """진행 제어 시스템 프롬프트"""
+        return """대화 진행을 최적화하는 전문가입니다.
+사용자의 상황과 의도에 따라 최적의 다음 액션을 결정합니다.
+
+가능한 액션:
+- continue_immediate: 즉시 응답으로 완료
+- start_structured: 체계적 4단계 상담 시작
+- jump_to_stage: 특정 단계로 이동
+- collect_more_info: 추가 정보 수집
+- provide_strategy: 전략 제안
+- pause_conversation: 대화 일시 중단
+
+사용자에게 최대한 도움이 되는 방향으로 결정하세요."""
+    
+    def detect_business_type_from_input(self, user_input: str) -> str:
+        """사용자 입력에서 즉시 비즈니스 유형 감지"""
+        
+        # 단순 키워드 매칭으로 빠른 감지
+        business_keywords = {
+            "카페": "카페",
+            "커피숍": "음식점", 
+            "음식점": "음식점",
+            "레스토랑": "음식점",
+            "식당": "음식점",
+            "미용실": "뷰티",
+            "네일샵": "뷰티",
+            "피부관리": "뷰티",
+            "온라인쇼핑": "온라인쇼핑몰",
+            "쇼핑몰": "온라인쇼핑몰",
+            "이커머스": "온라인쇼핑몰",
+            "유튜버": "크리에이터",
+            "인플루언서": "크리에이터",
+            "콘텐츠 제작": "크리에이터",
+            "앱 개발": "앱",
+            "모바일 앱": "앱",
+            "게임 앱": "앱",
+            "앱 만들기": "앱",
+            "컨설팅": "서비스업",
+            "교육": "서비스업",
+            "헬스케어": "서비스업",
+            "창업": "스타트업"
         }
         
-        # 실제 전문 지식 벡터 스토어 초기화 (프롬프트 파일 제외)
-        self._initialize_real_knowledge_base()
-    
-    def _initialize_real_knowledge_base(self):
-        """실제 마케팅 전문 지식 벡터 스토어 초기화 (프롬프트 파일 제외)"""
-        try:
-            # 벡터 스토어 확인
-            vectorstore = self.vector_manager.get_vectorstore(
-                collection_name=self.knowledge_collection,
-                create_if_not_exists=True
-            )
-            
-            if not vectorstore:
-                logger.warning("벡터 스토어 초기화 실패")
-                return
-            
-            # ✅ 실제 전문 지식 데이터만 로드 (프롬프트 파일은 제외)
-            # 향후 실제 마케팅 전문 콘텐츠, 사례, 이론 등을 여기서 로드
-            # knowledge_data_dir = Path(__file__).parent.parent / 'knowledge_data'
-            # 또는 외부 API에서 마케팅 지식 가져오기
-            
-            logger.info("✅ 실제 전문 지식 벡터 스토어 초기화 완료 (프롬프트 파일 제외)")
-            
-        except Exception as e:
-            logger.error(f"전문 지식 벡터 스토어 초기화 실패: {e}")
-    
-    def _get_knowledge_area(self, topic: str) -> str:
-        """토픽에 따른 지식 영역 분류"""
-        knowledge_areas = {
-            "marketing_fundamentals": "기초 이론",
-            "social_media_marketing": "디지털 마케팅",
-            "email_marketing": "디지털 마케팅",
-            "content_marketing": "콘텐츠 전략",
-            "personal_branding": "브랜딩",
-            "digital_advertising": "광고/미디어",
-            "conversion_optimization": "데이터 분석",
-            "influencer_marketing": "파트너십",
-            "marketing_automation": "기술/도구",
-            "viral_marketing": "소셜/바이럴",
-            "blog_marketing": "콘텐츠 전략",
-            "marketing_metrics": "데이터 분석",
-            "local_marketing": "지역 마케팅"
-        }
-        return knowledge_areas.get(topic, "일반")
-    
-    def get_or_create_conversation_state(self, conversation_id: int, user_id: int) -> ConversationState:
-        """대화 상태 조회 또는 생성"""
-        if conversation_id not in self.conversation_states:
-            self.conversation_states[conversation_id] = ConversationState(conversation_id, user_id)
-        return self.conversation_states[conversation_id]
-    
-    def load_topic_prompt(self, topic: str) -> str:
-        """토픽별 프롬프트 파일 직접 로드"""
-        try:
-            prompt_file = self.prompts_dir / f"{topic}.md"
-            if prompt_file.exists():
-                with open(prompt_file, 'r', encoding='utf-8') as f:
-                    return f.read()
-            else:
-                logger.warning(f"프롬프트 파일 없음: {topic}")
-                return ""
-        except Exception as e:
-            logger.error(f"프롬프트 로드 실패 ({topic}): {e}")
-            return ""
-    
-    def _format_topic_prompts(self, topic_prompts: Dict[str, str]) -> str:
-        """토픽별 프롬프트를 분석용으로 포맷팅"""
-        if not topic_prompts:
-            return "기본 마케팅 분석 수행"
+        user_input_lower = user_input.lower()
+        for keyword, business_type in business_keywords.items():
+            if keyword in user_input_lower:
+                return business_type
         
-        formatted = []
-        for topic, prompt_content in topic_prompts.items():
-            topic_name = self.marketing_topics.get(topic, topic)
-            formatted.append(f"[{topic_name}]\n{prompt_content}\n")
+        return "일반"
+
+    def analyze_user_intent_with_llm(self, user_input: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """LLM 기반 사용자 의도 분석"""
+        logger.info(f"[단계 로그] 사용자 의도 분석 시작 - 입력: {user_input[:50]}...")
         
-        return "\n".join(formatted)
-    
-    def classify_marketing_topic_with_llm(self, user_input: str, context: str = "") -> List[str]:
-        """LLM을 활용한 마케팅 토픽 분류"""
-        try:
-            # 토픽 분류 프롬프트
-            topic_classification_prompt = f"""다음 사용자 질문을 분석하여 관련된 마케팅 토픽을 분류해주세요.
-
-사용 가능한 마케팅 토픽:
-{chr(10).join([f"- {key}: {value}" for key, value in self.marketing_topics.items()])}
-
-{f"대화 컨텍스트: {context}" if context else ""}
-
-사용자 질문: "{user_input}"
-
-위 질문과 가장 관련성이 높은 토픽을 최대 3개까지 선택하여 키워드만 쉼표로 구분하여 답변해주세요.
-예시: marketing_fundamentals, content_marketing, social_media_marketing
-
-답변:"""
-
-            messages = [
-                {"role": "system", "content": "당신은 마케팅 전문가로서 사용자 질문을 정확한 마케팅 토픽으로 분류합니다."},
-                {"role": "user", "content": topic_classification_prompt}
-            ]
-            
-            response = self.llm_manager.generate_response_sync(messages)
-            
-            # 응답에서 토픽 추출
-            if response:
-                topics = [topic.strip() for topic in response.split(',')]
-                # 유효한 토픽만 필터링
-                valid_topics = [topic for topic in topics if topic in self.marketing_topics]
-                return valid_topics[:3] if valid_topics else ["marketing_fundamentals"]
-            
-            return ["marketing_fundamentals"]
-            
-        except Exception as e:
-            logger.error(f"LLM 토픽 분류 실패: {e}")
-            return ["marketing_fundamentals", "content_marketing"]
-    
-    def analyze_user_intent_and_stage(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
-        """사용자 의도 및 대화 단계 분석"""
-        try:
-            # 현재 단계와 수집된 정보를 바탕으로 의도 분석
-            context_info = {
-                "current_stage": state.stage.value,
-                "collected_info": state.collected_info,
-                "completion_rate": state.get_completion_rate()
-            }
-            
-            intent_analysis_prompt = f"""사용자의 마케팅 상담 의도와 대화 진행 방향을 분석해주세요.
-
-현재 대화 상태:
-- 단계: {state.stage.value}
-- 정보 수집 완료율: {state.get_completion_rate():.1%}
-- 수집된 정보: {json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
+        # 먼저 비즈니스 유형 빠른 감지 시도
+        detected_business = self.detect_business_type_from_input(user_input)
+        if detected_business != "일반":
+            context["business_type"] = detected_business
+            logger.info(f"[단계 로그] - 비즈니스 유형 감지: {detected_business}")
+        
+        analysis_prompt = f"""현재 마케팅 상담 상황을 분석해주세요.
 
 사용자 입력: "{user_input}"
 
-다음 JSON 형태로 분석 결과를 제공해주세요:
+현재 컨텍스트:
+- 대화 모드: {context.get('conversation_mode', 'flexible')}
+- 현재 단계: {context.get('current_stage', 'none')}
+- 수집된 정보: {json.dumps(context.get('collected_info', {}), ensure_ascii=False, indent=2)}
+- 업종: {context.get('business_type', '미확인')}
+- 대화 히스토리: {context.get('history_summary', '새 대화')}
+
+다음을 JSON 형태로 분석해주세요:
 {{
-    "intent_type": "info_provide|question_ask|feedback_give|refinement_request|completion_request|general_inquiry",
-    "confidence": 0.9,
-    "extracted_info": {{
-        "field_name": "추출된 정보 (해당하는 경우)"
+    "response_type": "immediate_answer|stage_progress|flow_control|comprehensive|clarification|tool_required",
+    "user_intent": {{
+        "primary_goal": "사용자의 주요 목적",
+        "information_need": "필요한 정보",
+        "urgency_level": "high|medium|low",
+        "specificity": "general|specific|very_specific"
     }},
-    "next_stage_recommendation": "info_gathering|analysis|proposal|feedback|refinement|final_result",
-    "requires_mcp_tools": true/false,
-    "mcp_tools_needed": ["hashtag_analysis", "trend_analysis", "content_generation"],
-    "user_sentiment": "positive|neutral|negative|frustrated",
-    "urgency_level": "high|medium|low",
-    "suggested_questions": ["추가로 물어볼 질문들"]
-}}
-
-분석 결과:"""
-
-            messages = [
-                {"role": "system", "content": "당신은 마케팅 상담 전문가로서 대화 흐름과 사용자 의도를 정확히 분석합니다."},
-                {"role": "user", "content": intent_analysis_prompt}
-            ]
-            
-            response = self.llm_manager.generate_response_sync(messages, output_format="json")
-            
-            # JSON 응답 파싱
-            if isinstance(response, dict):
-                return response
-            elif isinstance(response, str):
-                try:
-                    return json.loads(response)
-                except json.JSONDecodeError:
-                    pass
-            
-            # 파싱 실패 시 기본값 반환
-            return {
-                "intent_type": "general_inquiry",
-                "confidence": 0.7,
-                "extracted_info": {},
-                "next_stage_recommendation": "info_gathering",
-                "requires_mcp_tools": False,
-                "mcp_tools_needed": [],
-                "user_sentiment": "neutral",
-                "urgency_level": "medium",
-                "suggested_questions": []
-            }
-            
-        except Exception as e:
-            logger.error(f"의도 및 단계 분석 실패: {e}")
-            return {
-                "intent_type": "general_inquiry",
-                "confidence": 0.5,
-                "extracted_info": {},
-                "next_stage_recommendation": "info_gathering",
-                "requires_mcp_tools": False,
-                "mcp_tools_needed": [],
-                "user_sentiment": "neutral",
-                "urgency_level": "medium",
-                "suggested_questions": []
-            }
-    
-    async def execute_mcp_analysis(self, intent_analysis: Dict[str, Any], user_input: str, state: ConversationState) -> Dict[str, Any]:
-        """MCP 도구 실행"""
-        results = {}
-        
-        try:
-            if not intent_analysis.get("requires_mcp_tools", False):
-                return results
-            
-            mcp_tools = intent_analysis.get("mcp_tools_needed", [])
-            
-            # 해시태그 분석
-            if "hashtag_analysis" in mcp_tools:
-                logger.info("인스타그램 해시태그 분석 실행 중...")
-                keywords = []
-                if state.collected_info.get("product_service"):
-                    keywords.append(state.collected_info["product_service"])
-                if state.collected_info.get("industry"):
-                    keywords.append(state.collected_info["industry"])
-                
-                hashtag_result = await self.analysis_tools.analyze_instagram_hashtags(
-                    question=user_input,
-                    user_hashtags=keywords
-                )
-                results["hashtag_analysis"] = hashtag_result
-            
-            # 트렌드 분석
-            if "trend_analysis" in mcp_tools:
-                logger.info("네이버 트렌드 분석 실행 중...")
-                keywords = []
-                if state.collected_info.get("product_service"):
-                    keywords.append(state.collected_info["product_service"])
-                if state.collected_info.get("industry"):
-                    keywords.append(state.collected_info["industry"])
-                
-                if keywords:
-                    trend_result = await self.analysis_tools.analyze_naver_trends(keywords)
-                    results["trend_analysis"] = trend_result
-            
-            # 콘텐츠 생성
-            if "content_generation" in mcp_tools:
-                logger.info("인스타그램 콘텐츠 생성 실행 중...")
-                content_result = await self.analysis_tools.generate_instagram_content()
-                results["content_generation"] = content_result
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"MCP 도구 실행 실패: {e}")
-            return {"error": str(e)}
-    
-    def handle_information_gathering(self, user_input: str, state: ConversationState, intent_analysis: Dict[str, Any]) -> str:
-        """정보 수집 단계 처리"""
-        
-        # 사용자 입력에서 정보 추출
-        extracted_info = intent_analysis.get("extracted_info", {})
-        
-        # 수집된 정보 업데이트
-        for field, value in extracted_info.items():
-            if field in state.collected_info and value:
-                state.add_collected_info(field, value)
-        
-        # 다음 질문 결정
-        missing_info = []
-        for field, question in self.info_gathering_questions.items():
-            if not state.collected_info.get(field):
-                missing_info.append((field, question))
-        
-        # 정보 수집 완료 확인
-        if state.is_information_complete() or len(missing_info) <= 2:
-            # 분석 단계로 전환
-            state.update_stage(ConversationStage.ANALYSIS)
-            return self._generate_transition_to_analysis_response(state)
-        
-        # 다음 정보 수집 질문
-        next_field, next_question = missing_info[0]
-        
-        collected_summary = []
-        for field, value in state.collected_info.items():
-            if value:
-                collected_summary.append(f"- {self.info_gathering_questions.get(field, field)}: {value}")
-        
-        response = f"""감사합니다! 지금까지 수집된 정보를 정리해보겠습니다:
-
-{chr(10).join(collected_summary) if collected_summary else "아직 수집된 정보가 없습니다."}
-
-💡 **다음 질문**: {next_question}
-
-더 정확한 맞춤 전략을 위해 위 정보를 알려주세요!"""
-        
-        return response
-    
-    def _generate_transition_to_analysis_response(self, state: ConversationState) -> str:
-        """분석 단계로 전환 시 응답 생성"""
-        collected_info_summary = []
-        for field, value in state.collected_info.items():
-            if value:
-                field_name = self.info_gathering_questions.get(field, field)
-                collected_info_summary.append(f"- {field_name}: {value}")
-        
-        return f"""🎯 **정보 수집 완료!** 
-
-수집된 정보:
-{chr(10).join(collected_info_summary)}
-
-이제 이 정보를 바탕으로 **심층 분석**을 진행하겠습니다. 
-잠시만 기다려주세요... 📊"""
-    
-    def handle_analysis_stage(self, user_input: str, state: ConversationState, mcp_results: Dict[str, Any]) -> str:
-        """분석 단계 처리"""
-        
-        try:
-            # 수집된 정보를 바탕으로 토픽 분류
-            analysis_context = " ".join([str(v) for v in state.collected_info.values() if v])
-            topics = self.classify_marketing_topic_with_llm(analysis_context)
-            
-            # ✅ 토픽별 프롬프트 직접 로드
-            topic_prompts = {}
-            for topic in topics:
-                prompt_content = self.load_topic_prompt(topic)
-                if prompt_content:
-                    topic_prompts[topic] = prompt_content
-            
-            # ✅ 실제 전문 지식 검색 (벡터DB에서 - 별도 데이터)
-            relevant_knowledge = self.get_relevant_knowledge(analysis_context, topics)
-            
-            # 분석 프롬프트 생성
-            analysis_prompt = f"""다음 정보를 바탕으로 마케팅 전문가 관점에서 심층 분석을 수행해주세요.
-
-수집된 고객 정보:
-{json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
-
-관련 마케팅 토픽: {', '.join(topics)}
-
-토픽별 분석 지침:
-{self._format_topic_prompts(topic_prompts)}
-
-실제 전문 지식 참고:
-{chr(10).join(relevant_knowledge) if relevant_knowledge else "기본 마케팅 지식 활용"}
-
-실시간 분석 데이터:
-{json.dumps(mcp_results, ensure_ascii=False, indent=2) if mcp_results else "실시간 데이터 없음"}
-
-위 토픽별 지침에 따라 다음 분석을 수행해주세요:
-
-1. **현황 분석**: 현재 상황과 문제점 파악
-2. **기회 요소**: 활용 가능한 강점과 기회
-3. **위험 요소**: 주의해야 할 위협과 약점  
-4. **전략 방향**: 추천하는 마케팅 접근법
-5. **우선순위**: 가장 먼저 해야 할 3가지
-
-전문적이면서도 실행 가능한 분석을 제공해주세요."""
-
-            messages = [
-                {"role": "system", "content": "당신은 마케팅 전략 전문가로서 주어진 토픽별 지침에 따라 데이터 기반의 실용적인 분석을 제공합니다."},
-                {"role": "user", "content": analysis_prompt}
-            ]
-            
-            analysis_result = self.llm_manager.generate_response_sync(messages)
-            
-            # 분석 결과 저장
-            state.analysis_results = {
-                "primary_topics": topics,
-                "topic_prompts_used": list(topic_prompts.keys()),
-                "analysis_content": analysis_result,
-                "mcp_results": mcp_results,
-                "timestamp": datetime.now()
-            }
-            
-            # 제안 단계로 전환
-            state.update_stage(ConversationStage.PROPOSAL)
-            
-            return f"""🔍 **심층 분석 완료**
-
-{analysis_result}
-
----
-이제 이 분석을 바탕으로 **구체적인 마케팅 전략과 실행 계획**을 제안해드리겠습니다. 잠시만 기다려주세요! 🚀"""
-            
-        except Exception as e:
-            logger.error(f"분석 단계 처리 실패: {e}")
-            return "분석 중 오류가 발생했습니다. 다시 시도해주세요."
-    
-    def handle_proposal_stage(self, user_input: str, state: ConversationState) -> str:
-        """제안 단계 처리 - 토픽별 프롬프트 활용"""
-        
-        try:
-            # 분석에서 사용된 토픽들의 프롬프트 다시 로드
-            topics = state.analysis_results.get("primary_topics", [])
-            topic_prompts = {}
-            for topic in topics:
-                prompt_content = self.load_topic_prompt(topic)
-                if prompt_content:
-                    topic_prompts[topic] = prompt_content
-            
-            # ✅ 토픽별 지침이 포함된 제안 프롬프트
-            proposal_prompt = f"""분석 결과를 바탕으로 구체적이고 실행 가능한 마케팅 전략을 제안해주세요.
-
-고객 정보:
-{json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
-
-분석 결과:
-{state.analysis_results.get('analysis_content', '')}
-
-토픽별 제안 지침:
-{self._format_topic_prompts(topic_prompts)}
-
-다음 형태로 제안을 구성해주세요:
-
-## 🎯 맞춤 마케팅 전략
-
-### 1️⃣ 핵심 전략
-- 전략명: 
-- 목표: 
-- 예상 효과:
-
-### 2️⃣ 실행 계획 (4주 로드맵)
-**1주차:**
-- [ ] 액션 1
-- [ ] 액션 2
-
-**2주차:**
-- [ ] 액션 1  
-- [ ] 액션 2
-
-**3-4주차:**
-- [ ] 액션 1
-- [ ] 액션 2
-
-### 3️⃣ 예산 배분 권장안
-- 콘텐츠 제작: X%
-- 광고비: X%  
-- 도구/자동화: X%
-
-### 4️⃣ 성과 측정 지표
-- 주요 KPI: 
-- 측정 방법:
-- 목표치:
-
-### 5️⃣ 리스크 관리
-- 예상 리스크:
-- 대응 방안:
-
-이 제안에 대해 어떻게 생각하시나요? 수정하고 싶은 부분이 있으시면 말씀해주세요!"""
-
-            messages = [
-                {"role": "system", "content": "당신은 실전 마케팅 전략가로서 주어진 토픽별 지침에 따라 즉시 실행 가능한 구체적인 계획을 제시합니다."},
-                {"role": "user", "content": proposal_prompt}
-            ]
-            
-            proposal = self.llm_manager.generate_response_sync(messages)
-            
-            # 제안 저장
-            proposal_data = {
-                "content": proposal,
-                "topics_used": topics,
-                "timestamp": datetime.now(),
-                "version": len(state.proposals) + 1
-            }
-            state.proposals.append(proposal_data)
-            
-            # 피드백 단계로 전환
-            state.update_stage(ConversationStage.FEEDBACK)
-            
-            return proposal
-            
-        except Exception as e:
-            logger.error(f"제안 단계 처리 실패: {e}")
-            return "제안 생성 중 오류가 발생했습니다. 다시 시도해주세요."
-    
-    def handle_feedback_stage(self, user_input: str, state: ConversationState) -> str:
-        """피드백 단계 처리"""
-        
-        # 피드백 분석
-        feedback_analysis_prompt = f"""사용자의 피드백을 분석해주세요.
-
-제안된 전략:
-{state.proposals[-1]['content'] if state.proposals else '제안 없음'}
-
-사용자 피드백: "{user_input}"
-
-다음 JSON 형태로 분석해주세요:
-{{
-    "feedback_type": "positive|negative|neutral|modification_request",
-    "satisfaction_level": 0.8,
-    "specific_concerns": ["구체적인 우려사항들"],
-    "modification_requests": ["수정 요청사항들"],
-    "approved_elements": ["승인된 요소들"],
-    "needs_refinement": true/false,
-    "next_action": "refine|finalize|gather_more_info"
+    "flow_control": {{
+        "wants_immediate": true/false,
+        "wants_structured": true/false,
+        "stage_preference": "1|2|3|4|any|none",
+        "control_command": "pause|resume|skip|restart|next|none"
+    }},
+    "context_needs": {{
+        "use_existing_info": true/false,
+        "business_type_detection": "필요시 업종",
+        "personalization_level": "high|medium|low"
+    }},
+    "tool_requirements": {{
+        "needs_tool": true/false,
+        "tool_type": "trend_analysis|hashtag_analysis|content_generation|keyword_research|none",
+        "target_keyword": "분석할 주요 키워드",
+        "content_type": "blog|instagram|general",
+        "reasoning": "툴 사용 이유"
+    }},
+    "suggested_action": "추천하는 다음 액션"
 }}"""
 
         try:
             messages = [
-                {"role": "system", "content": "당신은 고객 피드백 분석 전문가입니다."},
-                {"role": "user", "content": feedback_analysis_prompt}
+                SystemMessage(content=self.intent_analysis_system_prompt),
+                HumanMessage(content=analysis_prompt)
             ]
             
-            feedback_response = self.llm_manager.generate_response_sync(messages, output_format="json")
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
             
-            if isinstance(feedback_response, str):
-                feedback_analysis = json.loads(feedback_response)
+            # JSON 파싱
+            if isinstance(response, str):
+                cleaned = clean_json_response(response)
+                try:
+                    logger.info("[단계 로그] 정보 추출 결과 파싱 시작")
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    logger.warning(f"JSON 파싱 실패: {cleaned[:100]}")
+                    return self._create_default_intent_analysis(user_input)
+                
+            return response
+            
+        except Exception as e:
+            logger.error(f"의도 분석 실패: {e}")
+            return self._create_default_intent_analysis(user_input)
+
+    def _create_default_intent_analysis(self, user_input: str) -> Dict[str, Any]:
+        """기본 의도 분석 결과"""
+        return {
+            "response_type": "immediate_answer",
+            "user_intent": {
+                "primary_goal": "마케팅 정보 획득",
+                "information_need": user_input,
+                "urgency_level": "medium",
+                "specificity": "general"
+            },
+            "flow_control": {
+                "wants_immediate": True,
+                "wants_structured": False,
+                "stage_preference": "any",
+                "control_command": "none"
+            },
+            "context_needs": {
+                "use_existing_info": False,
+                "business_type_detection": "일반",
+                "personalization_level": "medium"
+            },
+            "tool_requirements": {
+                "needs_tool": False,
+                "tool_type": "none",
+                "target_keyword": "",
+                "content_type": "general",
+                "reasoning": ""
+            },
+            "suggested_action": "provide_immediate_answer"
+        }
+
+    def generate_contextual_response(self, user_input: str, intent: Dict[str, Any], 
+                                         context: Dict[str, Any]) -> str:
+        """컨텍스트 기반 응답 생성"""
+        logger.info(f"[단계 로그] 컨텍스트 기반 응답 생성 시작 - 현재 단계: {context.get('current_stage', '없음')}")
+
+        
+        # 업종별 프롬프트 로드
+        stage_prompts = {}
+        if context.get('business_type') and context['business_type'] != '일반':
+            stage_prompts = self.load_stage_prompts_for_business(context['business_type'])
+        else:
+            stage_prompts = self.load_all_stage_prompts()
+        
+        response_prompt = f"""사용자의 마케팅 질문에 맞춤형 답변을 제공해주세요.
+
+사용자 질문: "{user_input}"
+
+의도 분석:
+{json.dumps(intent, ensure_ascii=False, indent=2)}
+
+현재 상황:
+- 업종: {context.get('business_type', '일반')}
+- 수집된 정보: {json.dumps(context.get('collected_info', {}), ensure_ascii=False)}
+- 현재 단계: {context.get('current_stage', '없음')}
+- 이전 대화: {context.get('history_summary', '새로운 대화')}
+
+중요 지침:
+1. 이미 알고 있는 사용자 정보를 적극 활용하세요
+2. 업종이 확인된 경우, 해당 업종을 직접 언급하며 맞춤형 조언 제공
+3. 예: "카페 창업"을 언급했다면, "어떤 비즈니스를 하시나요?" 대신 "카페 창업에 대한..."로 시작
+4. 사용자가 제공한 컨텍스트를 무시하지 말고 연결성 있게 응답
+
+활용 가능한 마케팅 가이드라인:
+{self._format_prompts_for_response(stage_prompts)}
+
+응답 요구사항:
+1. 사용자 상황에 맞는 개인화된 조언
+2. 즉시 실행 가능한 구체적 팁
+3. 친근하고 전문적인 톤
+4. 적절한 이모지와 구조화
+5. 필요시 후속 진행 제안
+
+응답 길이: 300-500자 내외"""
+
+        try:
+            messages = [
+                SystemMessage(content=self.response_generation_system_prompt),
+                HumanMessage(content=response_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"응답 생성 실패: {e}")
+            return f"마케팅 질문에 대한 조언을 준비 중입니다. 조금 더 구체적으로 알려주신게 필요합니다."
+
+    def _format_prompts_for_response(self, prompts: Dict[str, str]) -> str:
+        """응답 생성용 프롬프트 포맷팅"""
+        if not prompts:
+            return "일반적인 마케팅 가이드라인을 활용합니다."
+        
+        formatted = []
+        for name, content in prompts.items():
+            # 프롬프트 내용을 요약해서 포함 (너무 길면 잘라냄)
+            summary = content[:200] + "..." if len(content) > 200 else content
+            formatted.append(f"[{name}] {summary}")
+        
+        return "\n".join(formatted)
+
+    def determine_next_action(self, user_input: str, intent: Dict[str, Any], 
+                                  context: Dict[str, Any]) -> Dict[str, Any]:
+        """다음 액션 결정"""
+        logger.info(f"[단계 로그] 다음 액션 결정 시작 - 의도 타입: {intent.get('response_type', '알 수 없음')}")
+
+        
+        action_prompt = f"""현재 마케팅 상담 상황에서 다음 액션을 결정해주세요.
+
+사용자 입력: "{user_input}"
+의도 분석: {json.dumps(intent, ensure_ascii=False)}
+현재 컨텍스트: {json.dumps(context, ensure_ascii=False)}
+
+JSON 형태로 제공해주세요:
+{{
+    "recommended_action": "continue_immediate|start_structured|jump_to_stage|collect_info|provide_strategy|pause",
+    "reasoning": "추천 이유",
+    "parameters": {{
+        "target_stage": "이동할 단계 (해당시)",
+        "info_needed": ["수집할 정보들"],
+        "immediate_response": true/false
+    }},
+    "user_options": ["사용자 선택지들"],
+    "follow_up": "후속 진행 방향"
+}}"""
+
+        try:
+            messages = [
+                SystemMessage(content=self.flow_control_system_prompt),
+                HumanMessage(content=action_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            # JSON 파싱
+            if isinstance(response, str):
+                cleaned = clean_json_response(response)
+                try:
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    logger.warning(f"JSON 파싱 실패: {cleaned[:100]}")
+                    return self._create_default_action_result()
+            return response
+            
+        except Exception as e:
+            logger.error(f"다음 액션 결정 실패: {e}")
+            return self._create_default_action_result()
+    
+    def _create_default_action_result(self) -> Dict[str, Any]:
+        """기본 액션 결과"""
+        return {
+            "recommended_action": "continue_immediate",
+            "reasoning": "즉시 응답 제공",
+            "parameters": {"immediate_response": True},
+            "user_options": ["체계적 상담 시작", "추가 질문"],
+            "follow_up": "상황에 따라 진행"
+        }
+
+    def detect_business_type_with_llm(self, user_input: str, context: Dict[str, Any]) -> str:
+        """LLM 기반 업종 감지"""
+        logger.info(f"[단계 로그] 업종 감지 시작 - 현재 컨텍스트: {context.get('business_type', '미확인')}")
+
+        
+        detection_prompt = f"""다음 사용자 입력에서 비즈니스 업종을 감지해주세요.
+
+사용자 입력: "{user_input}"
+기존 컨텍스트: {json.dumps(context.get('collected_info', {}), ensure_ascii=False)}
+
+다음 중에서 가장 적합한 업종을 선택하거나 새로운 업종을 제안해주세요:
+- 앱 (모바일앱, 게임앱, 생산성앱 등)
+- 뷰티 (미용실, 네일샵, 피부관리, 뷰티 플랫폼 등)
+- 크리에이터 (유튜브, 인플루언서, 1인 콘텐츠 제작자 등)
+- 음식점 (카페, 레스토랑, 배달전문점, 푸드트럭 등)
+- 온라인쇼핑몰 (이커머스, 온라인 셀러, 라이브커머스 등)
+- 서비스업 (컨설팅, 교육, 헬스케어 등)
+- 기타 (신규 업종 또는 융합 업종 등)
+
+업종명만 간단히 답변해주세요. (예: "뷰티", "음식점", "온라인쇼핑몰")"""
+
+        try:
+            messages = [
+                SystemMessage(content="업종 분류 전문가입니다. 간결하게 업종명만 답변합니다."),
+                HumanMessage(content=detection_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            return response.strip() if response else "일반"
+            
+        except Exception as e:
+            logger.error(f"업종 감지 실패: {e}")
+            return "일반"
+
+    async def execute_marketing_tool(self, user_input: str, intent_analysis: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """마케팅 툴 실행"""
+        try:
+            tool_requirements = intent_analysis.get("tool_requirements", {})
+            tool_type = tool_requirements.get("tool_type", "none")
+            target_keyword = tool_requirements.get("target_keyword", "")
+            content_type = tool_requirements.get("content_type", "general")
+            current_stage = context.get("current_stage", "any_question")
+            
+            if not self.analysis_tools:
+                return {
+                    "success": False,
+                    "error": "마케팅 분석 도구가 초기화되지 않았습니다.",
+                    "tool_type": tool_type
+                }
+            
+            logger.info(f"[툴 실행] 툴 타입: {tool_type}, 키워드: {target_keyword}, 현재 단계: {current_stage}")
+            
+            # 콘텐츠 생성은 4단계(실행 계획)에서만 가능
+            if tool_type == "content_generation":
+                if current_stage != "stage_4_execution":
+                    return {
+                        "success": False,
+                        "error": "콘텐츠 생성은 4단계(실행 계획) 단계에서만 가능합니다.",
+                        "tool_type": tool_type,
+                        "stage_requirement": "stage_4_execution",
+                        "current_stage": current_stage,
+                        "suggestion": "먼저 1단계(목표 정의) → 2단계(타겟 분석) → 3단계(전략 기획)를 완료한 후 콘텐츠를 생성해보세요."
+                    }
+            
+            # 키워드가 없으면 사용자 입력에서 추출
+            if not target_keyword:
+                target_keyword = await self._extract_keyword_from_input(user_input)
+            
+            # 툴 타입별 실행
+            if tool_type == "trend_analysis":
+                keywords = [target_keyword] + await self._generate_related_keywords(target_keyword, 4)
+                result = await self.analysis_tools.analyze_naver_trends(keywords)
+                
+            elif tool_type == "hashtag_analysis":
+                result = await self.analysis_tools.analyze_instagram_hashtags(
+                    question=user_input,
+                    user_hashtags=[target_keyword]
+                )
+                
+            elif tool_type == "content_generation":
+                # 이미 위에서 단계 체크를 했으므로 여기서는 바로 실행
+                if content_type == "blog":
+                    result = await self.analysis_tools.create_blog_content_workflow(target_keyword)
+                elif content_type == "instagram":
+                    result = await self.analysis_tools.create_instagram_content_workflow(target_keyword)
+                else:
+                    # 일반적인 콘텐츠 생성
+                    result = await self.analysis_tools.generate_instagram_content()
+                    
+            elif tool_type == "keyword_research":
+                keywords = await self.analysis_tools.generate_related_keywords(target_keyword, 15)
+                trend_result = await self.analysis_tools.analyze_naver_trends(keywords[:5])
+                result = {
+                    "success": True,
+                    "keywords": keywords,
+                    "trend_data": trend_result
+                }
+                
             else:
-                feedback_analysis = feedback_response
+                return {
+                    "success": False,
+                    "error": f"지원하지 않는 툴 타입: {tool_type}",
+                    "tool_type": tool_type
+                }
+            
+            # 결과에 툴 정보 추가
+            if isinstance(result, dict):
+                result["tool_type"] = tool_type
+                result["target_keyword"] = target_keyword
+                result["content_type"] = content_type
+            
+            logger.info(f"[툴 실행] 완료: {result.get('success', False)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"마케팅 툴 실행 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "tool_type": tool_requirements.get("tool_type", "unknown")
+            }
+    
+    async def generate_response_with_tool_result(self, user_input: str, intent_analysis: Dict[str, Any], 
+                                               context: Dict[str, Any], tool_result: Dict[str, Any]) -> str:
+        """툴 결과를 포함한 응답 생성"""
+        try:
+            tool_type = tool_result.get("tool_type", "unknown")
+            success = tool_result.get("success", False)
+            
+            if not success:
+                error_msg = tool_result.get("error", "알 수 없는 오류")
+                
+                # 단계 제한 오류 특별 처리 (콘텐츠 생성)
+                if "stage_requirement" in tool_result:
+                    current_stage = tool_result.get("current_stage", "unknown")
+                    required_stage = tool_result.get("stage_requirement", "unknown")
+                    suggestion = tool_result.get("suggestion", "")
+                    
+                    response = f"🚧 **콘텐츠 생성 단계 안내**\n\n"
+                    response += f"현재 단계: **{current_stage}**\n"
+                    response += f"요구 단계: **{required_stage}**\n\n"
+                    response += f"📄 **안내사항**:\n{suggestion}\n\n"
+                    response += "🚀 **단계별 진행 방법**:\n"
+                    response += "• '단계 이동' 또는 '4단계로 이동'이라고 말씩하세요\n"
+                    response += "• '체계적 상담 시작'으로 1단계부터 진행하세요\n"
+                    response += "• 현재 단계에서 다른 마케팅 질문을 해주세요"
+                    
+                    return response
+                
+                # 일반적인 오류 처리
+                return f"죄송합니다. {tool_type} 분석 중 오류가 발생했습니다: {error_msg}\n\n일반적인 마케팅 조언을 드리겠습니다."
+            
+            # 툴 타입별 결과 포맷팅
+            if tool_type == "trend_analysis":
+                return await self._format_trend_analysis_response(user_input, tool_result, context)
+            elif tool_type == "hashtag_analysis":
+                return await self._format_hashtag_analysis_response(user_input, tool_result, context)
+            elif tool_type == "content_generation":
+                return await self._format_content_generation_response(user_input, tool_result, context)
+            elif tool_type == "keyword_research":
+                return await self._format_keyword_research_response(user_input, tool_result, context)
+            else:
+                return await self._format_general_tool_response(user_input, tool_result, context)
                 
         except Exception as e:
-            logger.error(f"피드백 분석 실패: {e}")
-            feedback_analysis = {
-                "feedback_type": "neutral",
-                "satisfaction_level": 0.7,
-                "needs_refinement": True,
-                "next_action": "refine"
-            }
-        
-        # 피드백 저장
-        state.add_feedback({
-            "user_input": user_input,
-            "analysis": feedback_analysis
-        })
-        
-        # 다음 액션 결정
-        if feedback_analysis.get("next_action") == "finalize":
-            state.update_stage(ConversationStage.FINAL_RESULT)
-            return "완벽합니다! 최종 전략 문서를 작성하겠습니다..."
-        elif feedback_analysis.get("next_action") == "refine":
-            state.update_stage(ConversationStage.REFINEMENT)
-            return self.handle_refinement_stage(user_input, state, feedback_analysis)
-        else:
-            return f"""피드백 감사합니다! 
-
-분석 결과:
-- 만족도: {feedback_analysis.get('satisfaction_level', 0.7):.1%}
-- 피드백 유형: {feedback_analysis.get('feedback_type', 'neutral')}
-
-더 구체적으로 어떤 부분을 수정하면 좋을지 알려주세요!"""
+            logger.error(f"툴 결과 응답 생성 실패: {e}")
+            return "마케팅 분석을 진행했지만 결과 처리 중 오류가 발생했습니다. 다시 시도해주세요."
     
-    def handle_refinement_stage(self, user_input: str, state: ConversationState, feedback_analysis: Dict[str, Any]) -> str:
-        """수정 단계 처리"""
-        
+    async def _extract_keyword_from_input(self, user_input: str) -> str:
+        """사용자 입력에서 키워드 추출"""
         try:
-            # 수정 프롬프트
-            refinement_prompt = f"""사용자 피드백을 반영하여 마케팅 전략을 수정해주세요.
-
-기존 제안:
-{state.proposals[-1]['content'] if state.proposals else ''}
-
-사용자 피드백 분석:
-{json.dumps(feedback_analysis, ensure_ascii=False, indent=2)}
-
-사용자 의견: "{user_input}"
-
-피드백을 적극 반영하여 수정된 전략을 제시해주세요. 
-기존 구조를 유지하되, 사용자가 우려한 부분을 개선하고 요청사항을 반영해주세요."""
-
+            from shared_modules import get_llm_manager
+            llm_manager = get_llm_manager()
+            
             messages = [
-                {"role": "system", "content": "당신은 고객 맞춤형 전략 수정 전문가입니다."},
-                {"role": "user", "content": refinement_prompt}
+                {"role": "system", "content": "사용자 입력에서 마케팅 분석에 가장 적합한 주요 키워드 1개를 추출하세요. 키워드만 출력하세요."},
+                {"role": "user", "content": f"다음 질문에서 주요 키워드를 추출해주세요: {user_input}"}
             ]
             
-            refined_proposal = self.llm_manager.generate_response_sync(messages)
-            
-            # 수정된 제안 저장
-            refinement_data = {
-                "content": refined_proposal,
-                "original_feedback": user_input,
-                "feedback_analysis": feedback_analysis,
-                "timestamp": datetime.now(),
-                "version": len(state.refinements) + 1
-            }
-            state.refinements.append(refinement_data)
-            
-            # 다시 피드백 단계로
-            state.update_stage(ConversationStage.FEEDBACK)
-            
-            return f"""✨ **수정된 전략 제안**
-
-{refined_proposal}
-
----
-이번 수정안은 어떠신가요? 추가로 조정할 부분이 있으시면 언제든 말씀해주세요!"""
+            result = llm_manager.generate_response_sync(messages)
+            return result.strip() if result else "마케팅"
             
         except Exception as e:
-            logger.error(f"수정 단계 처리 실패: {e}")
-            return "전략 수정 중 오류가 발생했습니다. 다시 시도해주세요."
+            logger.error(f"키워드 추출 실패: {e}")
+            return "마케팅"
     
-    def handle_final_result_stage(self, user_input: str, state: ConversationState) -> str:
-        """최종 결과 단계 처리"""
-        
+    async def _generate_related_keywords(self, base_keyword: str, count: int = 5) -> List[str]:
+        """관련 키워드 생성 (간단 버전)"""
         try:
-            # 최종 전략 문서 생성
-            final_prompt = f"""모든 피드백을 반영한 최종 마케팅 전략 문서를 작성해주세요.
-
-고객 정보:
-{json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
-
-최종 제안:
-{(state.refinements[-1]['content'] if state.refinements else state.proposals[-1]['content']) if (state.refinements or state.proposals) else ''}
-
-피드백 히스토리:
-{json.dumps([f['analysis'] for f in state.feedback_history], ensure_ascii=False, indent=2)}
-
-다음 형태로 완성된 최종 문서를 작성해주세요:
-
-# 🎯 [고객명] 맞춤 마케팅 전략 문서
-
-## 📋 프로젝트 개요
-- 고객: [비즈니스 정보]
-- 목표: [주요 목표]
-- 기간: [타임라인]
-- 예산: [예산 정보]
-
-## 🔍 현황 분석
-[분석 요약]
-
-## 🚀 실행 전략
-[확정된 전략]
-
-## 📅 4주 실행 로드맵
-[상세 실행 계획]
-
-## 💰 예산 가이드
-[예산 배분]
-
-## 📊 성과 측정
-[KPI 및 측정 방법]
-
-## ⚠️ 주의사항 & 팁
-[실행 시 주의점]
-
-## 🔄 다음 단계
-[전략 실행 후 해야할 일들]
-
----
-**마케팅 전략 수립이 완료되었습니다!** 🎉
-추가 질문이나 실행 과정에서 도움이 필요하시면 언제든 연락해주세요."""
-
-            messages = [
-                {"role": "system", "content": "당신은 최종 마케팅 전략 문서 작성 전문가입니다."},
-                {"role": "user", "content": final_prompt}
-            ]
-            
-            final_document = self.llm_manager.generate_response_sync(messages)
-            
-            # 최종 결과 저장
-            state.final_strategy = {
-                "content": final_document,
-                "timestamp": datetime.now(),
-                "total_iterations": len(state.refinements) + 1
-            }
-            
-            # 완료 단계로 전환
-            state.update_stage(ConversationStage.COMPLETED)
-            
-            return final_document
-            
+            if self.analysis_tools:
+                keywords = await self.analysis_tools.generate_related_keywords(base_keyword, count)
+                return keywords[1:]  # 기본 키워드 제외
+            return []
         except Exception as e:
-            logger.error(f"최종 결과 생성 실패: {e}")
-            return "최종 문서 생성 중 오류가 발생했습니다. 다시 시도해주세요."
-    
-    def get_relevant_knowledge(self, query: str, topics: List[str] = None) -> List[str]:
-        """실제 전문 지식 검색 (벡터DB - 프롬프트 파일 제외)"""
-        try:
-            # ✅ 실제 전문 지식만 검색 (프롬프트 파일은 제외)
-            search_results = self.vector_manager.search_documents(
-                query=query,
-                collection_name=self.knowledge_collection,
-                k=5
-            )
-            
-            # 프롬프트 파일은 필터링 제외
-            filtered_results = []
-            for doc in search_results:
-                # 프롬프트 파일이 아닌 실제 지식 콘텐츠만
-                if doc.metadata.get('type') != 'prompt_template':
-                    filtered_results.append(doc)
-            
-            # 전문 지식 내용 추출
-            knowledge_texts = []
-            for doc in filtered_results[:3]:
-                knowledge_area = doc.metadata.get('knowledge_area', '일반')
-                content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
-                knowledge_texts.append(f"[{knowledge_area}]\n{content}")
-            
-            return knowledge_texts
-            
-        except Exception as e:
-            logger.error(f"전문 지식 검색 실패: {e}")
+            logger.error(f"관련 키워드 생성 실패: {e}")
             return []
     
-    def process_user_query(
-        self, 
-        user_input: str, 
-        user_id: int, 
-        conversation_id: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """사용자 쿼리 처리 - 멀티턴 대화 플로우 메인 엔트리포인트"""
+    async def _format_trend_analysis_response(self, user_input: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """트렌드 분석 결과 포맷팅"""
+        try:
+            data = tool_result.get("data", [])
+            keywords = tool_result.get("keywords", [])
+            period = tool_result.get("period", "")
+            
+            response = f"📈 **키워드 트렌드 분석 결과**\n\n"
+            response += f"🔍 **분석 기간**: {period}\n"
+            response += f"🎯 **분석 키워드**: {', '.join(keywords)}\n\n"
+            
+            if data:
+                response += "📊 **트렌드 순위**:\n"
+                # 트렌드 데이터 정렬 및 표시
+                trend_scores = []
+                for result in data[:5]:  # 상위 5개만
+                    if "data" in result:
+                        scores = [item["ratio"] for item in result["data"] if "ratio" in item]
+                        avg_score = sum(scores) / len(scores) if scores else 0
+                        trend_scores.append((result["title"], avg_score))
+                
+                trend_scores.sort(key=lambda x: x[1], reverse=True)
+                
+                for i, (keyword, score) in enumerate(trend_scores, 1):
+                    response += f"{i}. **{keyword}** (평균 검색량: {score:.1f})\n"
+                
+                response += "\n💡 **마케팅 인사이트**:\n"
+                if trend_scores:
+                    top_keyword = trend_scores[0][0]
+                    response += f"• '{top_keyword}'가 가장 높은 검색 트렌드를 보이고 있습니다.\n"
+                    response += f"• 이 키워드를 중심으로 콘텐츠를 제작하면 높은 관심도를 얻을 수 있습니다.\n"
+                
+            else:
+                response += "트렌드 데이터를 가져오는데 문제가 있었습니다. 일반적인 키워드 활용 방안을 제시드리겠습니다.\n"
+            
+            # 후속 제안
+            response += "\n🎬 **다음 단계 제안**:\n"
+            response += "• 블로그 콘텐츠 제작\n• 인스타그램 해시태그 분석\n• SEO 최적화 전략 수립\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"트렌드 분석 응답 포맷팅 실패: {e}")
+            return "트렌드 분석을 완료했지만 결과 정리 중 오류가 발생했습니다."
+    
+    async def _format_hashtag_analysis_response(self, user_input: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """해시태그 분석 결과 포맷팅"""
+        try:
+            searched_hashtags = tool_result.get("searched_hashtags", [])
+            popular_hashtags = tool_result.get("popular_hashtags", [])
+            total_posts = tool_result.get("total_posts", 0)
+            
+            response = f"#️⃣ **인스타그램 해시태그 분석 결과**\n\n"
+            response += f"🔍 **분석 해시태그**: #{', #'.join(searched_hashtags)}\n"
+            response += f"📊 **분석된 포스트 수**: {total_posts:,}개\n\n"
+            
+            if popular_hashtags:
+                response += "🔥 **추천 인기 해시태그**:\n"
+                for i, hashtag in enumerate(popular_hashtags[:15], 1):
+                    if not hashtag.startswith('#'):
+                        hashtag = f"#{hashtag}"
+                    response += f"{i}. {hashtag}\n"
+                
+                response += "\n💡 **해시태그 활용 팁**:\n"
+                response += "• 인기 해시태그와 틈새 해시태그를 적절히 조합하세요\n"
+                response += "• 포스트당 20-30개의 해시태그 사용을 권장합니다\n"
+                response += "• 브랜드만의 고유 해시태그도 함께 활용하세요\n"
+            else:
+                response += "해시태그 데이터 수집에 문제가 있었습니다. 일반적인 해시태그 전략을 제안드리겠습니다.\n"
+            
+            # 후속 제안
+            response += "\n📝 **다음 단계 제안**:\n"
+            response += "• 인스타그램 콘텐츠 제작\n• 해시태그 성과 분석\n• 경쟁사 해시태그 연구\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"해시태그 분석 응답 포맷팅 실패: {e}")
+            return "해시태그 분석을 완료했지만 결과 정리 중 오류가 발생했습니다."
+    
+    async def _format_content_generation_response(self, user_input: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """콘텐츠 생성 결과 포맷팅"""
+        try:
+            content_type = tool_result.get("content_type", "general")
+            base_keyword = tool_result.get("base_keyword", "")
+            
+            response = f"✍️ **{content_type.upper()} 콘텐츠 생성 완료**\n\n"
+            response += f"🎯 **주요 키워드**: {base_keyword}\n\n"
+            
+            if content_type == "blog":
+                blog_content = tool_result.get("blog_content", {})
+                if blog_content and "full_content" in blog_content:
+                    response += "📝 **생성된 블로그 콘텐츠**:\n"
+                    response += f"{blog_content['full_content'][:1000]}...\n\n"
+                    response += f"📊 **콘텐츠 정보**: 약 {blog_content.get('word_count', 0)}단어\n"
+                
+            elif content_type == "instagram":
+                instagram_content = tool_result.get("instagram_content", {})
+                if instagram_content and "post_content" in instagram_content:
+                    response += "📱 **생성된 인스타그램 포스트**:\n"
+                    response += f"{instagram_content['post_content']}\n\n"
+                    
+                    hashtags = instagram_content.get("selected_hashtags", [])
+                    if hashtags:
+                        response += f"#️⃣ **추천 해시태그** ({len(hashtags)}개):\n"
+                        response += " ".join(hashtags[:20]) + "\n\n"
+            
+            # 관련 키워드 정보
+            related_keywords = tool_result.get("related_keywords", [])
+            if related_keywords:
+                response += f"🔑 **관련 키워드**: {', '.join(related_keywords[:10])}\n\n"
+            
+            response += "💡 **활용 가이드**:\n"
+            response += "• 생성된 콘텐츠를 브랜드 톤앤매너에 맞게 수정하세요\n"
+            response += "• 타겟 고객의 관심사를 반영해 개인화하세요\n"
+            response += "• 정기적인 콘텐츠 업데이트로 지속적인 관심을 유도하세요\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"콘텐츠 생성 응답 포맷팅 실패: {e}")
+            return "콘텐츠 생성을 완료했지만 결과 정리 중 오류가 발생했습니다."
+    
+    async def _format_keyword_research_response(self, user_input: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """키워드 연구 결과 포맷팅"""
+        try:
+            keywords = tool_result.get("keywords", [])
+            trend_data = tool_result.get("trend_data", {})
+            
+            response = f"🔍 **키워드 연구 결과**\n\n"
+            
+            if keywords:
+                response += f"📝 **추천 키워드** ({len(keywords)}개):\n"
+                for i, keyword in enumerate(keywords[:15], 1):
+                    response += f"{i}. {keyword}\n"
+                response += "\n"
+            
+            if trend_data.get("success") and trend_data.get("data"):
+                response += "📈 **트렌드 분석**:\n"
+                for result in trend_data["data"][:5]:
+                    if "data" in result:
+                        scores = [item["ratio"] for item in result["data"] if "ratio" in item]
+                        avg_score = sum(scores) / len(scores) if scores else 0
+                        response += f"• {result['title']}: 평균 검색량 {avg_score:.1f}\n"
+                response += "\n"
+            
+            response += "🎯 **SEO 활용 전략**:\n"
+            response += "• 장꼬리 키워드(Long-tail)를 활용해 경쟁도를 낮추세요\n"
+            response += "• 계절성과 트렌드를 고려한 키워드 선택을 하세요\n"
+            response += "• 지역 기반 키워드로 로컬 SEO를 강화하세요\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"키워드 연구 응답 포맷팅 실패: {e}")
+            return "키워드 연구를 완료했지만 결과 정리 중 오류가 발생했습니다."
+    
+    async def _format_general_tool_response(self, user_input: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """일반 툴 결과 포맷팅"""
+        return f"마케팅 분석을 완료했습니다. 결과를 바탕으로 맞춤형 전략을 제안드리겠습니다."
+
+    def load_stage_prompts_for_business(self, business_type: str) -> Dict[str, str]:
+        """업종별 단계 프롬프트 로드"""
+        prompts = {}
+        
+        # 업종별 프롬프트 파일 매핑
+        business_prompt_mapping = {
+            "뷰티": [
+                "personal_branding.md", "social_media_marketing.md", "local_marketing.md",
+                "content_marketing.md", "influencer_marketing.md", "blog_marketing.md"
+            ],
+            "음식점": [
+                "local_marketing.md", "social_media_marketing.md", "content_marketing.md",
+                "email_marketing.md", "blog_marketing.md", "marketing_fundamentals.md"
+            ],
+            "온라인쇼핑몰": [
+                "digital_advertising.md", "content_marketing.md", "conversion_optimization.md",
+                "marketing_automation.md", "email_marketing.md", "marketing_metrics.md"
+            ],
+            "서비스업": [
+                "personal_branding.md", "content_marketing.md", "blog_marketing.md",
+                "marketing_fundamentals.md", "marketing_metrics.md"
+            ],
+            "앱": [
+                "viral_marketing.md", "email_marketing.md", "marketing_metrics.md",
+                "content_marketing.md"
+            ],
+            "크리에이터": [
+                "personal_branding.md",
+                "content_marketing.md", "blog_marketing.md", "social_media_marketing.md",
+                "influencer_marketing.md"
+            ]
+        }
+
+        
+        prompt_files = business_prompt_mapping.get(business_type, [])
+        
+        for prompt_file in prompt_files:
+            try:
+                prompt_path = self.prompts_dir / prompt_file
+                if prompt_path.exists():
+                    with open(prompt_path, 'r', encoding='utf-8') as f:
+                        prompts[prompt_file.replace('.md', '')] = f.read()
+            except Exception as e:
+                logger.error(f"프롬프트 로드 실패 ({prompt_file}): {e}")
+        
+        return prompts
+
+    def load_all_stage_prompts(self) -> Dict[str, str]:
+        """모든 단계 프롬프트 로드"""
+        prompts = {}
+        
+        all_prompt_files = [
+            "marketing_fundamentals.md",
+            "marketing_metrics.md", 
+            "personal_branding.md",
+            "social_media_marketing.md",
+            "influencer_marketing.md",
+            "local_marketing.md",
+            "digital_advertising.md",
+            "content_marketing.md",
+            "blog_marketing.md",
+            "viral_marketing.md",
+            "conversion_optimization.md",
+            "email_marketing.md",
+            "marketing_automation.md"
+        ]
+        
+        for prompt_file in all_prompt_files:
+            try:
+                prompt_path = self.prompts_dir / prompt_file
+                if prompt_path.exists():
+                    with open(prompt_path, 'r', encoding='utf-8') as f:
+                        prompts[prompt_file.replace('.md', '')] = f.read()
+            except Exception as e:
+                logger.error(f"프롬프트 로드 실패 ({prompt_file}): {e}")
+        
+        return prompts
+
+    def get_or_create_conversation_state(self, conversation_id: int, user_id: int) -> 'FlexibleConversationState':
+        """대화 상태 조회 또는 생성"""
+        if conversation_id not in self.conversation_states:
+            self.conversation_states[conversation_id] = FlexibleConversationState(conversation_id, user_id)
+        return self.conversation_states[conversation_id]
+
+    def handle_flow_control(self, command: str, state: 'FlexibleConversationState', 
+                                user_input: str) -> Dict[str, Any]:
+        """진행 제어 처리"""
+        logger.info(f"[단계 로그] 진행 제어 처리 - 명령: {command}, 현재 단계: {state.current_stage.value}")
+
+        
+        if command == "pause":
+            state.is_paused = True
+            return {
+                "action": "paused",
+                "message": f"🛑 대화를 일시 중단했습니다.\n\n현재 진행 상황을 저장했습니다. '재개'라고 말씀하시면 이어서 진행하겠습니다.",
+                "pause_info": {
+                    "stage": state.current_stage.value,
+                    "completion": state.get_overall_completion_rate(),
+                    "paused_at": datetime.now().isoformat()
+                }
+            }
+        
+        elif command == "resume":
+            state.is_paused = False
+            return {
+                "action": "resumed", 
+                "message": f"▶️ 대화를 재개합니다!\n\n현재 {state.current_stage.value} 단계에서 계속 진행하겠습니다.",
+                "current_stage": state.current_stage.value
+            }
+        
+        elif command == "skip":
+            available_stages = [s for s in MarketingStage if s != state.current_stage and s not in [MarketingStage.ANY_QUESTION, MarketingStage.COMPLETED]]
+            return {
+                "action": "stage_selection",
+                "message": "어떤 단계로 이동하시겠습니까?",
+                "options": [s.value for s in available_stages]
+            }
+        
+        elif command == "restart":
+            state.reset_conversation()
+            return {
+                "action": "restarted",
+                "message": "🔄 처음부터 다시 시작합니다!\n\n어떤 방식으로 진행하시겠습니까?",
+                "options": ["체계적 4단계 진행", "즉시 질문 응답", "특정 단계로 이동"]
+            }
+        
+        elif command == "next":
+            next_stage = state.get_next_stage()
+            if next_stage:
+                state.current_stage = next_stage
+                return {
+                    "action": "next_stage",
+                    "message": f"⏭️ {next_stage.value} 단계로 이동했습니다.",
+                    "new_stage": next_stage.value
+                }
+            else:
+                return {
+                    "action": "no_next_stage",
+                    "message": "더 이상 진행할 단계가 없습니다. 현재 단계를 완료해주세요."
+                }
+        
+        return {"action": "unknown_command", "message": f"'{command}' 명령을 인식할 수 없습니다."}
+
+    def jump_to_stage(self, target_stage: str, state: 'FlexibleConversationState') -> Dict[str, Any]:
+        """특정 단계로 이동"""
+        
+        stage_mapping = {
+            "1": MarketingStage.STAGE_1_GOAL,
+            "2": MarketingStage.STAGE_2_TARGET,
+            "3": MarketingStage.STAGE_3_STRATEGY,
+            "4": MarketingStage.STAGE_4_EXECUTION,
+            "목표": MarketingStage.STAGE_1_GOAL,
+            "타겟": MarketingStage.STAGE_2_TARGET,
+            "전략": MarketingStage.STAGE_3_STRATEGY,
+            "실행": MarketingStage.STAGE_4_EXECUTION,
+            "any": MarketingStage.ANY_QUESTION
+        }
+        
+        if target_stage not in stage_mapping:
+            return {
+                "success": False,
+                "message": f"'{target_stage}' 단계를 찾을 수 없습니다.",
+                "available_stages": list(stage_mapping.keys())
+            }
+        
+        target_stage_enum = stage_mapping[target_stage]
+        state.current_stage = target_stage_enum
+        state.updated_at = datetime.now()
+        
+        # 자연스러운 단계 전환 메시지 (수집된 정보 활용)
+        business_info = state.get_information("business_info_business_type") or "비즈니스"
+        
+        stage_messages = {
+            MarketingStage.STAGE_1_GOAL: self._create_goal_stage_message(state),
+            MarketingStage.STAGE_2_TARGET: self._create_target_stage_message(state),
+            MarketingStage.STAGE_3_STRATEGY: self._create_strategy_stage_message(state),
+            MarketingStage.STAGE_4_EXECUTION: self._create_execution_stage_message(state),
+            MarketingStage.ANY_QUESTION: "자유롭게 마케팅 질문을 해주세요. 바로 답변드리겠습니다!"
+        }
+        
+        return {
+            "success": True,
+            "message": stage_messages[target_stage_enum],
+            "new_stage": target_stage_enum.value
+        }
+    
+    def _create_goal_stage_message(self, state: 'FlexibleConversationState') -> str:
+        """목표 정의 단계 메시지 생성"""
+        business_type = state.get_information("business_info_business_type")
+        if business_type:
+            return f"🎯 {business_type} 비즈니스의 마케팅 목표를 명확히 해보세요! 구체적으로 어떤 결과를 얻고 싶으신가요? (예: 매출 증대, 브랜드 인지도 향상, 고객 유치 등)"
+        else:
+            return "🎯 마케팅 목표를 명확히 해보세요! 어떤 비즈니스를 운영하시고, 구체적으로 어떤 결과를 얻고 싶으신가요?"
+    
+    def _create_target_stage_message(self, state: 'FlexibleConversationState') -> str:
+        """타겟 분석 단계 메시지 생성"""
+        business_type = state.get_information("business_info_business_type") or state.detected_business_type
+        if business_type and business_type != "일반":
+            return f"🎯 {business_type} 고객들을 더 잘 이해해보세요! 주요 타겟 고객은 누구인가요? 연령대, 성별, 관심사, 라이프스타일 등을 알려주세요."
+        else:
+            return "🎯 타겟 고객 분석을 시작합니다! 주요 타겟 고객은 누구인가요? 연령대, 성별, 관심사, 라이프스타일 등을 알려주세요."
+    
+    def _create_strategy_stage_message(self, state: 'FlexibleConversationState') -> str:
+        """전략 기획 단계 메시지 생성"""
+        business_type = state.get_information("business_info_business_type") or state.detected_business_type
+        if business_type and business_type != "일반":
+            return f"📊 {business_type}에 적합한 마케팅 전략을 세워보세요! 어떤 마케팅 채널에 집중하고 싶으신가요? (예: SNS, 블로그, 광고, 이벤트 등)"
+        else:
+            return "📊 마케팅 전략 기획 단계입니다! 어떤 마케팅 채널에 집중하고 싶으신가요? 예산과 목표도 함께 알려주세요."
+    
+    def _create_execution_stage_message(self, state: 'FlexibleConversationState') -> str:
+        """실행 계획 단계 메시지 생성"""
+        business_type = state.get_information("business_info_business_type") or state.detected_business_type
+        if business_type and business_type != "일반":
+            return f"🚀 {business_type} 마케팅 실행 단계입니다! 이제 구체적인 콘텐츠나 캐페인을 만들어보세요. 블로그 글, 인스타그램 포스트, 광고 콘텐츠 중 무엇을 만들고 싶으신가요?"
+        else:
+            return "🚀 마케팅 실행 단계입니다! 이제 구체적인 콘텐츠나 캐페인을 만들어보세요. 블로그 글, 인스타그램 포스트, 광고 콘텐츠 중 무엇을 만들고 싶으신가요?"
+
+    def prepare_conversation_context(self, user_id: int, conversation_id: Optional[int]) -> Dict[str, Any]:
+        """대화 컨텍스트 준비"""
+        
+        context = {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "conversation_mode": "flexible",
+            "current_stage": MarketingStage.ANY_QUESTION.value,
+            "collected_info": {},
+            "business_type": "일반",
+            "history_summary": "새로운 대화"
+        }
+        
+        if conversation_id and conversation_id in self.conversation_states:
+            state = self.conversation_states[conversation_id]
+            context.update({
+                "current_stage": state.current_stage.value,
+                "collected_info": state.collected_info,
+                "business_type": state.detected_business_type,
+                "history_summary": self.summarize_conversation_history(state)
+            })
+        
+        return context
+
+    def summarize_conversation_history(self, state: 'FlexibleConversationState') -> str:
+        """대화 히스토리 요약"""
+        
+        if not hasattr(state, 'conversation_history') or not state.conversation_history:
+            return "새로운 대화"
+        
+        # 최근 대화 요약 (간단하게)
+        recent = state.conversation_history[-3:]
+        collected_info = state.collected_info
+        
+        summary_parts = []
+        if collected_info:
+            summary_parts.append(f"수집된 정보: {len(collected_info)}개 항목")
+        if state.detected_business_type != "일반":
+            summary_parts.append(f"업종: {state.detected_business_type}")
+        
+        return " | ".join(summary_parts) if summary_parts else "마케팅 상담 진행 중"
+
+    async def process_user_query(self, user_input: str, user_id: int, 
+                          conversation_id: Optional[int] = None) -> Dict[str, Any]:
+        """메인 쿼리 처리 함수"""
+        return await self._process_user_query_async(user_input, user_id, conversation_id)
+
+    async def _process_user_query_async(self, user_input: str, user_id: int, 
+                                      conversation_id: Optional[int] = None) -> Dict[str, Any]:
+        """비동기 사용자 쿼리 처리"""
         
         try:
-            logger.info(f"멀티턴 마케팅 쿼리 처리 시작: {user_input[:50]}...")
+            logger.info(f"[단계 로그] === 마케팅 쿼리 처리 시작 ===\n사용자 입력: {user_input[:50]}...\n사용자 ID: {user_id}\n대화 ID: {conversation_id}")
             
             # 대화 세션 처리
+            logger.info("[단계 로그] 1. 대화 세션 처리 시작")
             session_info = get_or_create_conversation_session(user_id, conversation_id)
             conversation_id = session_info["conversation_id"]
+            logger.info(f"[단계 로그] - 세션 처리 완료: {conversation_id}")
             
             # 대화 상태 조회/생성
+            logger.info("[단계 로그] 2. 대화 상태 조회/생성")
             state = self.get_or_create_conversation_state(conversation_id, user_id)
+            logger.info(f"[단계 로그] - 현재 단계: {state.current_stage.value}")
             
             # 사용자 메시지 저장
             with get_session_context() as db:
                 create_message(db, conversation_id, "user", "marketing", user_input)
             
-            # 의도 및 단계 분석
-            intent_analysis = self.analyze_user_intent_and_stage(user_input, state)
+            # 대화 컨텍스트 준비
+            logger.info("[단계 로그] 3. 대화 컨텍스트 준비")
+            context = self.prepare_conversation_context(user_id, conversation_id)
+            logger.info(f"[단계 로그] - 컨텍스트 준비 완료: {context.get('business_type')}, {context.get('current_stage')}")
             
-            # MCP 도구 실행 (필요한 경우)
-            mcp_results = {}
-            if intent_analysis.get("requires_mcp_tools", False):
-                logger.info("MCP 분석 도구 실행 중...")
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(
-                                lambda: asyncio.run(self.execute_mcp_analysis(intent_analysis, user_input, state))
-                            )
-                            mcp_results = future.result(timeout=30)
-                    else:
-                        mcp_results = loop.run_until_complete(self.execute_mcp_analysis(intent_analysis, user_input, state))
-                except Exception as e:
-                    logger.warning(f"MCP 도구 실행 실패: {e}")
-                    mcp_results = {}
+            # 1. LLM 기반 의도 분석
+            logger.info("[단계 로그] 4. LLM 의도 분석 시작")
+            intent_analysis = self.analyze_user_intent_with_llm(user_input, context)
+            logger.info(f"[단계 로그] - 의도 분석 완료: {intent_analysis.get('response_type', '알 수 없음')}")
             
-            # 현재 단계에 따른 처리
-            if state.stage == ConversationStage.INITIAL:
-                # 초기 접촉 시 정보 수집 단계로 전환
-                state.update_stage(ConversationStage.INFORMATION_GATHERING)
-                response_content = f"""안녕하세요! 솔로프리너을 위한 마케팅 전문 컨설턴트입니다. 🚀
-
-맞춤형 마케팅 전략을 제공하기 위해 몇 가지 질문을 드리겠습니다.
-
-**첫 번째 질문**: {list(self.info_gathering_questions.values())[0]}
-
-정확한 전략 수립을 위해 차근차근 진행해보겠습니다!"""
-                
-            elif state.stage == ConversationStage.INFORMATION_GATHERING:
-                response_content = self.handle_information_gathering(user_input, state, intent_analysis)
-                
-            elif state.stage == ConversationStage.ANALYSIS:
-                response_content = self.handle_analysis_stage(user_input, state, mcp_results)
-                
-            elif state.stage == ConversationStage.PROPOSAL:
-                response_content = self.handle_proposal_stage(user_input, state)
-                
-            elif state.stage == ConversationStage.FEEDBACK:
-                response_content = self.handle_feedback_stage(user_input, state)
-                
-            elif state.stage == ConversationStage.REFINEMENT:
-                # 이미 handle_feedback_stage에서 처리됨
-                response_content = "수정 중입니다..."
-                
-            elif state.stage == ConversationStage.FINAL_RESULT:
-                response_content = self.handle_final_result_stage(user_input, state)
-                
-            elif state.stage == ConversationStage.COMPLETED:
-                response_content = f"""전략 수립이 완료되었습니다! 🎉
-
-새로운 마케팅 상담을 원하시면 언제든 말씀해주세요.
-혹은 기존 전략에 대한 추가 질문도 환영합니다!
-
-현재 완료된 전략:
-- 총 {len(state.proposals) + len(state.refinements)}번의 제안/수정
-- {len(state.feedback_history)}번의 피드백 반영
-- 최종 완료일: {state.final_strategy['timestamp'].strftime('%Y-%m-%d %H:%M')}"""
+            # 2. 업종 감지 (필요시) 및 정보 업데이트
+            logger.info("[단계 로그] 5. 업종 감지 및 정보 업데이트")
             
+            # 첫 번째 대화에서 업종 감지 및 저장
+            if context.get("business_type") and context["business_type"] != "일반":
+                state.detected_business_type = context["business_type"]
+                state.add_information("business_info_business_type", context["business_type"], "auto_detected")
+                logger.info(f"[단계 로그] - 업종 정보 저장: {context['business_type']}")
+            
+            # 추가 추출 또는 LLM 기반 감지
+            if intent_analysis.get("context_needs", {}).get("business_type_detection"):
+                detected_type = self.detect_business_type_with_llm(user_input, context)
+                if detected_type != "일반" and detected_type != state.detected_business_type:
+                    state.detected_business_type = detected_type
+                    state.add_information("business_info_business_type", detected_type, "llm_detected")
+                    context["business_type"] = detected_type
+            
+            # 3. 진행 제어 명령 처리
+            logger.info("[단계 로그] 6. 진행 제어 명령 처리")
+            flow_control = intent_analysis.get("flow_control", {})
+            control_command = flow_control.get("control_command", "none")
+            logger.info(f"[단계 로그] - 제어 명령: {control_command}")
+            
+            if control_command != "none":
+                control_result = self.handle_flow_control(control_command, state, user_input)
+                response_content = control_result["message"]
+                
+                # 특별한 경우 처리
+                if control_command == "skip" and "options" in control_result:
+                    response_content += "\n\n선택 가능한 단계:\n" + "\n".join([f"• {opt}" for opt in control_result["options"]])
+            
+            elif flow_control.get("stage_preference") and flow_control["stage_preference"] != "any":
+                # 4. 단계 이동 처리 - 자연스러운 응답 생성
+                logger.info("[단계 로그] 7. 단계 이동 처리")
+                jump_result = self.jump_to_stage(flow_control["stage_preference"], state)
+                
+                if jump_result["success"]:
+                    # 단계 이동 성공 - 자연스러운 메시지로 응답
+                    response_content = jump_result["message"]
+                else:
+                    # 단계 이동 실패 - 오류 메시지
+                    response_content = jump_result["message"]
+            
+            # 5. 마케팅 툴 사용 필요성 검사
+            elif intent_analysis.get("response_type") == "tool_required" or intent_analysis.get("tool_requirements", {}).get("needs_tool"):
+                logger.info("[단계 로그] 8. 마케팅 툴 사용 시작")
+                tool_result = await self.execute_marketing_tool(user_input, intent_analysis, context)
+                logger.info(f"[단계 로그] - 툴 실행 완료: {tool_result.get('success', False)}")
+                
+                # 툴 결과를 포함한 응답 생성
+                response_content = await self.generate_response_with_tool_result(
+                    user_input, intent_analysis, context, tool_result
+                )
+                
+            # 6. 일반 응답 생성
             else:
-                response_content = "대화 흐름에 오류가 발생했습니다. 다시 시작해주세요."
+                try:
+                    logger.info("[단계 로그] 9. 일반 응답 생성 시작")
+                    # 컨텍스트 기반 응답 생성
+                    response_content = self.generate_contextual_response(user_input, intent_analysis, context)
+                    logger.info("[단계 로그] - 응답 생성 완료")
+                    
+                    # 다음 액션 결정
+                    next_action = self.determine_next_action(user_input, intent_analysis, context)
+                    
+                    # 사용자 옵션 추가
+                    if next_action and next_action.get("user_options"):
+                        options_text = "\n\n💡 **다음 옵션:**\n" + "\n".join([f"• {opt}" for opt in next_action["user_options"]])
+                        response_content += options_text
+                except Exception as e:
+                    logger.error(f"응답 생성 중 오류 발생: {e}")
+                    response_content = "죄송합니다. 응답 생성 중 오류가 발생했습니다."
+            
+            # 정보 수집 및 업데이트
+            logger.info("[단계 로그] 10. 정보 수집 및 업데이트")
+            self.update_collected_information(user_input, intent_analysis, state)
+            logger.info(f"[단계 로그] - 수집된 정보 수: {len(state.collected_info)}")
             
             # 응답 메시지 저장
             insert_message_raw(
@@ -949,65 +1202,269 @@ class MarketingAgentManager:
             )
             
             # 표준 응답 형식으로 반환
+            logger.info("[단계 로그] === 마케팅 쿼리 처리 완료 ===")
             return create_marketing_response(
                 conversation_id=conversation_id,
                 answer=response_content,
-                topics=getattr(state.analysis_results, 'primary_topics', []),
-                sources=f"멀티턴 대화 시스템 (단계: {state.stage.value})",
-                intent=intent_analysis.get("intent_type"),
-                confidence=intent_analysis.get("confidence"),
-                conversation_stage=state.stage.value,
-                completion_rate=state.get_completion_rate(),
+                topics=[],
+                sources="LLM 기반 유연한 마케팅 시스템",
+                intent=intent_analysis.get("response_type", "flexible"),
+                confidence=0.9,
+                conversation_stage=state.current_stage.value,
+                completion_rate=state.get_overall_completion_rate(),
                 collected_info=state.collected_info,
-                mcp_results=mcp_results,
-                multiturn_flow=True
+                mcp_results={},
+                multiturn_flow=True,
+                flexible_mode=True,
+                intent_analysis=intent_analysis
             )
             
         except Exception as e:
-            logger.error(f"멀티턴 마케팅 쿼리 처리 실패: {e}")
+            logger.error(f"LLM 기반 마케팅 쿼리 처리 실패: {e}")
             return create_error_response(
                 error_message=f"마케팅 상담 처리 중 오류가 발생했습니다: {str(e)}",
-                error_code="MULTITURN_MARKETING_ERROR"
+                error_code="LLM_MARKETING_ERROR"
             )
-    
+
+    def update_collected_information(self, user_input: str, intent_analysis: Dict[str, Any], 
+                                         state: 'FlexibleConversationState'):
+        """수집된 정보 업데이트"""
+        logger.info(f"[단계 로그] 정보 수집 시작 - 현재 수집된 정보: {len(state.collected_info)}개")
+        
+        # LLM을 사용해 사용자 입력에서 정보 추출
+        extraction_prompt = f"""사용자 입력에서 마케팅 상담에 유용한 정보를 추출해주세요.
+
+사용자 입력: "{user_input}"
+기존 정보: {json.dumps(state.collected_info, ensure_ascii=False)}
+
+다음 항목들을 JSON 형태로 추출해주세요:
+{{
+    "business_info": {{
+        "business_type": "업종",
+        "business_name": "사업명",
+        "location": "위치",
+        "scale": "규모"
+    }},
+    "goals": {{
+        "main_goal": "주요 목적",
+        "target_metrics": "목표 지표",
+        "timeline": "목표 기한"
+    }},
+    "target_audience": {{
+        "age_group": "연령대",
+        "gender": "성별",
+        "interests": "관심사",
+        "behavior": "행동 패턴"
+    }},
+    "marketing_info": {{
+        "budget": "예산",
+        "channels": "선호 채널",
+        "experience": "경험 수준",
+        "tools": "사용 도구"
+    }},
+    "additional": {{
+        "pain_points": "고민 사항",
+        "preferences": "선호사항",
+        "constraints": "제약사항"
+    }}
+}}
+
+정보가 없는 항목은 null로 설정하세요."""
+
+        try:
+            messages = [
+                SystemMessage(content="마케팅 정보 추출 전문가입니다. 사용자 입력에서 유용한 정보만 정확히 추출합니다."),
+                HumanMessage(content=extraction_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            # JSON 파싱
+            if isinstance(response, str):
+                cleaned = clean_json_response(response)
+                try:
+                    extracted_info = json.loads(cleaned)
+                    logger.info(f"[단계 로그] - 추출된 정보: {extracted_info}")
+                    
+                    # 추출된 정보를 상태에 업데이트
+                    for category, info_dict in extracted_info.items():
+                        if isinstance(info_dict, dict):
+                            for key, value in info_dict.items():
+                                if value and value != "null":
+                                    state.add_information(f"{category}_{key}", value, "user_input")
+                                    
+                except json.JSONDecodeError:
+                    logger.warning(f"JSON 파싱 실패: {cleaned[:100]}")
+                    return
+            
+        except Exception as e:
+            logger.error(f"정보 추출 실패: {e}")
+
     def get_conversation_status(self, conversation_id: int) -> Dict[str, Any]:
         """대화 상태 조회"""
         if conversation_id in self.conversation_states:
             state = self.conversation_states[conversation_id]
             return {
                 "conversation_id": conversation_id,
-                "stage": state.stage.value,
-                "completion_rate": state.get_completion_rate(),
-                "collected_info": state.collected_info,
-                "total_proposals": len(state.proposals),
-                "total_refinements": len(state.refinements),
-                "total_feedback": len(state.feedback_history),
-                "is_completed": state.stage == ConversationStage.COMPLETED,
-                "last_updated": state.updated_at.isoformat()
+                "current_stage": state.current_stage.value,
+                "overall_completion": state.get_overall_completion_rate(),
+                "collected_info_count": len(state.collected_info),
+                "detected_business_type": state.detected_business_type,
+                "is_paused": getattr(state, 'is_paused', False),
+                "is_completed": state.current_stage == MarketingStage.COMPLETED,
+                "last_updated": state.updated_at.isoformat(),
+                "flexible_mode": True
             }
         else:
             return {"error": "대화를 찾을 수 없습니다"}
-    
+
     def reset_conversation(self, conversation_id: int) -> bool:
         """대화 초기화"""
         if conversation_id in self.conversation_states:
             del self.conversation_states[conversation_id]
             return True
         return False
-    
+
     def get_agent_status(self) -> Dict[str, Any]:
         """마케팅 에이전트 상태 반환"""
         return {
-            "agent_type": "marketing",
-            "version": "3.0.0",
-            "conversation_system": "multiturn",
-            "stages": [stage.value for stage in ConversationStage],
+            "agent_type": "llm_based_flexible_marketing",
+            "version": "5.0.0",
+            "conversation_system": "llm_powered_flexible",
+            "features": [
+                "순서 무관 즉시 응답",
+                "중간 단계부터 시작", 
+                "단계 건너뛰기",
+                "LLM 기반 의도 분석",
+                "컨텍스트 기반 개인화",
+                "마케팅 툴 자동 활용"
+            ],
             "active_conversations": len(self.conversation_states),
             "conversation_stages": {
-                conv_id: state.stage.value 
+                conv_id: state.current_stage.value 
                 for conv_id, state in self.conversation_states.items()
             },
-            "llm_status": self.llm_manager.get_status(),
-            "vector_store_status": self.vector_manager.get_status(),
-            "mcp_tools_available": ["hashtag_analysis", "trend_analysis", "content_generation"]
+            "llm_status": self.llm_manager.get_status() if hasattr(self.llm_manager, 'get_status') else "active",
+            "vector_store_status": self.vector_manager.get_status() if hasattr(self.vector_manager, 'get_status') else "active",
+            "flexible_features": {
+                "immediate_response": True,
+                "stage_jumping": True,
+                "flow_control": True,
+                "context_awareness": True,
+                "marketing_tools": bool(self.analysis_tools)
+            },
+            "available_tools": {
+                "trend_analysis": {
+                    "description": "네이버 검색 트렌드 분석",
+                    "stage_requirement": "모든 단계"
+                },
+                "hashtag_analysis": {
+                    "description": "인스타그램 해시태그 분석",
+                    "stage_requirement": "모든 단계"
+                },
+                "content_generation": {
+                    "description": "블로그/SNS 콘텐츠 생성",
+                    "stage_requirement": "4단계(실행 계획)만"
+                },
+                "keyword_research": {
+                    "description": "SEO 키워드 연구",
+                    "stage_requirement": "모든 단계"
+                }
+            },
+            "tool_stage_restrictions": {
+                "content_generation": "stage_4_execution",
+                "reason": "콘텐츠 생성은 마케팅 전략이 및 타겟이 명확해진 후 실행 단계에서 수행되어야 함"
+            }
         }
+
+
+class FlexibleConversationState:
+    """유연한 대화 상태 관리 클래스"""
+    
+    def __init__(self, conversation_id: int, user_id: int):
+        self.conversation_id = conversation_id
+        self.user_id = user_id
+        self.current_stage = MarketingStage.ANY_QUESTION
+        self.created_at = datetime.now()
+        self.updated_at = datetime.now()
+        
+        # 유연한 정보 수집 (단계 구분 없이)
+        self.collected_info: Dict[str, Any] = {}
+        
+        # 대화 히스토리
+        self.conversation_history: List[Dict[str, Any]] = []
+        
+        # 상태 플래그
+        self.is_paused = False
+        self.detected_business_type = "일반"
+        
+        # 사용자 선호도
+        self.user_preferences = {
+            "prefers_structured": False,
+            "wants_immediate_answers": True,
+            "communication_style": "friendly"
+        }
+    
+    def add_information(self, key: str, value: Any, source: str = "user_input"):
+        """정보 추가"""
+        self.collected_info[key] = {
+            "value": value,
+            "source": source,
+            "timestamp": datetime.now().isoformat(),
+            "confidence": 1.0
+        }
+        self.updated_at = datetime.now()
+    
+    def get_information(self, key: str) -> Any:
+        """정보 조회"""
+        info = self.collected_info.get(key)
+        return info["value"] if info else None
+    
+    def get_overall_completion_rate(self) -> float:
+        """전체 완료율 계산"""
+        # 수집된 정보 기반으로 완료율 계산
+        essential_info_count = len([
+            info for key, info in self.collected_info.items()
+            if any(keyword in key.lower() for keyword in [
+                "business_type", "main_goal", "target", "budget", "timeline"
+            ])
+        ])
+        
+        return min(essential_info_count / 10.0, 1.0)  # 10개 필수 정보 기준
+    
+    def get_next_stage(self) -> Optional[MarketingStage]:
+        """다음 단계 반환"""
+        stage_order = [
+            MarketingStage.STAGE_1_GOAL,
+            MarketingStage.STAGE_2_TARGET,
+            MarketingStage.STAGE_3_STRATEGY,
+            MarketingStage.STAGE_4_EXECUTION
+        ]
+        
+        if self.current_stage in stage_order:
+            current_index = stage_order.index(self.current_stage)
+            if current_index < len(stage_order) - 1:
+                return stage_order[current_index + 1]
+        
+        return None
+    
+    def reset_conversation(self):
+        """대화 초기화"""
+        self.current_stage = MarketingStage.ANY_QUESTION
+        self.collected_info = {}
+        self.conversation_history = []
+        self.is_paused = False
+        self.updated_at = datetime.now()
+
+
+# 전역 인스턴스
+_enhanced_marketing_manager = None
+
+def get_enhanced_4stage_marketing_manager() -> Enhanced4StageMarketingManager:
+    """개선된 4단계 마케팅 매니저 인스턴스 반환"""
+    global _enhanced_marketing_manager
+    if _enhanced_marketing_manager is None:
+        _enhanced_marketing_manager = Enhanced4StageMarketingManager()
+    return _enhanced_marketing_manager

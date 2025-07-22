@@ -112,15 +112,14 @@ class AgentResponseFactory:
         conversation_id: int,
         answer: str,
         topics: List[str] = None,
-        sources: str = "",
+        sources: str = "LLM 기반 유연한 마케팅 시스템",
         templates: List[Dict[str, Any]] = None,
-        # 멀티턴 대화 시스템 추가 필드
         conversation_stage: str = None,
         completion_rate: float = None,
         collected_info: Dict[str, Any] = None,
         multiturn_flow: bool = False,
         intent: str = None,
-        confidence: float = None,
+        confidence: float = 0.9,
         mcp_results: Dict[str, Any] = None,
         prompts_used: List[str] = None,
         mcp_tools_used: List[str] = None,
@@ -130,42 +129,58 @@ class AgentResponseFactory:
         real_time_analysis: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
-        """마케팅 전용 응답 (멀티턴 대화 시스템 지원)"""
-        
+        """
+        마케팅 전용 응답 생성 함수 (멀티턴 및 실시간 분석 지원)
+        """
+
         metadata = kwargs.copy()
-        
-        # 기존 템플릿 지원
+
+        # 템플릿 지원
         if templates:
             metadata["templates"] = templates
-        
-        # 멀티턴 대화 시스템 메타데이터 추가
+
+        # 멀티턴 대화 메타데이터
         if multiturn_flow:
-            metadata["multiturn_flow"] = True
-            metadata["conversation_stage"] = conversation_stage
-            metadata["completion_rate"] = completion_rate
-            metadata["collected_info"] = collected_info or {}
-            
+            metadata.update({
+                "multiturn_flow": True,
+                "conversation_stage": conversation_stage,
+                "completion_rate": completion_rate,
+                "collected_info": collected_info or {}
+            })
+
+        # Intent 분석 결과
         if intent:
-            metadata["intent"] = intent
-            metadata["confidence"] = confidence
-            
+            metadata.update({
+                "intent": intent,
+                "confidence": confidence
+            })
+
+        # MCP 결과
         if mcp_results:
-            metadata["mcp_results"] = mcp_results
-            metadata["real_time_analysis"] = real_time_analysis
-            
+            metadata.update({
+                "mcp_results": mcp_results,
+                "real_time_analysis": real_time_analysis
+            })
+
+        # 프롬프트 사용 내역
         if prompts_used:
-            metadata["prompts_used"] = prompts_used
-            metadata["topic_specific_prompts"] = topic_specific_prompts
-            
+            metadata.update({
+                "prompts_used": prompts_used,
+                "topic_specific_prompts": topic_specific_prompts
+            })
+
+        # MCP 툴 사용 내역
         if mcp_tools_used:
             metadata["mcp_tools_used"] = mcp_tools_used
-            
+
+        # 엔티티 추출 결과
         if entities_extracted:
             metadata["entities_extracted"] = entities_extracted
-            
+
+        # LLM 분류 결과 여부
         if llm_classification:
             metadata["llm_classification"] = True
-        
+
         # 응답 타입 결정
         if templates:
             response_type = "template_recommendation"
@@ -175,7 +190,7 @@ class AgentResponseFactory:
             response_type = "realtime_marketing_analysis"
         else:
             response_type = "marketing"
-        
+
         return AgentResponseFactory.create_standard_response(
             conversation_id=conversation_id,
             answer=answer,
@@ -185,6 +200,7 @@ class AgentResponseFactory:
             response_type=response_type,
             **metadata
         )
+
     
     @staticmethod
     def create_mental_health_response(
