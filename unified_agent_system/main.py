@@ -54,7 +54,7 @@ from shared_modules.database import get_session_context as unified_get_session_c
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from shared_modules.db_models import FAQ, Feedback
-from qdrant import init_qdrant, process_initial_data
+from unified_agent_system.qdrant_init import init_qdrant, process_initial_data
 
 
 router = APIRouter()
@@ -817,7 +817,7 @@ from regular_subscription import router as subscription_router
 app.include_router(subscription_router, prefix="/subscription")
 from feedback import router as feedback_router
 app.include_router(feedback_router, prefix="/feedback")
-from qdrant import router as qdrant_router
+from qdrant_upload import router as qdrant_router
 app.include_router(qdrant_router, prefix="/upload")
 
 if __name__ == "__main__":
