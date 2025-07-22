@@ -910,7 +910,7 @@ class PromptManager:
 
 자동화 유형:
 - schedule_calendar: 일정/캘린더 등록 (미팅, 약속, 이벤트 스케줄링)
-- publish_sns: SNS 게시물 발행 (인스타그램, 페이스북, 트위터 등)
+- publish_sns: SNS 게시물 발행 (인스타그램, 블로그)
 - send_email: 이메일 발송 (자동 이메일, 마케팅 메일, 알림 메일)
 - send_reminder: 리마인더 설정 (알림, 기념일, 할 일 알림)
 - send_message: 메시지 전송 (SMS, 카카오톡, 슬랙 등)

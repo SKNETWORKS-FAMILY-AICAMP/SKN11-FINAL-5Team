@@ -208,12 +208,6 @@ class TaskAgentAutomationManager:
             if not task_data.get("start_time"):
                 errors.append("시작 시간이 필요합니다")
                 
-        elif task_type == AutomationTaskType.PUBLISH_SNS:
-            if not task_data.get("platform"):
-                errors.append("SNS 플랫폼이 필요합니다")
-            if not task_data.get("content"):
-                errors.append("게시 내용이 필요합니다")
-                
         elif task_type == AutomationTaskType.SEND_REMINDER:
             if not task_data.get("message"):
                 errors.append("리마인더 메시지가 필요합니다")
@@ -315,8 +309,6 @@ class TaskAgentAutomationManager:
                 return await self._execute_calendar(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_EMAIL.value:
                 return await self._execute_email(task_data, user_id)
-            elif task_type == AutomationTaskType.PUBLISH_SNS.value:
-                return await self._execute_sns(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_REMINDER.value:
                 return await self._execute_reminder(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_MESSAGE.value:

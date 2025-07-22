@@ -78,6 +78,11 @@ class AgentResponseFactory:
         sources: str = "",
         inquiry_type: str = "general",
         business_type: str = "common",
+        # 멀티턴 대화 시스템 추가 필드
+        conversation_stage: str = None,
+        completion_rate: float = None,
+        collected_info: Dict[str, Any] = None,
+        multiturn_flow: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """고객 서비스 전용 응답"""
@@ -85,7 +90,11 @@ class AgentResponseFactory:
         metadata = kwargs.copy()
         metadata.update({
             "inquiry_type": inquiry_type,
-            "business_type": business_type
+            "business_type": business_type,
+            "conversation_stage": conversation_stage,
+            "completion_rate": completion_rate,
+            "collected_info": collected_info,
+            "multiturn_flow": multiturn_flow
         })
         
         return AgentResponseFactory.create_standard_response(
@@ -105,14 +114,65 @@ class AgentResponseFactory:
         topics: List[str] = None,
         sources: str = "",
         templates: List[Dict[str, Any]] = None,
+        # 멀티턴 대화 시스템 추가 필드
+        conversation_stage: str = None,
+        completion_rate: float = None,
+        collected_info: Dict[str, Any] = None,
+        multiturn_flow: bool = False,
+        intent: str = None,
+        confidence: float = None,
+        mcp_results: Dict[str, Any] = None,
+        prompts_used: List[str] = None,
+        mcp_tools_used: List[str] = None,
+        entities_extracted: Dict[str, Any] = None,
+        llm_classification: bool = False,
+        topic_specific_prompts: bool = False,
+        real_time_analysis: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
-        """마케팅 전용 응답"""
+        """마케팅 전용 응답 (멀티턴 대화 시스템 지원)"""
         
         metadata = kwargs.copy()
+        
+        # 기존 템플릿 지원
         if templates:
             metadata["templates"] = templates
-            response_type = "template_recommendation" if templates else "marketing"
+        
+        # 멀티턴 대화 시스템 메타데이터 추가
+        if multiturn_flow:
+            metadata["multiturn_flow"] = True
+            metadata["conversation_stage"] = conversation_stage
+            metadata["completion_rate"] = completion_rate
+            metadata["collected_info"] = collected_info or {}
+            
+        if intent:
+            metadata["intent"] = intent
+            metadata["confidence"] = confidence
+            
+        if mcp_results:
+            metadata["mcp_results"] = mcp_results
+            metadata["real_time_analysis"] = real_time_analysis
+            
+        if prompts_used:
+            metadata["prompts_used"] = prompts_used
+            metadata["topic_specific_prompts"] = topic_specific_prompts
+            
+        if mcp_tools_used:
+            metadata["mcp_tools_used"] = mcp_tools_used
+            
+        if entities_extracted:
+            metadata["entities_extracted"] = entities_extracted
+            
+        if llm_classification:
+            metadata["llm_classification"] = True
+        
+        # 응답 타입 결정
+        if templates:
+            response_type = "template_recommendation"
+        elif multiturn_flow:
+            response_type = "multiturn_marketing"
+        elif real_time_analysis:
+            response_type = "realtime_marketing_analysis"
         else:
             response_type = "marketing"
         

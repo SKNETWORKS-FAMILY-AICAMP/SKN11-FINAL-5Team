@@ -29,17 +29,17 @@ class SNSService:
             "facebook": {
                 "app_id": "your_app_id",
                 "app_secret": "your_app_secret",
-                "redirect_uri": "http://localhost:8000/auth/facebook/callback"
+                "redirect_uri": "http://localhost:8080/auth/facebook/callback"
             },
             "twitter": {
                 "client_id": "your_client_id",
                 "client_secret": "your_client_secret",
-                "redirect_uri": "http://localhost:8000/auth/twitter/callback"
+                "redirect_uri": "http://localhost:8080/auth/twitter/callback"
             },
             "linkedin": {
                 "client_id": "your_client_id",
                 "client_secret": "your_client_secret",
-                "redirect_uri": "http://localhost:8000/auth/linkedin/callback"
+                "redirect_uri": "http://localhost:8080/auth/linkedin/callback"
             }
         }
         """

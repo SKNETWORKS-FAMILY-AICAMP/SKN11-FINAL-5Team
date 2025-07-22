@@ -70,7 +70,7 @@ class AuthManager:
             logger.error(f"토큰 저장 실패: {e}")
             return False
     
-    def get_token(self, user_id: str, platform: str) -> Optional[Dict[str, Any]]:
+    def get_token(self, user_id: int, platform: str) -> Optional[Dict[str, Any]]:
         """저장된 토큰 가져오기"""
         try:
             key = f"token_{user_id}_{platform}"
@@ -90,7 +90,7 @@ class AuthManager:
             logger.error(f"토큰 가져오기 실패: {e}")
             return None
     
-    def is_token_valid(self, user_id: str, platform: str) -> bool:
+    def is_token_valid(self, user_id: int, platform: str) -> bool:
         """토큰 유효성 검사"""
         try:
             token_data = self.get_token(user_id, platform)
@@ -143,7 +143,7 @@ class AuthManager:
             logger.error(f"토큰 제거 실패: {e}")
             return False
     
-    def get_connection_info(self, user_id: str, platform: str) -> Dict[str, Any]:
+    def get_connection_info(self, user_id: int, platform: str) -> Dict[str, Any]:
         """연동 정보 조회"""
         token_data = self.get_token(user_id, platform)
         if token_data:

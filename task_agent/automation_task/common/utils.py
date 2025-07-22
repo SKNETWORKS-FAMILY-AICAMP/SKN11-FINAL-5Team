@@ -161,24 +161,7 @@ class AutomationValidationUtils:
                         AutomationDateTimeUtils.parse_datetime(start_time)
                     except:
                         errors.append("시작 시간 형식이 올바르지 않습니다")
-        
-        elif task_type == "publish_sns":
-            # SNS 게시 데이터 검증
-            if not task_data.get("platform"):
-                errors.append("SNS 플랫폼이 필요합니다")
-            
-            if not task_data.get("content"):
-                errors.append("게시 내용이 필요합니다")
-            
-            # 플랫폼별 글자 수 제한 확인
-            platform = task_data.get("platform", "").lower()
-            content = task_data.get("content", "")
-            
-            if platform == "twitter" and len(content) > 280:
-                warnings.append("Twitter 게시글은 280자를 초과할 수 없습니다")
-            elif platform == "instagram" and len(content) > 2200:
-                warnings.append("Instagram 게시글은 2200자를 초과하지 않는 것이 좋습니다")
-        
+
         return {
             "is_valid": len(errors) == 0,
             "errors": errors,

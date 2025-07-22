@@ -85,7 +85,7 @@ def check_ports():
     print("🔍 포트 사용 상태 확인 중...")
     
     ports_to_check = {
-        8000: "통합 시스템",
+        8080: "통합 시스템",
         8001: "비즈니스 플래닝",
         8002: "고객 서비스", 
         8003: "마케팅",
@@ -138,13 +138,13 @@ def test_system():
     time.sleep(3)  # 서버 시작 대기
     
     try:
-        response = requests.get("http://localhost:8000/health", timeout=5)
+        response = requests.get("http://localhost:8080/health", timeout=5)
         if response.status_code == 200:
             print("✅ 시스템 정상 작동 중")
             print("🌐 접속 URL:")
-            print("  - 메인 페이지: http://localhost:8000")
-            print("  - 테스트 UI: http://localhost:8000/test-ui")
-            print("  - API 문서: http://localhost:8000/docs")
+            print("  - 메인 페이지: http://localhost:8080")
+            print("  - 테스트 UI: http://localhost:8080/test-ui")
+            print("  - API 문서: http://localhost:8080/docs")
             return True
         else:
             print(f"⚠️  응답 코드: {response.status_code}")

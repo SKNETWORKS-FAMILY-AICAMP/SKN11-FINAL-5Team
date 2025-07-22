@@ -1,0 +1,26 @@
+# 워크플로우 기반 마케팅 MCP 클라이언트 의존성
+
+# 핵심 MCP 관련
+mcp>=1.0.0
+
+# 비동기 HTTP 처리
+aiohttp>=3.8.0
+
+# 데이터 모델링
+pydantic>=2.0.0
+
+# 환경 변수 관리
+python-dotenv>=1.0.0
+
+# 로깅 및 출력
+rich>=13.0.0
+
+# 날짜/시간 처리
+python-dateutil>=2.8.0
+
+# JSON 처리 (기본 포함되지만 명시)
+# json은 Python 표준 라이브러리
+
+# 개발 및 테스트 (선택사항)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

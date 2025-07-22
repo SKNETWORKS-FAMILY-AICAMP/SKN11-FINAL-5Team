@@ -14,6 +14,7 @@ from shared_modules import (
     get_conversation_by_id,
     get_session_context
 )
+from .db_models import TemplateMessage
 
 def get_or_create_conversation_session(user_id: int, conversation_id: int = None) -> Dict[str, Any]:
     """통일된 대화 세션 조회 또는 생성 로직"""
@@ -416,3 +417,21 @@ class PromptTemplate:
         import re
         variables = re.findall(r'\{(\w+)\}', self.template)
         return list(set(variables))
+    
+    def update_template_message(db, template_id, **update_data):
+    # 템플릿 찾기
+        template = db.query(TemplateMessage).filter_by(template_id=template_id).first()
+        if not template:
+            return False  # 템플릿이 없으면 실패
+
+        # 수정 가능한 필드만 업데이트
+        allowed_fields = [
+            "template_type", "channel_type", "title",
+            "content", "content_type"
+        ]
+        for key in allowed_fields:
+            if key in update_data and update_data[key] is not None:
+                setattr(template, key, update_data[key])
+        db.commit()
+        return True
+

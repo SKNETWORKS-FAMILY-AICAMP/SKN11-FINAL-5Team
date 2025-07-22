@@ -9,6 +9,12 @@ import json
 from typing import Dict, Any, Optional, Union
 import logging
 
+import os
+import sys
+
+# Add project root to Python path
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
+
 from shared_modules.env_config import get_config as env_get_config, EnvironmentConfig
 from shared_modules.utils import load_json_file, save_json_file
 
