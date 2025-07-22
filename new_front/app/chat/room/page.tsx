@@ -462,7 +462,7 @@ export default function ChatRoomPage() {
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
 
-  const [userId] = useState(2) // 실제 구현시 로그인 사용자 ID 사용
+  const [userId] = useState(10) // 실제 구현시 로그인 사용자 ID 사용
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState("")

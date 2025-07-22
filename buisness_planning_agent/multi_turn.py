@@ -14,17 +14,19 @@ class MultiTurnManager:
         "비즈니스 모델링": ["business_model", "mvp_development"],
         "실행 계획 수립": ["funding_strategy", "financial_planning", "startup_preparation"],
         "성장 전략 & 리스크 관리": ["growth_strategy", "risk_management"],
+        "최종 기획서 작성": ["final_business_plan"]
     }
 
     STAGES = list(STAGE_TOPIC_MAP.keys())
 
     # 각 단계별 요구 정보 
     STAGE_REQUIREMENTS = {
-        "아이디어 탐색": ["창업 아이디어", "시장 트렌드"],
-        "시장 검증": ["경쟁사 분석", "타겟 고객", "시장 규모"],
+        "아이디어 탐색": ["창업 아이디어"],
+        "시장 검증": ["시장 정보"],
         "비즈니스 모델링": ["BMC", "MVP 개발 계획"],
         "실행 계획 수립": ["자금 조달 계획", "MVP 개발 계획","창업 준비 체크리스트"],
         "성장 전략 & 리스크 관리": ["사업 확장 전략", "리스크 관리 방안"],
+        "최종 기획서 작성" :[]
     }
 
     def __init__(self, llm_manager):
@@ -82,9 +84,14 @@ class MultiTurnManager:
 
     def _parse_progress_json(self, result: str) -> Dict[str, Any]:
         """LLM의 JSON 응답 파싱"""
-        print("LLM의 progress 판단 답변",result)
+        print("LLM의 progress 판단 답변", result)
         try:
-            print("json 리턴함")
-            return json.loads(result)
+            # 코드 블록 마커 제거
+            clean_result = result.strip().strip("`")
+            if clean_result.startswith("json"):
+                clean_result = clean_result[4:].strip()
+
+            return json.loads(clean_result)
         except Exception as e:
+            print(f"JSON 파싱 실패: {e}, 원본: {result}")
             return {"progress": 0.0, "missing": []}

@@ -8,6 +8,7 @@ import os
 import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import re
 
 # 텔레메트리 비활성화 (ChromaDB 오류 방지)
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
@@ -100,18 +101,6 @@ from multi_turn import MultiTurnManager
 
 class BusinessPlanningService:
     """비즈니스 기획 서비스 클래스 - 공통 모듈 최대 활용"""
-    
-    # 단계와 토픽 매핑
-    STAGE_TOPIC_MAP = {
-        "아이디어 탐색": ["idea_recommendation"],
-        "시장 검증": ["idea_validation"],
-        "비즈니스 모델링": ["business_model", "mvp_development"],
-        "실행 계획 수립": ["funding_strategy", "financial_planning", "startup_preparation"],
-        "성장 전략 & 리스크 관리": ["growth_strategy", "risk_management"],
-        "최종 기획서 작성": []  # 별도 토픽 없음
-    }
-
-    STAGES = list(STAGE_TOPIC_MAP.keys())
 
     def __init__(self):
         """서비스 초기화"""
@@ -128,7 +117,7 @@ class BusinessPlanningService:
 
     def determine_stage(self, topics: List[str]) -> str:
         """토픽 기반으로 현재 상담 단계 추론"""
-        for stage, mapped_topics in self.STAGE_TOPIC_MAP.items():
+        for stage, mapped_topics in self.multi_turn.STAGE_TOPIC_MAP.items():
             if any(t in mapped_topics for t in topics):
                 return stage
         return "아이디어 탐색"  # 기본값
@@ -167,14 +156,14 @@ class BusinessPlanningService:
             result_clean = result.strip().lower()
             logger.info(f"[is_single_question] LLM 응답: {result_clean}")
 
-            if result_clean.startswith("single"):
+            if result_clean.startswith("single "):
                 return True
             return False  # multi가 포함되거나 예외가 발생하면 multi 처리
         except Exception as e:
             logger.error(f"[is_single_question] 판별 실패: {e}")
             return False  # 에러 시 멀티턴 진행
 
-
+    # 11. final_business_plan(사업 기획서 작성)
     # 4. market_research(시장/경쟁 분석, 시장규모)
     def _load_classification_prompt(self) -> str:
         """분류 프롬프트 로드"""
@@ -198,7 +187,7 @@ class BusinessPlanningService:
         9. growth_strategy(사업 확장, 스케일업)
         10. risk_management(리스크 관리, 위기 대응)
         11. final_business_plan(사업 기획서 작성)
-
+        
         **출력 예시**: startup_preparation, idea_validation
         """
     
@@ -268,9 +257,8 @@ class BusinessPlanningService:
 사용자 질문: "{user_input}"
 
 멀티턴 대화 규칙:
-1. 답변 후, 다음 단계로 넘어가기 위해 필요한 추가 정보를 되묻습니다.
-2. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
-3. 마지막 단계(성장 전략 & 리스크 관리)까지 끝나면, "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"라고 제안하세요.
+1. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
+2. 정보 수집이 , "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"라고 제안하세요.
 
 위 지침에 따라 사용자의 질문에 대해 구체적이고 실용적인 답변과 후속 질문을 함께 제공하세요. 지침 내용을 그대로 반복하지 말고, 실제 답변만 작성하세요."""
 
@@ -363,6 +351,32 @@ class BusinessPlanningService:
     ) -> Dict[str, Any]:
         """RAG 쿼리 실행 - 공통 모듈들 최대 활용"""
         try:
+            # 3. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
+            with get_session_context() as db:
+                messages = get_recent_messages(db, conversation_id, 10)
+                history = self.format_history(messages)
+                logger.info(f"history:{history}")
+
+                # 최근 1개 agent 메세지
+                last_agent_msg = next(
+                    (m for m in reversed(messages) if m.sender_type == "agent"), None
+                )
+            
+            if last_agent_msg and last_agent_msg.content.strip().endswith("준비해드릴까요?"):
+                prev_agent_msg = next(
+                    (m for m in reversed(messages[:-1]) if m.sender_type == "agent"), None
+                )
+
+                missing_str = ""
+                if prev_agent_msg:
+                    match = re.search(r"아직\s+(.+?)에 대한 정보가 부족합니다", prev_agent_msg.content)
+                    if match:
+                        missing_str = match.group(1)
+                        user_input = f"({missing_str}) " + user_input
+                        logger.info(f"user_input 보강: {user_input}")
+                    else:
+                        logger.info("prev_agent_msg에서 missing_str을 찾지 못함")
+
             # 1. 토픽 분류
             topics = await self.classify_topics(user_input)
             
@@ -374,15 +388,11 @@ class BusinessPlanningService:
             next_stage: Optional[str] = None
             next_question: Optional[str] = None
             
-            # 3. 대화 히스토리 조회 - 공통 모듈의 DB 함수 활용
-            with get_session_context() as db:
-                messages = get_recent_messages(db, conversation_id, 10)
-                history = self.format_history(messages)
-                logger.info(f"history:{history}")
 
             # 4. 단계별 진행률 체크 (멀티턴)
             progress_info = await self.multi_turn.check_stage_progress(current_stage, history)
-            progress = progress_info.get("progress", 0.0)
+            logger.info(f"[멀티턴] 단계별 진행률 체크 결과: {progress_info}")
+            progress =  float(progress_info.get("progress", 0.0))
             missing = progress_info.get("missing", [])
             
             logger.info(f"[멀티턴] 현재 단계: {current_stage}, 진행률: {progress}, 누락 항목: {missing}")
@@ -390,12 +400,12 @@ class BusinessPlanningService:
             # 5. 다음 단계 판단
             if progress >= 0.8 and not is_single:
                 next_stage = self.multi_turn.get_next_stage(current_stage)
-                next_question = f"현재 단계가 거의 완료되었습니다. 다음 단계({next_stage})로 진행할까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
+                next_question = f"{current_stage} 정보를 수집 완료했습니다. 사업기획서 완성을 위해 ({next_stage}) 정보도 모아볼까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
             elif missing:
                 # 진행률이 낮으면 누락 정보에 대해 되묻기
                 next_stage = current_stage
-                missing_str = " / ".join(missing)
-                next_question = f"아직 '{missing_str}'에 대한 정보가 부족합니다. 이에 대해 알려주실 수 있나요?"
+                missing_str = " / ".join(missing[:2]) 
+                next_question = f"아직 '{missing_str}'에 대한 정보가 부족합니다. 해당 정보를 준비해드릴까요?"
 
                 
             # 6. 프롬프트 생성
@@ -670,9 +680,9 @@ async def process_user_query(request: UserQuery):
         try:
             content_to_save = result["answer"]
 
-            # 기획서 쓸 때 도움되는 트렌드/시장 데이터는 저장
-            if result.get("sources") and any(t in ["idea_validation", "idea_recommendation"] for t in result.get("topics", [])):
-                content_to_save += "\n\n[참고문서]\n" + str(result["sources"])
+            # # 기획서 쓸 때 도움되는 트렌드/시장 데이터는 저장
+            # if result.get("sources") and any(t in ["idea_validation", "idea_recommendation"] for t in result.get("topics", [])):
+            #     content_to_save += "\n\n[참고문서]\n" + str(result["sources"])
 
             insert_message_raw(
                 conversation_id=conversation_id,
