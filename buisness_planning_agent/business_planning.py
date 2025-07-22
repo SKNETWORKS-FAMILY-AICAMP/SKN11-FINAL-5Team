@@ -222,40 +222,67 @@ class BusinessPlanningService:
     
 
     def build_agent_prompt(self, topics: List[str], user_input: str, persona: str, history: str) -> PromptTemplate:
-        """에이전트 프롬프트 구성"""
+        """
+        에이전트 프롬프트 구성 - LLM이 자연스럽게 대화를 시작하도록 지침만 제공.
+        """
         merged_prompts = self.load_prompt_texts(topics)
         role_descriptions = [PROMPT_META[topic]["role"] for topic in topics if topic in PROMPT_META]
-        
+
         # 페르소나별 시스템 컨텍스트
         if persona == "common":
             system_context = f"당신은 1인 창업 전문 컨설턴트입니다. {', '.join(role_descriptions)}"
         else:
             system_context = f"당신은 {persona} 전문 1인 창업 컨설턴트입니다. {', '.join(role_descriptions)}"
-        
-        # 프롬프트 템플릿 구성            
+
         template = f"""{system_context}
 
-다음 지침을 따라 답변하세요:
-{chr(10).join(merged_prompts)}
+    다음 지침을 따라 답변하세요:
+    {chr(10).join(merged_prompts)}
 
-최근 대화:
-{history}
+    최근 대화:
+    {history}
 
-참고 문서:
-{{context}}
+    참고 문서:
+    {{context}}
 
-사용자 질문: "{user_input}"
+    사용자 질문: "{user_input}"
 
-[멀티턴 규칙]
-  1. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
-
-위 지침에 따라 사용자의 질문에 대해 구체적이고 실용적인 답변과 후속 질문을 함께 제공하세요. 지침 내용을 그대로 반복하지 말고, 실제 답변만 작성하세요."""
+    [응답 지침]
+    - 지나치게 기계적이지 않게, 자연스럽게 대화를 시작하세요.
+    - 첫 문장은 요약·재언급으로 시작할 수 있으나 매번 똑같지 않게 변형하세요.
+    - 답변 후, 필요한 경우 다음 스텝이나 보충 질문을 자연스럽게 제안하세요.
+    """
 
         return PromptTemplate(
             input_variables=["context", "current_stage", "next_stage"],
             template=template
         )
+
     
+    async def auto_workflow(self, conversation_id: int, current_stage: str, progress: float, missing: List[str]) -> Optional[str]:
+        """
+        후속 질문 또는 다음 스테이지 자동 생성
+        """
+        # 1. 현재 스테이지의 누락된 정보가 있으면 해당 질문을 유도
+        if missing:
+            return f"현재 '{current_stage}' 단계에서 '{missing[0]}' 정보가 부족합니다. 추가로 알려주실 수 있을까요?"
+
+        # 2. 진행률이 높으면 다음 단계로 자연스럽게 전환
+        if progress >= 0.8:
+            next_stage = self.multi_turn.get_next_stage(current_stage)
+            if next_stage:
+                first_req = (
+                    self.multi_turn.STAGE_REQUIREMENTS[next_stage][0]
+                    if self.multi_turn.STAGE_REQUIREMENTS[next_stage]
+                    else "다음 단계의 핵심 정보를 알려주세요."
+                )
+                return f"'{current_stage}' 단계를 거의 완료했습니다. 이제 '{next_stage}' 단계로 넘어가 볼까요? 우선 {first_req}부터 이야기해볼까요?"
+            else:
+                # 3. 모든 단계 완료 시 최종 기획서 생성 유도
+                return "모든 단계를 마무리했습니다. 최종 사업기획서를 작성해드릴까요?"
+        return None
+
+        
     def format_history(self, messages: List[Any]) -> str:
         """대화 히스토리 포맷팅 - 공통 모듈 활용"""
         history_data = []
@@ -357,23 +384,31 @@ class BusinessPlanningService:
             progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
 
-            next_stage: Optional[str] = None
-            next_question: Optional[str] = None
+            # 자동 후속 질문 생성
+            auto_next = await self.auto_workflow(conversation_id, current_stage, progress, missing)
 
-            if progress >= 0.8 and not is_single:
-                next_stage = self.multi_turn.get_next_stage(current_stage)
-                next_question = (
-                    f"{current_stage} 정보를 수집 완료했습니다. "
-                    f"사업기획서 완성을 위해 ({next_stage}) 단계로 진행할까요?" if next_stage else "모든 단계를 완료했습니다. 최종 기획서를 작성할까요?"
-                )
-            elif missing:
-                missing_str = " / ".join(missing[:2])
-                next_question = f"아직 '{missing_str}' 정보가 부족합니다. 준비해드릴까요?"
-            
-            # **특수 토픽 처리 (idea_recommendation / idea_validation)**
+            # final_business_plan 자동 생성 시점
+            if not auto_next and current_stage == "final_business_plan" and progress >= 1.0:
+                final_plan = await self._generate_final_business_plan(conversation_id, history)
+                return {
+                    "topics": ["final_business_plan"],
+                    "answer": final_plan,
+                    "sources": "대화 히스토리 기반",
+                    "retrieval_used": False,
+                    "metadata": {
+                        "type": "final_business_plan",
+                        "current_stage": current_stage,
+                        "progress": 1.0,
+                        "missing": [],
+                        "next_stage": None,
+                        "auto_next_question": None
+                    }
+                }
+
+            # 특수 토픽 처리
             if topics and topics[0] in ["idea_recommendation", "idea_validation"]:
                 prompt = self.build_agent_prompt(topics, user_input, persona, history)
-                return await self._handle_special_topic(
+                special_result = await self._handle_special_topic(
                     topic=topics[0],
                     persona=persona,
                     user_input=user_input,
@@ -381,10 +416,14 @@ class BusinessPlanningService:
                     current_stage=current_stage,
                     progress=progress,
                     missing=missing,
-                    next_stage=next_stage,
-                    next_question=next_question
+                    next_stage=None,
+                    next_question=None
                 )
-    
+                if auto_next:
+                    special_result["answer"] += f"\n\n{auto_next}"
+                    special_result["metadata"]["auto_next_question"] = auto_next
+                return special_result
+
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history)
 
@@ -406,14 +445,9 @@ class BusinessPlanningService:
                     result = qa_chain.invoke(user_input)
                     sources = self._format_source_documents(result.get("source_documents", []))
 
-                    # **UX 개선된 진행 메시지**
-                    progress_msg = f"현재 '{current_stage}' 단계 (진행률 {int(progress * 100)}%)입니다."
-                    if missing:
-                        progress_msg += f" 아직 '{', '.join(missing[:2])}' 정보가 필요합니다."
-                    if next_question:
-                        progress_msg += f" {next_question}"
-
-                    final_answer = f"{result['result']}\n\n{progress_msg}"
+                    final_answer = result['result']
+                    if auto_next:
+                        final_answer += f"\n\n{auto_next}"
 
                     return {
                         "topics": topics,
@@ -425,17 +459,38 @@ class BusinessPlanningService:
                             "current_stage": current_stage,
                             "progress": progress,
                             "missing": missing,
-                            "next_stage": next_stage,
-                            "next_question": next_question
+                            "next_stage": None,
+                            "auto_next_question": auto_next
                         }
                     }
 
             # 6. 폴백
-            return await self._generate_fallback_response(topics, user_input, prompt, current_stage, next_stage, progress, missing)
+            fallback_result = await self._generate_fallback_response(
+                topics, user_input, prompt, current_stage, None, progress, missing
+            )
+            if auto_next:
+                fallback_result["answer"] += f"\n\n{auto_next}"
+                fallback_result["metadata"]["auto_next_question"] = auto_next
+            return fallback_result
 
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
             return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, ""), "아이디어 탐색", None, 0.0, [])
+
+    async def _generate_final_business_plan(self, conversation_id: int, history: str) -> str:
+        """
+        최종 사업기획서를 작성하기 위해 대화 히스토리를 요약하고 문서화
+        """
+        try:
+            messages = [
+                {"role": "system", "content": "너는 1인 창업 전문가로서 사업기획서를 작성하는 전문가야."},
+                {"role": "user", "content": f"다음 대화 히스토리를 기반으로 사업기획서를 작성해줘:\n\n{history}\n\n포맷: 개요, 시장 분석, 비즈니스 모델, 실행 계획, 리스크 관리."}
+            ]
+            result = await self.llm_manager.generate_response(messages=messages, provider="openai")
+            return result
+        except Exception as e:
+            logger.error(f"[final_business_plan] 생성 실패: {e}")
+            return "최종 사업기획서를 생성하지 못했습니다. 다시 시도해주세요."
 
 
 
