@@ -24,13 +24,14 @@ class MultiTurnManager:
         "아이디어 탐색": ["창업 아이디어"],
         "시장 검증": ["시장 정보"],
         "비즈니스 모델링": ["BMC", "MVP 개발 계획"],
-        "실행 계획 수립": ["자금 조달 계획", "MVP 개발 계획","창업 준비 체크리스트"],
+        "실행 계획 수립": ["자금 조달 계획", "재무 계획", "창업 준비 체크리스트"],
         "성장 전략 & 리스크 관리": ["사업 확장 전략", "리스크 관리 방안"],
-        "최종 기획서 작성" :[]
+        "최종 기획서 작성": []  # 계산에서 제외할 항목
     }
 
     def __init__(self, llm_manager):
         self.llm_manager = llm_manager
+        self.current_progress = 0.0  # 전체 진행률 (0~1)
 
     def determine_stage(self, topics: List[str]) -> str:
         """토픽 기반으로 현재 상담 단계 추론"""
@@ -47,19 +48,22 @@ class MultiTurnManager:
         except ValueError:
             return None
 
-    async def check_stage_progress(self, current_stage: str, history: str) -> Dict[str, Any]:
+    async def check_overall_progress(self, history: str) -> Dict[str, Any]:
         """
-        LLM을 통해 현재 단계의 요구 정보가 얼마나 수집되었는지 평가.
-        - progress: 0~1 (수집 비율)
-        - missing: 누락된 항목 목록
+        전체 단계 요구 정보 기준으로 진행률 계산.
+        '최종 기획서 작성'은 진행률 계산에서 제외.
         """
-        required_info = self.STAGE_REQUIREMENTS.get(current_stage, [])
-        if not required_info:
-            return {"progress": 0.0, "missing": []}  # 정보 없음 = 진행률 계산 불가
+        all_requirements = []
+        for stage, items in self.STAGE_REQUIREMENTS.items():
+            if stage != "최종 기획서 작성":  # 제외
+                all_requirements.extend(items)
+
+        if not all_requirements:
+            return {"progress": 0.0, "missing": []}
 
         prompt = f"""
-        다음 대화 기록에서 현재 단계 "{current_stage}"에 필요한 정보 항목이 얼마나 수집되었는지 평가해주세요.
-        필요한 정보 항목: {', '.join(required_info)}
+        다음 대화 기록에서 아래 전체 요구 정보 항목이 얼마나 수집되었는지 평가하세요.
+        전체 항목: {', '.join(all_requirements)}
         대화 기록:
         {history}
 
@@ -74,19 +78,31 @@ class MultiTurnManager:
 
         try:
             messages = [
-                {"role": "system", "content": "너는 단계별 정보 수집 현황을 JSON으로 평가하는 전문가야."},
+                {"role": "system", "content": "너는 전체 단계 정보 수집 현황을 JSON으로 평가하는 전문가야."},
                 {"role": "user", "content": prompt}
             ]
             result = await self.llm_manager.generate_response(messages=messages, provider="openai")
-            return self._parse_progress_json(result)
+            result = self._parse_progress_json(result)
+
+            new_progress = float(result.get("progress", 0.0))
+            if new_progress >= 1.0:
+                # 최종 기획서 작성 후 진행률 초기화
+                self.current_progress = 0.0
+                result["current_progress"] = 1.0  # 이번에 반환하는 값은 1.0
+                result["missing"] = []
+            else:
+                self.current_progress = max(self.current_progress, new_progress)
+                result["current_progress"] = self.current_progress
+            return result
+
         except Exception as e:
-            return {"progress": 0.0, "missing": required_info}
+            print(f"[check_overall_progress] 오류: {e}")
+            return {"progress": 0.0, "missing": all_requirements}
 
     def _parse_progress_json(self, result: str) -> Dict[str, Any]:
         """LLM의 JSON 응답 파싱"""
         print("LLM의 progress 판단 답변", result)
         try:
-            # 코드 블록 마커 제거
             clean_result = result.strip().strip("`")
             if clean_result.startswith("json"):
                 clean_result = clean_result[4:].strip()

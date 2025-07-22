@@ -114,14 +114,6 @@ class BusinessPlanningService:
         
         logger.info("BusinessPlanningService 초기화 완료")
     
-
-    def determine_stage(self, topics: List[str]) -> str:
-        """토픽 기반으로 현재 상담 단계 추론"""
-        for stage, mapped_topics in self.multi_turn.STAGE_TOPIC_MAP.items():
-            if any(t in mapped_topics for t in topics):
-                return stage
-        return "아이디어 탐색"  # 기본값
-    
     def get_next_stage(self, current_stage: str) -> Optional[str]:
         try:
             idx = self.STAGES.index(current_stage)
@@ -139,7 +131,7 @@ class BusinessPlanningService:
             # LLM 기반 판별
             judge_prompt = f"""
             다음 질문이 아래 단계 주제와 관련이 있으면 무조건 multi를 출력하세요.
-            - 단계 주제: "아이디어 탐색", "시장 검증", "비즈니스 모델링", "실행 계획 수립", "성장 전략 & 리스크 관리"
+            - 단계 주제: "아이디어 탐색 및 추천", "시장 검증", "비즈니스 모델링", "실행 계획 수립", "성장 전략 & 리스크 관리"
             - 단계 주제와 전혀 관련이 없으면 질문 난이도를 기반으로 single 또는 multi를 출력하세요.
             - 즉답 가능한 단순 정보: "single"
             - 전략/분석/단계별 설명 필요: "multi"
@@ -242,7 +234,8 @@ class BusinessPlanningService:
             system_context = f"당신은 1인 창업 전문 컨설턴트입니다. {', '.join(role_descriptions)}"
         else:
             system_context = f"당신은 {persona} 전문 1인 창업 컨설턴트입니다. {', '.join(role_descriptions)}"
-
+        
+        # 프롬프트 템플릿 구성            
         template = f"""{system_context}
 
 다음 지침을 따라 답변하세요:
@@ -256,9 +249,8 @@ class BusinessPlanningService:
 
 사용자 질문: "{user_input}"
 
-멀티턴 대화 규칙:
-1. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
-2. 정보 수집이 , "지금까지의 내용을 기반으로 최종 기획서를 작성해드릴까요?"라고 제안하세요.
+[멀티턴 규칙]
+  1. 현재 단계({{current_stage}})에서 핵심 포인트를 정리하고, 다음 단계({{next_stage}})로 진행 여부를 사용자에게 묻습니다.
 
 위 지침에 따라 사용자의 질문에 대해 구체적이고 실용적인 답변과 후속 질문을 함께 제공하세요. 지침 내용을 그대로 반복하지 말고, 실제 답변만 작성하세요."""
 
@@ -382,7 +374,7 @@ class BusinessPlanningService:
             
             # 2. 현재 단계/다음 단계 결정
             is_single = await self.is_single_question(user_input)
-            current_stage = self.determine_stage(topics)
+            current_stage = self.multi_turn.determine_stage(topics)
             
             # **에러 방지를 위해 초기화**
             next_stage: Optional[str] = None
@@ -390,9 +382,8 @@ class BusinessPlanningService:
             
 
             # 4. 단계별 진행률 체크 (멀티턴)
-            progress_info = await self.multi_turn.check_stage_progress(current_stage, history)
-            logger.info(f"[멀티턴] 단계별 진행률 체크 결과: {progress_info}")
-            progress =  float(progress_info.get("progress", 0.0))
+            progress_info = await self.multi_turn.check_overall_progress(history)
+            progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
             
             logger.info(f"[멀티턴] 현재 단계: {current_stage}, 진행률: {progress}, 누락 항목: {missing}")
@@ -432,7 +423,7 @@ class BusinessPlanningService:
                             "metadata": {
                                 "type": "final_business_plan",
                                 "content": draft,
-                                "current_stage": current_stage,
+                                "current_stage": "최종 기획서 작성",
                                 "progress": 1.0,
                                 "missing": [],
                                 "next_stage": None,
@@ -464,6 +455,7 @@ class BusinessPlanningService:
                         chain_type="stuff",
                         retriever=retriever,
                         chain_type_kwargs={"prompt": prompt},
+                                       
                         return_source_documents=True
                     )
                     result = qa_chain.invoke(user_input)

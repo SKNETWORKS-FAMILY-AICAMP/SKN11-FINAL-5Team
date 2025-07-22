@@ -388,8 +388,13 @@ function DraftPreviewModal({
                   rehypePlugins={[rehypeRaw]}
                   components={{
                     p: ({ node, ...props }) => <p className="text-lg leading-relaxed mb-3" {...props} />,
-                    h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mb-4" {...props} />,
-                    h2: ({ node, ...props }) => <h2 className="text-xl font-semibold mb-3" {...props} />,
+                    h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mt-8 mb-4" {...props} />,
+                    h2: ({ node, ...props }) => <h2 className="text-xl font-semibold  mt-6 mb-3" {...props} />,
+                    h3: ({ node, ...props }) => <h3 className="text-lg font-semibold mt-5 mb-2" {...props} />,
+                    h4: ({ node, ...props }) => <h4 className="text-base font-semibold  mt-4 mb-1" {...props} />,
+                    h5: ({ node, ...props }) => <h5 className="text-sm font-semibold mt-3 mb-1" {...props} />,
+                    ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-2" {...props} />,
+                    li: ({ node, ...props }) => <li className="mb-1" {...props} />,
                   }}
                 >
                   {content}
@@ -569,6 +574,9 @@ export default function ChatRoomPage() {
     e.preventDefault()
     if (!userInput.trim()) return
     
+    // 사업기획서 보기 버튼 숨기기
+    setDraftContent(null);
+
     let currentConversationId = conversationId
     if (!currentConversationId) {
       try {

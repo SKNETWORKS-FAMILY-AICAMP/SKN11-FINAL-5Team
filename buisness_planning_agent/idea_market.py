@@ -226,8 +226,16 @@ async def get_common(url,query, max_results=2):
                 
                 params = {"query": query, "engine": "google", "min_date": min_date}
                 search_result = await session.call_tool("search_engine", params)
-                text = search_result.content[0].text
-
+                # try:
+                #     text = search_result.content[0].text
+                # except Exception as e:
+                #     print(f"[ERROR] search_engine 결과 접근 실패: {e}")
+                #     return "검색 실패"
+                if not hasattr(search_result, "content") or not search_result.content:
+                    print("[ERROR] search_engine 응답이 비정상")
+                    return "검색 실패"
+                text = getattr(search_result.content[0], "text", "")
+                
                 url_pattern = re.compile(r"\(http[^)]+\)")
                 url_candidates = url_pattern.findall(text)
                 links = [s[1:-1] for s in url_candidates]
@@ -265,6 +273,7 @@ async def get_common(url,query, max_results=2):
                 all_content = re.sub(r'\(http[^)]+\)', '', all_content)
                 all_content = re.sub(r"\{.*?\}", "", all_content) # { } 있으면 에러남
                 all_content = all_content.replace("{", "").replace("}", "")
+                all_content = re.sub(r'\[[^\[\]]*\]', '', all_content)
                 all_content = re.sub(r'\n+', ' ', all_content)
                 answer.append(all_content)
         return "\n".join(answer)
