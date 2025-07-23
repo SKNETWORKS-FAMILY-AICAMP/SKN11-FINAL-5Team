@@ -164,15 +164,7 @@ function ProjectModal({
 }
 
 // ===== 프로젝트 메뉴 컴포넌트 =====
-function ProjectMenu({ 
-  project, 
-  onEdit, 
-  onDelete 
-}: { 
-  project: Project, 
-  onEdit: (project: Project) => void, 
-  onDelete: (projectId: number) => void 
-}) {
+function ProjectMenu({ project, onEdit, onDelete }: { project: Project, onEdit: (project: Project) => void, onDelete: (projectId: number) => void }) {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
@@ -181,33 +173,34 @@ function ProjectMenu({
         variant="ghost"
         size="icon"
         className="w-4 h-4 p-0 text-gray-400 hover:text-gray-800 ml-1 opacity-0 group-hover:opacity-100"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen((prev) => !prev);
+        }}
       >
         <MoreVertical className="w-3 h-3" />
       </Button>
-      
-      
+
       {isOpen && (
         <>
-          <div 
-            className="fixed inset-0 z-10" 
-            onClick={() => setIsOpen(false)}
-          />
+          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-20 min-w-[120px]">
             <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded-t-md"
-              onClick={() => {
-                onEdit(project)
-                setIsOpen(false)
+              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(project);
+                setIsOpen(false);
               }}
             >
               이름 변경
             </button>
             <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-red-600 rounded-b-md"
-              onClick={() => {
-                onDelete(project.id)
-                setIsOpen(false)
+              className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(project.id);
+                setIsOpen(false);
               }}
             >
               삭제
@@ -278,7 +271,7 @@ function ChatHistoryMenu({
             className="w-4 h-4 p-0 text-gray-400 hover:text-gray-800 ml-1 opacity-0 group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
-              setIsOpen(!isOpen)
+              setIsOpen((prev) => !prev);
             }}
           >
             <MoreVertical className="w-3 h-3" />
@@ -321,6 +314,7 @@ function ChatHistoryMenu({
 
 
 // ===== 사이드바 컴포넌트 =====
+
 function ChatSidebar({
   onSelectAgent,
   chatHistory,
@@ -356,12 +350,6 @@ function ChatSidebar({
 
   const menuItems = [
     {
-      icon: "/icons/3D_새채팅.png",
-      label: "새 채팅 시작하기",
-      type: "unified_agent",
-      action: () => onNewChat(),
-    },
-    {
       icon: "/icons/3D_홈.png",
       label: "상담 메인화면",
       type: "home",
@@ -379,120 +367,163 @@ function ChatSidebar({
 
   return (
     <div
-      className={`${
-        isExpanded ? "w-52" : "w-14"
-      } bg-green-200 flex flex-col py-3 px-1 transition-all duration-300 shrink-0 fixed left-0 top-0 h-screen z-30`}
+      className={`${isExpanded ? "w-64" : "w-14"}
+        bg-white border-r-2 border-gray-200 flex flex-col py-3 px-2
+        transition-all duration-300 shrink-0 fixed left-0 top-0 h-screen z-30`}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
     >
-      <div className="flex flex-col space-y-2 mb-4">
-        {menuItems.map((item, idx) => (
-          <div
-            key={idx}
-            onClick={item.action}
-            className={`flex items-center gap-1 text-xs transition-all duration-150 ${
-              idx === 0 ? "text-green-700 font-semibold hover:bg-green-50" : "text-gray-800 hover:bg-green-100"
-            } cursor-pointer ${isExpanded ? "px-1 py-1 rounded-md" : "justify-center"}`}
-          >
-            <div
-              className="rounded-full bg-white flex items-center justify-center shadow shrink-0"
-              style={{ width: "36px", height: "36px" }}
-            >
-              <Image
-                src={item.icon || "/placeholder.svg"}
-                alt={item.label}
-                width={24}
-                height={24}
-                className="w-6 h-6"
-              />
-            </div>
-            {isExpanded && <span className="whitespace-nowrap">{item.label}</span>}
-          </div>
-        ))}
-      </div>
-
-      {isExpanded && (
-        <div className="px-1 flex-1 overflow-y-auto">
-          {/* 프로젝트 섹션 */}
-          <div className="text-[10px] text-gray-500 font-bold px-1 mb-1 mt-3">프로젝트</div>
-          <div
-            className={`text-xs px-1 py-[2px] rounded cursor-pointer hover:bg-green-100 text-gray-700 flex items-center gap-1`}
-            onClick={onCreateProject}
-          >
-            <Plus className="h-3 w-3" />
-            <span className="whitespace-nowrap">새 프로젝트 만들기</span>
-          </div>
-          <div className="space-y-[2px] mt-1">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className="group relative text-xs px-1 py-[2px] rounded hover:bg-green-100 text-gray-700"
+      <div className="flex flex-col h-full overflow-y-auto">
+        {/* 상단 고정 영역 */}
+        <div className="sticky top-0 bg-white z-10 pb-2">
+          {isExpanded ? (
+            <div className="px-2 mb-2 flex items-center justify-between">
+              <h1 className="text-xl font-bold text-gray-900">
+                TinkerBell
+              </h1>
+              <button
+                onClick={onNewChat}
+                className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-3 py-1.5 rounded-md text-sm shadow hover:shadow-lg transition"
               >
-                <div className="flex items-start justify-between">
-                  <div
-                    className="flex-1 cursor-pointer min-w-0 pr-1"
-                    onClick={() => onSelectProject(project.id)}
-                    title={`${project.title}\n${project.description || "설명 없음"}`}
-                  >
-                    <div className="truncate max-w-[140px]">{project.title}</div>
-                    <div className="text-[10px] text-gray-500 truncate max-w-[140px]">
-                      {project.description || "설명 없음"}
-                    </div>
+                새 채팅
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center mb-2">
+              <button
+                onClick={onNewChat}
+                title="새 채팅 시작하기"
+                className="w-9 h-9 rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 flex items-center justify-center shadow-md hover:scale-105"
+              >
+                <Image
+                  src="/icons/3D_새채팅.png"
+                  alt="새 채팅"
+                  width={20}
+                  height={20}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* 메뉴 아이콘들 */}
+          {isExpanded ? (
+            <div className="space-y-1 mb-4">
+              {menuItems.map((item, idx) => (
+                <div
+                  key={idx}
+                  onClick={item.action}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer transition-all duration-200 text-gray-800 hover:bg-gray-100`}
+                >
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-sm">
+                    <Image
+                      src={item.icon || "/placeholder.svg"}
+                      alt={item.label}
+                      width={20}
+                      height={20}
+                      className="w-5 h-5"
+                    />
                   </div>
-                  <ProjectMenu
-                    project={project}
-                    onEdit={onEditProject}
-                    onDelete={onDeleteProject}
+                  <span className="font-medium truncate">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1 flex flex-col items-center">
+              {menuItems.map((item, idx) => (
+                <div
+                  key={idx}
+                  onClick={item.action}
+                  className="w-10 h-10 rounded-lg flex items-center justify-center cursor-pointer bg-white hover:bg-gray-50 shadow-sm"
+                  title={item.label}
+                >
+                  <Image
+                    src={item.icon || "/placeholder.svg"}
+                    alt={item.label}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6"
+                    style={{ objectFit: 'contain' }}
                   />
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-          {/* 채팅 기록 섹션 */}
-          <div className="text-[10px] text-gray-500 font-bold px-1 mb-1 mt-3">채팅 기록</div>
-          <div
-            className={`text-xs px-1 py-[2px] rounded cursor-pointer hover:bg-green-100 ${
-              currentChatId === null ? "text-green-800 bg-green-50" : "text-gray-700"
-            }`}
-            onClick={onNewChat}
-          >
-            현재 채팅
-          </div>
-          <div className="space-y-[2px] mt-1">
-            {chatHistory.map((chat) => (
-              <div
-                key={chat.id}
-                className={`group text-xs px-1 py-[2px] rounded hover:bg-green-100 cursor-pointer ${
-                  currentChatId === chat.id ? "bg-green-50 text-green-800" : "text-gray-700"
-                } flex items-center justify-between`}
-              >
-                {/* 왼쪽: 제목 + 내용 (최대 너비 제한) */}
-                <div
-                  className="flex-1 min-w-0"
-                  onClick={() => onLoadPreviousChat(chat.id)}
-                  title={chat.lastMessage}
+        {/* 프로젝트 + 채팅 목록 */}
+        {isExpanded && (
+          <div className="flex flex-col mt-2">
+            {/* 프로젝트 섹션 */}
+            <div className="flex-shrink-0 mb-4">
+              <div className="flex items-center justify-between mb-2 px-3">
+                <h3 className="text-sm font-semibold text-gray-800">프로젝트</h3>
+                <button
+                  onClick={onCreateProject}
+                  className="p-1 hover:bg-gray-100 rounded transition-colors"
                 >
-                  <div className="truncate font-medium max-w-[160px]">{chat.title}</div>
-                  <div className="text-[10px] text-gray-500 truncate max-w-[160px]">{chat.lastMessage}</div>
-                </div>
+                  <Plus className="h-3 w-3 text-gray-600 hover:text-green-600" />
+                </button>
+              </div>
 
-                {/* 오른쪽: 수정/삭제 버튼 */}
-                <div className="ml-2 shrink-0">
+              <div className="space-y-1">
+                {projects.slice(0, 3).map((project) => (
+                  <div
+                    key={project.id}
+                    className="group flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 cursor-pointer"
+                    onClick={() => onSelectProject(project.id)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate" title={project.title}>
+                        {project.title}
+                      </div>
+                    </div>
+                    <ProjectMenu
+                      project={project}
+                      onEdit={onEditProject}
+                      onDelete={onDeleteProject}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 채팅 기록 섹션 */}
+            <div className="flex-1 overflow-y-auto space-y-1">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2 px-3">채팅 기록</h3>
+              {chatHistory.map((chat) => (
+                <div
+                  key={chat.id}
+                  className={`group flex items-start justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                    currentChatId === chat.id
+                      ? "bg-green-50 border border-green-200 text-green-800"
+                      : "hover:bg-gray-50"
+                  }`}
+                  onClick={() => onLoadPreviousChat(chat.id)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-800 truncate" title={chat.title}>
+                      {chat.title}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate mt-1" title={chat.lastMessage}>
+                      {chat.lastMessage}
+                    </div>
+                  </div>
                   <ChatHistoryMenu
                     chat={chat}
                     onEditTitle={onEditChatTitle}
                     onDelete={onDeleteChat}
                   />
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      </div>
     </div>
   )
 }
+
 
 // ===== 메인 채팅 컴포넌트 =====
 export default function ChatRoomPage() {
@@ -510,6 +541,9 @@ export default function ChatRoomPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  
+  // 중복 실행 방지를 위한 ref
+  const initializeRef = useRef(false);
 
   // ===== 상태 관리 =====
   const [userId, setUserId] = useState<number | null>(null)
@@ -521,6 +555,7 @@ export default function ChatRoomPage() {
   const [projectInfo, setProjectInfo] = useState<any>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false) // 중복 제출 방지
 
   // 프로젝트 관련 상태
   const [projects, setProjects] = useState<Project[]>([])
@@ -551,19 +586,6 @@ export default function ChatRoomPage() {
       return saved ? JSON.parse(saved) : {}
     }
     return {}
-  }
-
-  // ===== 유틸리티 함수 =====
-  const removeDuplicateMessages = (messages: Message[]): Message[] => {
-    const seen = new Set<string>()
-    return messages.filter((msg) => {
-      const key = `${msg.sender}-${msg.text}-${JSON.stringify(msg)}`
-      if (seen.has(key)) {
-        return false
-      }
-      seen.add(key)
-      return true
-    })
   }
 
   // ===== 초기화 및 데이터 가져오기 함수 =====
@@ -659,7 +681,7 @@ export default function ChatRoomPage() {
       setConversationId(newConvId)
       setMessages([])
       setAgentType(newAgent)
-      setCurrentChatId(null) // 새 대화는 현재 대화로 설정
+      setCurrentChatId(null)
 
       // URL 업데이트 (새로고침 방지)
       const newUrl = `/chat/room?conversation_id=${newConvId}&agent=${newAgent}`
@@ -678,16 +700,15 @@ export default function ChatRoomPage() {
         throw new Error(result.error || "메시지를 불러올 수 없습니다")
       }
       
-      setMessages(
-        result.data.messages.map((msg: ConversationMessage) => ({
-          sender: msg.role === "user" ? "user" : "agent",
-          text: msg.content,
-        }))
-      )
+      const loadedMessages = result.data.messages.map((msg: ConversationMessage) => ({
+        sender: msg.role === "user" ? "user" : "agent",
+        text: msg.content,
+      }))
+      
+      setMessages(loadedMessages)
       setConversationId(chatId)
       setCurrentChatId(chatId)
       
-      // URL 업데이트 (새로고침 방지)
       const newUrl = `/chat/room?conversation_id=${chatId}&agent=${agentType}`
       window.history.replaceState({}, '', newUrl)
     } catch (error) {
@@ -697,13 +718,16 @@ export default function ChatRoomPage() {
   }
 
   // ===== 채팅 관련 핸들러 =====
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!userInput.trim() || !userId) return
+  const handleSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isSubmitting || !userInput.trim() || !userId) return;  // 추가 안전 체크
+    setIsSubmitting(true);
 
+    const currentInput = userInput;
+    setUserInput("");
+    
     let currentConversationId = conversationId
     
-    // 새 대화 세션이 필요한 경우
     if (!currentConversationId) {
       try {
         const result = await agentApi.createConversation(userId)
@@ -711,25 +735,20 @@ export default function ChatRoomPage() {
         currentConversationId = result.data?.conversationId
         setConversationId(currentConversationId)
         
-        // URL 업데이트
         const newUrl = `/chat/room?conversation_id=${currentConversationId}&agent=${agentType}`
         window.history.replaceState({}, '', newUrl)
       } catch (error) {
         console.error("대화 세션 생성 실패:", error)
         alert("채팅 세션을 생성할 수 없습니다.")
+        setUserInput(currentInput)
+        setIsSubmitting(false)
         return
       }
     }
 
-    const currentInput = userInput
-    setUserInput("")
-
-    // 사용자 메시지 즉시 표시
+    // 사용자 메시지 추가
     const userMessage: Message = { sender: "user", text: currentInput }
-    setMessages((prev) => {
-      const newMessages = [...prev, userMessage]
-      return removeDuplicateMessages(newMessages)
-    })
+    setMessages(prev => [...prev, userMessage])
 
     try {
       const result = await agentApi.sendQuery(userId, currentConversationId!, currentInput, agentType, currentProjectId)
@@ -737,24 +756,18 @@ export default function ChatRoomPage() {
         throw new Error(result?.error || "응답을 받을 수 없습니다")
       }
 
-      // 에이전트 응답 추가
-      const agentMessage: Message = {
-        sender: "agent",
-        text: result.data.answer,
-      }
-      setMessages((prev) => {
-        const newMessages = [...prev, agentMessage]
-        return removeDuplicateMessages(newMessages)
-      })
+      // AI 응답 추가
+      const agentMessage: Message = { sender: "agent", text: result.data.answer }
+      setMessages(prev => [...prev, agentMessage])
 
-      // 대화 목록 갱신
       await fetchChatHistory(userId)
     } catch (error) {
       console.error("응답 실패:", error)
       alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
-      
-      // 실패 시 사용자 메시지 제거
-      setMessages((prev) => prev.slice(0, -1))
+      setMessages(prev => prev.slice(0, -1))
+      setUserInput(currentInput)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -768,22 +781,14 @@ export default function ChatRoomPage() {
     }
   }
 
-  const handleExampleClick = async (text: string) => {
-    if (!userId) {
+  const handleExampleClick = (text: string) => {
+    if (!userId || isSubmitting) {
       alert("로그인 정보가 없습니다. 다시 로그인해주세요.")
       return
     }
-
-    setUserInput(text)
     
-    // 폼 제출 이벤트 트리거
-    setTimeout(() => {
-      const form = document.querySelector("form")
-      if (form) {
-        const event = new Event("submit", { bubbles: true, cancelable: true })
-        form.dispatchEvent(event)
-      }
-    }, 100)
+    // 단순히 입력창에 설정하고 사용자가 전송하도록
+    setUserInput(text)
   }
 
   // ===== 채팅 히스토리 관련 핸들러 =====
@@ -934,10 +939,11 @@ export default function ChatRoomPage() {
   }
 
   const handleNewChat = () => {
+    if (isSubmitting) return
+    
     setCurrentChatId(null)
     setConversationId(null)
     setMessages([])
-    // URL 업데이트
     window.history.replaceState({}, '', `/chat/room?agent=${agentType}`)
   }
 
@@ -982,52 +988,32 @@ export default function ChatRoomPage() {
     initializeUser()
   }, [])
 
-  // 사용자 ID가 설정된 후 초기화
+  // 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
   useEffect(() => {
-    if (userId && !isInitialized) {
-      const initialize = async () => {
+    if (userId && !initializeRef.current) {
+      initializeRef.current = true;
+      (async () => {
         try {
-          // 로컬 스토리지에서 채팅 제목 맵 로드
-          const titleMap = loadChatTitleMap()
-          setChatTitleMap(titleMap)
-          
-          // 프로젝트 및 채팅 히스토리 로드
-          await Promise.all([
-            fetchProjects(userId),
-            fetchChatHistory(userId)
-          ])
+          const titleMap = loadChatTitleMap();
+          setChatTitleMap(titleMap);
+          await Promise.all([fetchProjects(userId), fetchChatHistory(userId)]);
 
-          // URL에서 대화 ID가 있으면 해당 대화 로드
           if (initialConversationId) {
-            await loadPreviousChat(initialConversationId)
+            await loadPreviousChat(initialConversationId);
           }
-
-          // 프로젝트 정보 로드
           if (currentProjectId) {
-            await fetchProjectInfo(currentProjectId)
+            await fetchProjectInfo(currentProjectId);
           }
-
-          // 초기 질문이 있으면 처리
           if (initialQuestion && !initialConversationId) {
-            setUserInput(initialQuestion)
-            setTimeout(() => {
-              const form = document.querySelector("form")
-              if (form) {
-                const event = new Event("submit", { bubbles: true, cancelable: true })
-                form.dispatchEvent(event)
-              }
-            }, 500)
+            setUserInput(initialQuestion);
           }
-
-          setIsInitialized(true)
-        } catch (error) {
-          console.error("초기화 실패:", error)
+          setIsInitialized(true);
+        } finally {
+          initializeRef.current = false;
         }
-      }
-      
-      initialize()
+      })();
     }
-  }, [userId, isInitialized])
+  }, [userId]); 
 
   // ===== JSX 렌더링 =====
   return (
@@ -1050,7 +1036,7 @@ export default function ChatRoomPage() {
       />
 
       {/* 메인 컨테이너 - 사이드바 크기에 따라 여백 조정 */}
-      <div className={`flex-1 flex flex-col relative transition-all duration-300 ${sidebarExpanded ? 'ml-52' : 'ml-14'}`}>
+      <div className={`flex-1 flex flex-col relative transition-all duration-300 ${sidebarExpanded ? 'ml-64' : 'ml-14'}`}>
         {/* 헤더 */}
         <div className="bg-white border-b px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -1167,7 +1153,7 @@ export default function ChatRoomPage() {
                 type="submit"
                 size="icon"
                 className="h-full aspect-square rounded-xl bg-green-600 hover:bg-green-700 shadow-lg"
-                disabled={!userInput.trim()}
+                disabled={!userInput.trim() || isSubmitting}
               >
                 <Send className="h-5 w-5" />
               </Button>

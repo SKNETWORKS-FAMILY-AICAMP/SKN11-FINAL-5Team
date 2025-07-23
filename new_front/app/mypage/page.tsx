@@ -64,10 +64,7 @@ export default function MyPage() {
   const [editingTemplate, setEditingTemplate] = useState<number | null>(null)
   const [editData, setEditData] = useState({ title: "", content: "" })
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-
-  // 현재 로그인된 사용자 ID (실제로는 인증 컨텍스트에서 가져와야 함)
   const [userId, setUserId] = useState<number | null>(null)
-
 
   const menuItems = [
     { id: "profile", label: "프로필 관리", icon: User },
@@ -76,43 +73,80 @@ export default function MyPage() {
     { id: "support", label: "고객 지원", icon: HelpCircle },
   ]
 
+  // 사용자 정보 불러오기
+  const loadUserInfo = async (user_id: number) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/${user_id}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          const userData = data.data
+          setProfileData({
+            name: userData.nickname || "",
+            email: userData.email || "",
+            businessField: userData.business_type || "",
+            businessYears: userData.experience === 1 ? "experience" : "preparing"
+          })
+        }
+      }
+    } catch (error) {
+      console.error("사용자 정보 조회 실패:", error)
+    }
+  }
+
+  // 프로필 저장
+  const handleSaveProfile = async () => {
+    try {
+      const payload = {
+        nickname: profileData.name,
+        business_type: profileData.businessField,
+        experience: profileData.businessYears === "experience" ? 1 : 0,
+      }
+
+      const response = await fetch(`${API_BASE_URL}/user/${userId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        // localStorage 업데이트
+        const storedUser = localStorage.getItem("user")
+        if (storedUser) {
+          const user = JSON.parse(storedUser)
+          user.username = profileData.name
+          localStorage.setItem("user", JSON.stringify(user))
+        }
+        alert("저장 완료")
+      } else {
+        alert("저장 실패")
+      }
+    } catch (error) {
+      console.error("저장 오류:", error)
+      alert("저장 중 오류 발생")
+    }
+  }
+
   // 템플릿 불러오기
   const fetchTemplates = async () => {
     try {
       setIsLoading(true)
+      if (!userId) return
 
-      if (!userId) throw new Error("userId 없음")
-
-      const response = await fetch(`${API_BASE_URL}/templates?user_id=${userId}`)  // ✅ 여기 수정
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("응답이 JSON이 아닙니다:", await response.text())
-        setTemplates([])
-        return
-      }
-
-      const data = await response.json()
-
-      if (data.success) {
-        setTemplates(data.data?.templates || [])
-        console.log(`✅ ${data.data?.count || 0}개 템플릿 로드 완료`)
-      } else {
-        console.error('템플릿 조회 실패:', data.error)
-        setTemplates([])
+      const response = await fetch(`${API_BASE_URL}/templates?user_id=${userId}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setTemplates(data.data?.templates || [])
+        }
       }
     } catch (error) {
       console.error('템플릿 조회 오류:', error)
-      setTemplates([])
     } finally {
       setIsLoading(false)
     }
   }
-
 
   // 템플릿 수정 시작
   const startEditTemplate = (template: Template) => {
@@ -130,19 +164,16 @@ export default function MyPage() {
   }
 
   // 템플릿 수정 저장
- 
   const saveTemplateEdit = async (templateId: number) => {
     try {
       const targetTemplate = templates.find(t => t.template_id === templateId)
-      if (!targetTemplate) throw new Error("템플릿을 찾을 수 없습니다.")
+      if (!targetTemplate) return
 
       const isPublic = targetTemplate.user_id === 3
-
       let response
 
       if (isPublic) {
-        // ✅ 먼저 body 객체 정의
-        const body: Record<string, any> = {
+        const body = {
           user_id: userId,
           title: editData.title,
           content: editData.content,
@@ -152,55 +183,31 @@ export default function MyPage() {
           is_custom: true
         }
 
-        // ✅ optional 필드 안전하게 추가
-        if (targetTemplate.conversation_id !== undefined) {
-          body.conversation_id = targetTemplate.conversation_id
-        }
-
-        if (targetTemplate.description !== undefined) {
-          body.description = targetTemplate.description
-        }
-
-        // ✅ fetch는 나중에
         response = await fetch(`${API_BASE_URL}/templates`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         })
       } else {
-        // 일반 템플릿 수정
         response = await fetch(`${API_BASE_URL}/templates/${templateId}`, {
           method: "PUT",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(editData)
         })
       }
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
       const data = await response.json()
-
       if (data.success) {
         alert(isPublic ? "복사하여 저장되었습니다." : "템플릿이 수정되었습니다.")
         setEditingTemplate(null)
         setEditData({ title: "", content: "" })
         fetchTemplates()
-      } else {
-        alert(data.error || "저장에 실패했습니다.")
       }
     } catch (error) {
       console.error("템플릿 저장 실패:", error)
       alert("저장에 실패했습니다.")
     }
   }
-
-
 
   // 템플릿 삭제
   const handleTemplateDelete = async (templateId: number) => {
@@ -211,17 +218,10 @@ export default function MyPage() {
         method: 'DELETE'
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
       const data = await response.json()
-      
       if (data.success) {
         setTemplates(templates.filter(t => t.template_id !== templateId))
         alert('템플릿이 삭제되었습니다.')
-      } else {
-        alert(data.error || '삭제에 실패했습니다.')
       }
     } catch (error) {
       console.error('삭제 실패:', error)
@@ -261,7 +261,6 @@ export default function MyPage() {
 
   // 로그아웃 처리
   const handleLogout = () => {
-    // 로그아웃 로직 (localStorage 클리어, 리다이렉트 등)
     localStorage.clear()
     window.location.href = "/login"
   }
@@ -292,12 +291,25 @@ export default function MyPage() {
     return colorMap[type] || 'bg-gray-100 text-gray-800'
   }
 
+  // 초기 로드
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user")
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      setUserId(user.user_id)
+      loadUserInfo(user.user_id)
+    } else {
+      alert("로그인 정보가 없습니다. 로그인 후 이용해주세요.")
+      window.location.href = "/login"
+    }
+  }, [])
+
   // 템플릿 탭 활성화 시 데이터 로드
   useEffect(() => {
-    if (activeTab === "templates") {
+    if (activeTab === "templates" && userId) {
       fetchTemplates()
     }
-  }, [activeTab])
+  }, [activeTab, userId])
 
   // 템플릿 검색
   useEffect(() => {
@@ -311,54 +323,6 @@ export default function MyPage() {
       setFilteredTemplates(filtered)
     }
   }, [templates, searchQuery])
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user")
-    if (storedUser) {
-      const user = JSON.parse(storedUser)
-      setProfileData((prev) => ({
-        ...prev,
-        name: user.username || prev.name,
-        email: user.email || prev.email,
-      }))
-      setUserId(user.user_id)
-    } else {
-      alert("로그인 정보가 없습니다. 로그인 후 이용해주세요.")
-      window.location.href = "/login"
-    }
-  }, [])
-
-  const handleSaveProfile = async () => {
-    const experienceMap: Record<string, number> = {
-      preparing: 0,
-      experirence: 1,
-    };
-
-    const payload = {
-      nickname: profileData.name,
-      business_type: profileData.businessField,
-      experience: experienceMap[profileData.businessYears as keyof typeof experienceMap] ?? 0,
-    };
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/user/${userId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        alert("✅ 저장 완료");
-      } else {
-        alert(data.error || "❌ 저장 실패");
-      }
-    } catch (e) {
-      console.error("저장 중 오류:", e);
-      alert("❌ 네트워크 오류 발생");
-    }
-  };
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
@@ -454,7 +418,6 @@ export default function MyPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="name">이름</Label>
@@ -668,16 +631,14 @@ export default function MyPage() {
                                     >
                                       <Copy className="h-4 w-4" />
                                     </Button>
-                                
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => handleTemplateDelete(template.template_id)}
-                                        className="text-red-600 hover:text-red-700"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-          
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleTemplateDelete(template.template_id)}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
                                   </div>
                                 </div>
 
@@ -780,7 +741,6 @@ export default function MyPage() {
                         </Link>
                       </CardContent>
                     </Card>
-
 
                     <Card className="border border-gray-200">
                       <CardContent className="p-6 text-center">

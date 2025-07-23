@@ -913,6 +913,29 @@ def update_user(user_id: int, data: dict = Body(...)):
     except Exception as e:
         logger.error(f"사용자 정보 수정 오류: {e}")
         return create_error_response("사용자 정보 수정 실패", "USER_UPDATE_ERROR")
+    
+@app.get("/user/{user_id}")
+def get_user_info(user_id: int):
+    """사용자 정보 조회"""
+    try:
+        with get_session_context() as db:
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                return create_error_response("사용자를 찾을 수 없습니다", "USER_NOT_FOUND")
+
+            user_data = {
+                "user_id": user.user_id,
+                "email": user.email,
+                "nickname": user.nickname,
+                "business_type": user.business_type,
+                "experience": user.experience,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            }
+            
+            return create_success_response(user_data)
+    except Exception as e:
+        logger.error(f"사용자 정보 조회 오류: {e}")
+        return create_error_response("사용자 정보 조회 실패", "USER_GET_ERROR")
 
 
 # ===== 정신건강 전용 API =====
@@ -1565,29 +1588,39 @@ async def get_project_chats(project_id: int, db: Session = Depends(get_db_depend
 # 2. 프로젝트에 새 채팅 생성 (기존 conversation 생성 + project_document 연결)
 @app.post("/projects/{project_id}/chats")
 async def create_project_chat(
-    project_id: int, 
-    data: dict = Body(...), 
+    project_id: int,
+    data: dict = Body(...),
     db: Session = Depends(get_db_dependency)
 ):
-    """프로젝트에 새 채팅 생성"""
+    """프로젝트에 새 채팅 생성 + 첫 메시지 저장"""
     try:
         user_id = data.get("user_id")
         title = data.get("title", "새 채팅")
-        
+        first_message = data.get("message", "")  # 첫 메시지 받기 (프론트에서 전송)
+
         if not user_id:
             return create_error_response("사용자 ID가 필요합니다", "MISSING_USER_ID")
         
         # 새 대화 생성
         conversation = create_conversation(db, user_id)
+
+        # 첫 메시지 저장
+        if first_message.strip():
+            create_message(
+                db=db,
+                conversation_id=conversation.conversation_id,
+                sender_type="USER",
+                agent_type="unified",
+                content=first_message
+            )
         
-        # project_document 테이블에 연결 정보 생성 (더미 문서로)
-        # 실제 파일 없이도 프로젝트와 대화를 연결하기 위함
+        # project_document 연결
         dummy_doc = ProjectDocument(
             project_id=project_id,
             conversation_id=conversation.conversation_id,
             user_id=user_id,
             file_name=f"chat_link_{conversation.conversation_id}",
-            file_path="/virtual/chat_link"  # 가상 경로
+            file_path="/virtual/chat_link"
         )
         db.add(dummy_doc)
         db.commit()
@@ -1598,12 +1631,34 @@ async def create_project_chat(
             "title": title,
             "created_at": conversation.started_at.isoformat() if conversation.started_at else None
         }
-        
         return create_success_response(response_data)
-        
+
     except Exception as e:
         logger.error(f"프로젝트 채팅 생성 실패: {e}")
         return create_error_response("채팅 생성에 실패했습니다", "PROJECT_CHAT_CREATE_ERROR")
+
+
+@app.delete("/projects/{project_id}/chats/{chat_id}")
+def delete_project_chat(project_id: int, chat_id: int, db: Session = Depends(get_db_dependency)):
+    """프로젝트 채팅 삭제"""
+    try:
+        from shared_modules.db_models import ProjectDocument, Conversation, Message
+        
+        # ProjectDocument 삭제
+        db.query(ProjectDocument).filter_by(project_id=project_id, conversation_id=chat_id).delete()
+        # Message 삭제
+        db.query(Message).filter_by(conversation_id=chat_id).delete()
+        # Conversation 삭제
+        db.query(Conversation).filter_by(conversation_id=chat_id).delete()
+
+        db.commit()
+        return create_success_response({"conversation_id": chat_id})
+    except Exception as e:
+        logger.error(f"채팅 삭제 실패: {e}")
+        db.rollback()
+        return create_error_response("채팅 삭제 실패", "CHAT_DELETE_ERROR")
+
+
 
 
 # ===== 시스템 관리 API ===== 
