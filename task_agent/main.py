@@ -13,16 +13,18 @@ os.environ['DO_NOT_TRACK'] = '1'
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
-from models import UserQuery, AutomationRequest
+from typing import Dict, Any, List, Optional
+from models import UserQuery, AutomationRequest, EmailRequest, InstagramPostRequest
 from utils import TaskAgentLogger, TaskAgentResponseFormatter
 from agent import TaskAgent
 from config import config
-
+from pydantic import BaseModel, EmailStr
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from automation_task.email_service import get_email_service
+from automation_task.instagram_service import InstagramPostingService
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -298,6 +300,41 @@ async def get_system_status():
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+# ==== Email & Instagram API ====
+
+@app.post("/email/send")
+async def send_email(req: EmailRequest):
+    email_service = get_email_service()
+    result = await email_service.send_email(
+        to_emails=req.to_emails,
+        subject=req.subject,
+        body=req.body,
+        html_body=req.html_body,
+        attachments=req.attachments,
+        cc_emails=req.cc_emails,
+        bcc_emails=req.bcc_emails,
+        from_email=req.from_email,
+        from_name=req.from_name,
+        service=req.service,
+    )
+    if not result.get("success", False):
+        raise HTTPException(status_code=400, detail=result.get("error", "이메일 발송 실패"))
+    return result
+
+
+@app.post("/instagram/post")
+async def post_to_instagram(req: InstagramPostRequest):
+    insta_service = InstagramPostingService()
+    result = await insta_service.post_to_instagram(
+        instagram_id=req.instagram_id,
+        access_token=req.access_token,
+        image_url=req.image_url,
+        caption=req.caption or ""
+    )
+    return result
+
+
 
 # ===== 에러 핸들러 =====
 
