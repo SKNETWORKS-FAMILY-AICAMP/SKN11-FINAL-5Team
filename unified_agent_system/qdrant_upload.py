@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from qdrant_init import chunk_text, insert_texts
 import tempfile
 import urllib
+from fastapi.responses import FileResponse
 
 # === 환경 변수 로드 ===
 load_dotenv()
@@ -83,7 +84,7 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_file(user_id: int = Form(...), file: UploadFile = None):
-    # tmp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"  # For EC2
+    # tmp_path = f"/tmp/{uuid.uuid4()}_{safe_filename}"  # For EC2
     
     safe_filename = get_safe_filename(file.filename)
     
@@ -108,6 +109,24 @@ async def upload_file(user_id: int = Form(...), file: UploadFile = None):
     os.remove(tmp_path)
 
     return {"message": "File uploaded & indexed", "s3_key": s3_key}
+
+@router.get("/download")
+async def download_file(user_id: int, s3_key: str):
+    """
+    지정된 user_id의 s3_key 파일을 다운로드합니다.
+    """
+    # S3에서 임시 파일로 다운로드
+    tmp_dir = tempfile.gettempdir()
+    os.makedirs(tmp_dir, exist_ok=True)
+    local_path = os.path.join(tmp_dir, os.path.basename(s3_key))
+
+    try:
+        s3.download_file(BUCKET_NAME, s3_key, local_path)
+    except Exception as e:
+        return {"error": f"파일 다운로드 실패: {e}"}
+
+    # FileResponse로 반환 (브라우저 다운로드)
+    return FileResponse(local_path, filename=os.path.basename(s3_key))
 
 @router.get("/search")
 async def search(query: str, user_id: int = None):
