@@ -35,13 +35,22 @@ class AuthManager:
     def validate_state(self, state: str, user_id: str = None, platform: str = None) -> Optional[Dict[str, Any]]:
         """OAuth state 검증"""
         try:
+            logger.debug(f"Validate state called with: {state}, user_id={user_id}, platform={platform}")
+            logger.debug(f"Current tokens_storage items: {self.tokens_storage.items()}") # 경고: 실제 토큰 정보가 노출되지 않도록 주의
+
             for key, data in self.tokens_storage.items():
+                logger.debug(f"Checking key: {key}, data: {data}")
                 if key.startswith("state_") and data.get("state") == state:
+                    logger.debug(f"Matching state found for key: {key}")
                     if user_id and data.get("user_id") != user_id:
+                        logger.debug(f"User ID mismatch for state {state}. Expected: {user_id}, Found: {data.get('user_id')}")
                         continue
                     if platform and data.get("platform") != platform:
+                        logger.debug(f"Platform mismatch for state {state}. Expected: {platform}, Found: {data.get('platform')}")
                         continue
+                    logger.debug(f"State validation successful for {state}")
                     return data
+            logger.warning(f"No matching state found for {state}")
             return None
         except Exception as e:
             logger.error(f"State 검증 실패: {e}")
@@ -70,7 +79,7 @@ class AuthManager:
             logger.error(f"토큰 저장 실패: {e}")
             return False
     
-    def get_token(self, user_id: int, platform: str) -> Optional[Dict[str, Any]]:
+    def get_token(self, user_id: str, platform: str) -> Optional[Dict[str, Any]]:
         """저장된 토큰 가져오기"""
         try:
             key = f"token_{user_id}_{platform}"
@@ -90,7 +99,7 @@ class AuthManager:
             logger.error(f"토큰 가져오기 실패: {e}")
             return None
     
-    def is_token_valid(self, user_id: int, platform: str) -> bool:
+    def is_token_valid(self, user_id: str, platform: str) -> bool:
         """토큰 유효성 검사"""
         try:
             token_data = self.get_token(user_id, platform)
@@ -143,7 +152,7 @@ class AuthManager:
             logger.error(f"토큰 제거 실패: {e}")
             return False
     
-    def get_connection_info(self, user_id: int, platform: str) -> Dict[str, Any]:
+    def get_connection_info(self, user_id: str, platform: str) -> Dict[str, Any]:
         """연동 정보 조회"""
         token_data = self.get_token(user_id, platform)
         if token_data:

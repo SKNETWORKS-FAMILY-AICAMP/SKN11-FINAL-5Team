@@ -23,11 +23,14 @@ from utils import TaskAgentLogger, create_success_response, create_error_respons
 
 # 자동화 작업 서비스들 import
 from automation_task.email_service import EmailService
-from automation_task.google_calendar_service import GoogleCalendarService
+from automation_task.google_calendar_service import GoogleCalendarService, GoogleCalendarConfig
 # from automation_task.sns_service import SNSService
 from automation_task.reminder_service import ReminderService
 from automation_task.common.config_manager import get_automation_config_manager
 from automation_task.common.db_helper import get_automation_db_helper
+from automation_task.common.auth_manager import AuthManager
+from automation_task.common.utils import AutomationDateTimeUtils
+from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +61,29 @@ class TaskAgentAutomationManager:
         """자동화 서비스들 초기화"""
         try:
             self.email_service = EmailService()
-            self.calendar_service = GoogleCalendarService()
+            
+            # Google Calendar Service 초기화 (의존성 주입)
+            config = GoogleCalendarConfig({
+                "google_calendar": {
+                    "client_id": os.getenv("GOOGLE_CALENDAR_CLIENT_ID", "your_client_id"),
+                    "client_secret": os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET", "your_client_secret"),
+                    "redirect_uri": os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "http://localhost:8080/callback"),
+                    "token_url": "https://oauth2.googleapis.com/token",
+                    "default_timezone": os.getenv("GOOGLE_CALENDAR_DEFAULT_TIMEZONE", "Asia/Seoul")
+                }
+            })
+            
+            # 간단한 Google API 클라이언트
+            class SimpleGoogleApiClient:
+                def build_service(self, service_name: str, version: str, credentials):
+                    return build(service_name, version, credentials=credentials)
+            
+            self.calendar_service = GoogleCalendarService(
+                api=SimpleGoogleApiClient(),
+                time_utils=AutomationDateTimeUtils(),
+                config=config
+            )
+            
             # self.sns_service = SNSService()
             self.reminder_service = ReminderService()
             

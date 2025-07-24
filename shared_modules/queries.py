@@ -1027,3 +1027,30 @@ def delete_template(template_id: int) -> bool:
     except Exception as e:
         return handle_db_error(e, "delete_template") or False
 
+def get_user_tokens(db: Session, user_id: int) -> Optional[dict]:
+    """사용자 ID로 토큰 정보 조회"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user:
+            return {
+                'access_token': user.access_token,
+                'refresh_token': user.refresh_token,
+                'user_id': user.user_id,
+                'email': user.email
+            }
+        return None
+    except Exception as e:
+        logger.error(f"[get_user_tokens 오류] {e}", exc_info=True)
+        return None
+
+def check_user_token_exists(db: Session, user_id: int) -> bool:
+    """사용자의 토큰 존재 여부 확인"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user and user.access_token:
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"[check_user_token_exists 오류] {e}", exc_info=True)
+        return False
+

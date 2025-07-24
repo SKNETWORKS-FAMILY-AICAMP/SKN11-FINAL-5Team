@@ -55,7 +55,9 @@ from shared_modules import (
 
 from core.models import (
     UnifiedRequest, UnifiedResponse, HealthCheck, 
-    AgentType, RoutingDecision
+    AgentType, RoutingDecision, TemplateUpdateRequest, ProjectCreate,
+    ConversationCreate, SocialLoginRequest, PHQ9StartRequest, PHQ9SubmitRequest,
+    EmergencyRequest, AutomationRequest, TemplateCreateRequest
 )
 from core.workflow import get_workflow
 from core.config import (
@@ -66,13 +68,7 @@ from shared_modules.database import  get_db_dependency
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from pydantic import BaseModel
-from shared_modules.db_models import Template
-from shared_modules.db_models import User
-from shared_modules.db_models import TemplateMessage
-from shared_modules.db_models import  Project
-from shared_modules.db_models import ProjectDocument
-from shared_modules.db_models import Conversation
-from shared_modules.db_models import FAQ
+from shared_modules.db_models import Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -81,63 +77,6 @@ logger = logging.getLogger(__name__)
 # 설정 로드
 config = get_config()
 router = APIRouter()
-
-class TemplateUpdateRequest(BaseModel):
-    title: str
-    content: str
-    category: Optional[str] = None
-    description: Optional[str] = None
-    user_id: Optional[int] = None  # ✅ 이거 추가
-
-# ===== 공통 요청/응답 모델 =====
-
-class ConversationCreate(BaseModel):
-    user_id: int
-    title: Optional[str] = None
-
-class SocialLoginRequest(BaseModel):
-    provider: str
-    social_id: str
-    username: str
-    email: str
-
-class PHQ9StartRequest(BaseModel):
-    user_id: int
-    conversation_id: int
-
-class PHQ9SubmitRequest(BaseModel):
-    user_id: int
-    conversation_id: int
-    scores: List[int]
-
-class EmergencyRequest(BaseModel):
-    user_id: int
-    conversation_id: int
-    message: str
-
-class AutomationRequest(BaseModel):
-    user_id: int
-    task_type: str
-    parameters: Dict[str, Any] = {}
-
-
-class TemplateCreateRequest(BaseModel):
-    user_id: int
-    title: str
-    content: str
-    template_type: str
-    channel_type: str
-    content_type: Optional[str] = "text"
-    is_custom: bool
-    description: Optional[str] = None
-    conversation_id: Optional[int] = None
-
-class ProjectCreate(BaseModel):
-    user_id: int
-    title: str
-    description: str = ""
-    category: str = "general"
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
