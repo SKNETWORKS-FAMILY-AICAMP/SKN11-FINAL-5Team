@@ -14,6 +14,10 @@ from typing import List, Dict, Any, Optional
 import logging
 from collections import Counter
 
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 logger = logging.getLogger(__name__)
 
 class MarketingAnalysisTools:

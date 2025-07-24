@@ -1,8 +1,12 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 import asyncio
 from dotenv import load_dotenv
 from task_agent.automation_task.email_service import send_email_smtp, send_email_sendgrid, send_email_aws_ses
 
-load_dotenv(dotenv_path="../../unified_agent_system/.env")  # 혹시 몰라 안전하게 다시 호출
+load_dotenv(dotenv_path="../../unified_agent_system/.env")
 
 async def main():
     to_emails = ["donggle0519@naver.com"]

@@ -113,3 +113,7 @@ class HealthCheck(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     agents: Dict[AgentType, bool] = Field(description="각 에이전트 상태")
     system_info: Dict[str, Any] = Field(default_factory=dict)
+
+
+
+

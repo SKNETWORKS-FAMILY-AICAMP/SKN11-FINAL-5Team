@@ -19,6 +19,7 @@ from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 # 공통 모듈 임포트 (안전한 import)
 try:
     from shared_modules import (

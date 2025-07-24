@@ -21,6 +21,8 @@ import sys
 import os
 import shutil
 from typing import Optional
+import traceback
+
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -173,9 +175,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 from api.admin import router as admin_router
+
 app.include_router(admin_router, prefix="/admin")
+
 
 # ===== 공통 대화 관리 API =====
 
@@ -1111,115 +1114,115 @@ async def handle_emergency(req: EmergencyRequest):
         logger.error(f"긴급상황 처리 오류: {e}")
         return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
 
-# ===== 업무지원 전용 API (예시) =====
-# 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다
+# # ===== 업무지원 전용 API (예시) =====
+# # 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다
 
-@app.post("/automation")
-async def create_automation_task(req: AutomationRequest):
-    """자동화 작업 생성 (목 구현)"""
-    try:
-        logger.info(f"자동화 작업 생성 요청: user_id={req.user_id}, task_type={req.task_type}")
+# @app.post("/automation")
+# async def create_automation_task(req: AutomationRequest):
+#     """자동화 작업 생성 (목 구현)"""
+#     try:
+#         logger.info(f"자동화 작업 생성 요청: user_id={req.user_id}, task_type={req.task_type}")
         
-        # 목 응답 (실제 업무지원 에이전트가 있어야 구현됨)
-        response_data = {
-            "task_id": 12345,  # 목 ID
-            "task_type": req.task_type,
-            "status": "created",
-            "message": "자동화 작업이 생성되었습니다 (목 구현)",
-            "parameters": req.parameters,
-            "created_at": get_current_timestamp()
-        }
+#         # 목 응답 (실제 업무지원 에이전트가 있어야 구현됨)
+#         response_data = {
+#             "task_id": 12345,  # 목 ID
+#             "task_type": req.task_type,
+#             "status": "created",
+#             "message": "자동화 작업이 생성되었습니다 (목 구현)",
+#             "parameters": req.parameters,
+#             "created_at": get_current_timestamp()
+#         }
         
-        return create_success_response(response_data)
+#         return create_success_response(response_data)
         
-    except Exception as e:
-        logger.error(f"자동화 작업 생성 오류: {e}")
-        return create_error_response("자동화 작업 생성에 실패했습니다", "AUTOMATION_CREATE_ERROR")
+#     except Exception as e:
+#         logger.error(f"자동화 작업 생성 오류: {e}")
+#         return create_error_response("자동화 작업 생성에 실패했습니다", "AUTOMATION_CREATE_ERROR")
 
-@app.get("/automation/{task_id}/status")
-async def get_automation_status(task_id: int):
-    """자동화 작업 상태 조회 (목 구현)"""
-    try:
-        logger.info(f"자동화 상태 조회: task_id={task_id}")
+# @app.get("/automation/{task_id}/status")
+# async def get_automation_status(task_id: int):
+#     """자동화 작업 상태 조회 (목 구현)"""
+#     try:
+#         logger.info(f"자동화 상태 조회: task_id={task_id}")
         
-        # 목 응답
-        status_data = {
-            "task_id": task_id,
-            "status": "running",
-            "progress": 75,
-            "message": "작업이 진행 중입니다 (목 구현)",
-            "created_at": get_current_timestamp(),
-            "updated_at": get_current_timestamp()
-        }
+#         # 목 응답
+#         status_data = {
+#             "task_id": task_id,
+#             "status": "running",
+#             "progress": 75,
+#             "message": "작업이 진행 중입니다 (목 구현)",
+#             "created_at": get_current_timestamp(),
+#             "updated_at": get_current_timestamp()
+#         }
         
-        return create_success_response(status_data)
+#         return create_success_response(status_data)
         
-    except Exception as e:
-        logger.error(f"자동화 상태 조회 오류: {e}")
-        return create_error_response("자동화 상태 조회에 실패했습니다", "AUTOMATION_STATUS_ERROR")
+#     except Exception as e:
+#         logger.error(f"자동화 상태 조회 오류: {e}")
+#         return create_error_response("자동화 상태 조회에 실패했습니다", "AUTOMATION_STATUS_ERROR")
 
-@app.delete("/automation/{task_id}")
-async def cancel_automation_task(task_id: int):
-    """자동화 작업 취소 (목 구현)"""
-    try:
-        logger.info(f"자동화 작업 취소: task_id={task_id}")
+# @app.delete("/automation/{task_id}")
+# async def cancel_automation_task(task_id: int):
+#     """자동화 작업 취소 (목 구현)"""
+#     try:
+#         logger.info(f"자동화 작업 취소: task_id={task_id}")
         
-        # 목 응답
-        response_data = {
-            "task_id": task_id,
-            "status": "cancelled",
-            "message": "자동화 작업이 취소되었습니다 (목 구현)",
-            "cancelled_at": get_current_timestamp()
-        }
+#         # 목 응답
+#         response_data = {
+#             "task_id": task_id,
+#             "status": "cancelled",
+#             "message": "자동화 작업이 취소되었습니다 (목 구현)",
+#             "cancelled_at": get_current_timestamp()
+#         }
         
-        return create_success_response(response_data)
+#         return create_success_response(response_data)
         
-    except Exception as e:
-        logger.error(f"자동화 작업 취소 오류: {e}")
-        return create_error_response("자동화 작업 취소에 실패했습니다", "AUTOMATION_CANCEL_ERROR")
+#     except Exception as e:
+#         logger.error(f"자동화 작업 취소 오류: {e}")
+#         return create_error_response("자동화 작업 취소에 실패했습니다", "AUTOMATION_CANCEL_ERROR")
 
-@app.get("/automation")
-async def list_automation_tasks(user_id: Optional[int] = None, status: Optional[str] = None):
-    """자동화 작업 목록 조회 (목 구현)"""
-    try:
-        logger.info(f"자동화 작업 목록 조회: user_id={user_id}, status={status}")
+# @app.get("/automation")
+# async def list_automation_tasks(user_id: Optional[int] = None, status: Optional[str] = None):
+#     """자동화 작업 목록 조회 (목 구현)"""
+#     try:
+#         logger.info(f"자동화 작업 목록 조회: user_id={user_id}, status={status}")
         
-        # 목 데이터
-        tasks = [
-            {
-                "task_id": 12345,
-                "task_type": "email_send",
-                "status": "completed",
-                "user_id": user_id or 1,
-                "created_at": get_current_timestamp()
-            },
-            {
-                "task_id": 12346,
-                "task_type": "schedule_meeting",
-                "status": "running",
-                "user_id": user_id or 1,
-                "created_at": get_current_timestamp()
-            }
-        ]
+#         # 목 데이터
+#         tasks = [
+#             {
+#                 "task_id": 12345,
+#                 "task_type": "email_send",
+#                 "status": "completed",
+#                 "user_id": user_id or 1,
+#                 "created_at": get_current_timestamp()
+#             },
+#             {
+#                 "task_id": 12346,
+#                 "task_type": "schedule_meeting",
+#                 "status": "running",
+#                 "user_id": user_id or 1,
+#                 "created_at": get_current_timestamp()
+#             }
+#         ]
         
-        # 상태 필터링
-        if status:
-            tasks = [t for t in tasks if t["status"] == status]
+#         # 상태 필터링
+#         if status:
+#             tasks = [t for t in tasks if t["status"] == status]
         
-        response_data = {
-            "tasks": tasks,
-            "total": len(tasks),
-            "filter": {
-                "user_id": user_id,
-                "status": status
-            }
-        }
+#         response_data = {
+#             "tasks": tasks,
+#             "total": len(tasks),
+#             "filter": {
+#                 "user_id": user_id,
+#                 "status": status
+#             }
+#         }
         
-        return create_success_response(response_data)
+#         return create_success_response(response_data)
         
-    except Exception as e:
-        logger.error(f"자동화 작업 목록 조회 오류: {e}")
-        return create_error_response("자동화 작업 목록 조회에 실패했습니다", "AUTOMATION_LIST_ERROR")
+#     except Exception as e:
+#         logger.error(f"자동화 작업 목록 조회 오류: {e}")
+#         return create_error_response("자동화 작업 목록 조회에 실패했습니다", "AUTOMATION_LIST_ERROR")
 
 
 @app.get("/test-ui")

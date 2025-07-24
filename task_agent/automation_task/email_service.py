@@ -127,6 +127,8 @@ class EmailService:
     async def send_notification_email(self, to_email: str, notification_title: str,
                                      notification_content: str, 
                                      priority: str = "normal") -> Dict[str, Any]:
+        
+        
         """알림 이메일 발송"""
         try:
             # 우선순위에 따른 제목 설정
@@ -155,6 +157,48 @@ class EmailService:
             
         except Exception as e:
             logger.error(f"알림 이메일 발송 실패: {e}")
+            return {"success": False, "error": str(e)}
+        
+    async def send_email_from_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
+        """자동화 작업 기반 이메일 발송"""
+        print("[DEBUG] send_email_from_task() 진입")
+        logger.info(f"[DEBUG] send_email_from_task() 실행됨. task_data: {task_data}")
+        try:
+            to_emails = task_data.get("to_emails")
+            subject = task_data.get("subject")
+            body = task_data.get("body")
+            html_body = task_data.get("html_body") or body
+            attachments = task_data.get("attachments", [])
+            cc_emails = task_data.get("cc_emails")
+            bcc_emails = task_data.get("bcc_emails")
+            from_email = task_data.get("from_email")
+            from_name = task_data.get("from_name")
+            service = task_data.get("service")
+
+            logger.info(f"[자동화] 이메일 발송 준비 중: 수신자={to_emails}, 제목={subject}")
+
+            result = await self.send_email(
+                to_emails=to_emails,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+                attachments=attachments,
+                cc_emails=cc_emails,
+                bcc_emails=bcc_emails,
+                from_email=from_email,
+                from_name=from_name,
+                service=service
+            )
+
+            if result.get("success"):
+                logger.info("[자동화] 이메일 발송 완료")
+            else:
+                logger.error(f"[자동화] 이메일 발송 실패: {result.get('error')}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[자동화] 이메일 발송 예외 발생: {str(e)}")
             return {"success": False, "error": str(e)}
 
 
@@ -220,7 +264,7 @@ async def example_usage():
     
     # 4. 알림 이메일 발송
     notification_result = await email_service.send_notification_email(
-        to_email="user@example.com",
+        to_email="donggle0519@naver.com",
         notification_title="시스템 점검 알림",
         notification_content="내일 새벽 2시부터 4시까지 시스템 점검이 예정되어 있습니다.",
         priority="high"

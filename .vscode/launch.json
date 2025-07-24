@@ -10,22 +10,6 @@
       "envFile": "${workspaceFolder}/unified_agent_system/.env"
     },
     {
-      "name": "marketing task",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": [
-        "main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8080",
-        "--reload"
-      ],
-      "cwd": "${workspaceFolder}/task_agent/automation_task/marketing",
-      "justMyCode": false
-    },
-    {
       "name": "🧠 Unified Agent System",
       "type": "debugpy",
       "request": "launch",
@@ -74,23 +58,30 @@
       "request": "launch",
       "module": "uvicorn",
       "args": [
-        "rag:app",
+        "marketing_agent.main:app",
         "--host",
         "0.0.0.0",
         "--port",
         "8003",
         "--reload"
       ],
-      "cwd": "${workspaceFolder}/marketing_agent",
+      "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
       "justMyCode": false
-    },
-    {
-      "name": "🎯 Marketing MCP Server",
+    },    {
+      "name": "📢 api",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/marketing_agent/mcp/workflow_manager.py",
-      "console": "integratedTerminal",
+      "module": "uvicorn",
+      "args": [
+        "marketing_agent.marketing_api:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
       "justMyCode": false
     },
@@ -137,7 +128,7 @@
         "💼 Business Planning Agent (8001)",
         "🤝 Customer Service Agent (8002)",
         "📢 Marketing Agent (8003)",
-        "🎯 Marketing MCP Server",
+        "📢 api",
         "🧠 Mental Agent (8004)",
         "⚡ Task Automation Agent (8005)"
       ],

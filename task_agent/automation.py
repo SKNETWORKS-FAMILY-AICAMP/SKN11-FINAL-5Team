@@ -30,6 +30,7 @@ from automation_task.common.config_manager import get_automation_config_manager
 from automation_task.common.db_helper import get_automation_db_helper
 
 logger = logging.getLogger(__name__)
+from automation_task.email_service import get_email_service 
 
 class TaskAgentAutomationManager:
     """Task Agent 자동화 매니저 (공통 모듈 기반)"""
@@ -262,9 +263,13 @@ class TaskAgentAutomationManager:
             )
             
             result = await self._execute_by_type(task_type, task_data, task_info["user_id"])
+            print("[DEBUG] 실행 결과:", result)
+            logger.info(f"[DEBUG] 작업 실행 결과: {result}")
             
             # 결과에 따른 상태 업데이트
-            final_status = AutomationStatus.SUCCESS.value if result["status"] == "success" else AutomationStatus.FAILED.value
+            result_status = result.get("status", "failed")  # 기본값 설정
+            final_status = AutomationStatus.SUCCESS.value if result_status == "success" else AutomationStatus.FAILED.value
+
             await self.db_helper.update_automation_task_status(
                 task_id, 
                 final_status,
@@ -304,11 +309,13 @@ class TaskAgentAutomationManager:
     
     async def _execute_by_type(self, task_type: str, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
         """타입별 작업 실행"""
+        logger.info(f"[DEBUG] 타입별 실행 진입: {task_type}")
+        print(f"[DEBUG] 타입별 실행 진입: {task_type}")
         try:
             if task_type == AutomationTaskType.SCHEDULE_CALENDAR.value:
                 return await self._execute_calendar(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_EMAIL.value:
-                return await self._execute_email(task_data, user_id)
+                return await get_email_service().send_email_from_task(task_data)
             elif task_type == AutomationTaskType.SEND_REMINDER.value:
                 return await self._execute_reminder(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_MESSAGE.value:
