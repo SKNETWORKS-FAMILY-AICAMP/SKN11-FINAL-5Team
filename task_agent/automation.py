@@ -5,7 +5,6 @@ Task Agent 자동화 시스템 v4
 
 import sys
 import os
-import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -24,11 +23,9 @@ from utils import TaskAgentLogger, create_success_response, create_error_respons
 # 자동화 작업 서비스들 import
 from automation_task.email_service import EmailService
 from automation_task.google_calendar_service import GoogleCalendarService, GoogleCalendarConfig
-# from automation_task.sns_service import SNSService
 from automation_task.reminder_service import ReminderService
 from automation_task.common.config_manager import get_automation_config_manager
 from automation_task.common.db_helper import get_automation_db_helper
-from automation_task.common.auth_manager import AuthManager
 from automation_task.common.utils import AutomationDateTimeUtils
 from googleapiclient.discovery import build
 
@@ -84,7 +81,6 @@ class TaskAgentAutomationManager:
                 config=config
             )
             
-            # self.sns_service = SNSService()
             self.reminder_service = ReminderService()
             
             logger.info("자동화 서비스들 초기화 완료")
@@ -94,7 +90,6 @@ class TaskAgentAutomationManager:
             # 서비스 초기화 실패해도 매니저는 동작하도록 함
             self.email_service = None
             self.calendar_service = None
-            # self.sns_service = None
             self.reminder_service = None
 
     async def create_automation_task(self, request: AutomationRequest) -> AutomationResponse:
@@ -429,47 +424,6 @@ class TaskAgentAutomationManager:
             logger.error(f"이메일 작업 실패: {e}")
             return {"status": "failed", "message": f"이메일 작업 실패: {str(e)}"}
     
-    # async def _execute_sns(self, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
-    #     """SNS 게시물 발행"""
-    #     try:
-    #         if not self.sns_service:
-    #             return {"status": "failed", "message": "SNS 서비스가 초기화되지 않았습니다"}
-            
-    #         platform = task_data.get("platform", "")
-    #         content = task_data.get("content", "")
-    #         images = task_data.get("images", [])
-    #         hashtags = task_data.get("hashtags", [])
-            
-    #         # SNS 서비스 호출
-    #         result = await self.sns_service.publish_post({
-    #             "platform": platform,
-    #             "content": content,
-    #             "images": images,
-    #             "hashtags": hashtags,
-    #             "user_id": user_id
-    #         })
-            
-    #         if result.get("success"):
-    #             return {
-    #                 "status": "success",
-    #                 "message": f"{platform}에 게시물이 발행되었습니다",
-    #                 "details": {
-    #                     "platform": platform,
-    #                     "content_length": len(content),
-    #                     "post_id": result.get("post_id")
-    #                 }
-    #             }
-    #         else:
-    #             return {
-    #                 "status": "failed",
-    #                 "message": result.get("error", "SNS 게시물 발행 실패"),
-    #                 "details": result
-    #             }
-            
-    #     except Exception as e:
-    #         logger.error(f"SNS 작업 실패: {e}")
-    #         return {"status": "failed", "message": f"SNS 작업 실패: {str(e)}"}
-    
     async def _execute_reminder(self, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
         """리마인더 발송"""
         try:
@@ -614,7 +568,6 @@ class TaskAgentAutomationManager:
                 "services_status": {
                     "email_service": bool(self.email_service),
                     "calendar_service": bool(self.calendar_service),
-                    # "sns_service": bool(self.sns_service),
                     "reminder_service": bool(self.reminder_service)
                 },
                 "timestamp": datetime.now().isoformat()
@@ -636,7 +589,6 @@ class TaskAgentAutomationManager:
             
             # 서비스들 종료
             services = [self.email_service, self.calendar_service, self.reminder_service]
-            # services = [self.email_service, self.calendar_service, self.sns_service, self.reminder_service]
             for service in services:
                 if service and hasattr(service, 'cleanup'):
                     try:

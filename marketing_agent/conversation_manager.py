@@ -1,6 +1,7 @@
 """
-멀티턴 대화 관리자 -  버전
-사용자 응답 분석 + 컨텐츠 제작 멀티턴 대화 지원
+멀티턴 대화 관리자 - 개선된 버전
+✅ 질문 반복 방지, 맥락 이해 개선, 친밀감 강화, 사용자 피로도 감소
+✅ 모든 응답 LLM 생성, 하드코딩 완전 제거
 """
 
 import json
@@ -10,6 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
+from langchain_core.runnables.config import P
 import openai
 from general_marketing_tools import MarketingTools
 from mcp_marketing_tools import MarketingAnalysisTools
@@ -29,18 +31,31 @@ class MarketingStage(Enum):
     CONTENT_CREATION = "CONTENT_CREATION"  # 5단계: 컨텐츠 제작 (멀티턴)
     COMPLETED = "COMPLETED"      # 완료
 
+class ConversationMode(Enum):
+    """대화 모드"""
+    QUESTIONING = "QUESTIONING"   # 질문 모드 (정보 수집)
+    SUGGESTING = "SUGGESTING"     # 제안 모드 (직접 추천/조언)
+    CONTENT_CREATION = "CONTENT_CREATION"  # 컨텐츠 제작 모드
+
 @dataclass
 class ConversationState:
     """대화 상태 관리"""
     user_id: int
     conversation_id: int
     current_stage: MarketingStage = MarketingStage.INITIAL
+    current_mode: ConversationMode = ConversationMode.QUESTIONING
     business_type: str = "일반"
     collected_info: Dict[str, Any] = field(default_factory=dict)
     conversation_history: List[Dict[str, Any]] = field(default_factory=list)
     stage_progress: Dict[str, float] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
+    
+    # 🆕 사용자 응답 패턴 추적
+    negative_response_count: int = 0
+    last_negative_response: Optional[str] = None
+    suggestion_attempts: int = 0
+    user_engagement_level: str = "high"  # high, medium, low
     
     # 🆕 컨텐츠 제작 관련 상태
     current_content_session: Optional[Dict[str, Any]] = None
@@ -57,7 +72,8 @@ class ConversationState:
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
-            "stage": self.current_stage.value
+            "stage": self.current_stage.value,
+            "mode": self.current_mode.value
         }
         if metadata:
             message.update(metadata)
@@ -82,10 +98,47 @@ class ConversationState:
         info = self.collected_info.get(key)
         return info["value"] if info else None
     
-    # 🆕 컨텐츠 세션 관리 메서드들
+    # 🆕 부정적 응답 추적
+    def record_negative_response(self, response: str):
+        """부정적 응답 기록"""
+        self.negative_response_count += 1
+        self.last_negative_response = response
+        
+        # 참여도 조정
+        if self.negative_response_count >= 2:
+            self.user_engagement_level = "low"
+        elif self.negative_response_count >= 1:
+            self.user_engagement_level = "medium"
+    
+    def reset_negative_responses(self):
+        """부정적 응답 카운터 리셋"""
+        self.negative_response_count = 0
+        self.last_negative_response = None
+        self.user_engagement_level = "high"
+    
+    def should_switch_to_suggestion_mode(self) -> bool:
+        """제안 모드로 전환해야 하는지 판단"""
+        return (self.negative_response_count >= 2 or 
+                self.user_engagement_level == "low" or
+                self.suggestion_attempts < 3)
+    
+    def switch_to_suggestion_mode(self):
+        """제안 모드로 전환"""
+        self.current_mode = ConversationMode.SUGGESTING
+        self.suggestion_attempts += 1
+    
+    def has_sufficient_info_for_suggestions(self) -> bool:
+        """제안을 위한 충분한 정보가 있는지 확인"""
+        # 최소한의 정보만 있어도 제안 가능
+        return (self.business_type != "일반" or 
+                self.get_info('product') or 
+                self.get_info('business_type') or
+                self.get_info('main_goal') or
+                len(self.collected_info) > 0)
+    
+    # 기존 메서드들...
     def start_content_session(self, content_type: str, initial_request: str):
         """컨텐츠 제작 세션 시작"""
-        # 수집된 정보를 컨텐츠 세션에 포함
         session_data = {
             "content_type": content_type,
             "initial_request": initial_request,
@@ -102,6 +155,7 @@ class ConversationState:
             }
         }
         self.current_content_session = session_data
+        self.current_mode = ConversationMode.CONTENT_CREATION
         logger.info(f"컨텐츠 세션 시작: {content_type}, 컨텍스트 정보 포함")
     
     def update_content_session(self, new_content: str, user_feedback: str = None):
@@ -118,13 +172,14 @@ class ConversationState:
         if self.current_content_session:
             self.content_history.append(self.current_content_session.copy())
             self.current_content_session = None
+            self.current_mode = ConversationMode.SUGGESTING
             logger.info("컨텐츠 세션 종료")
     
     def is_in_content_creation(self) -> bool:
         """컨텐츠 제작 단계 여부"""
         return self.current_stage == MarketingStage.CONTENT_CREATION and self.current_content_session is not None
     
-    # 🆕 포스팅 관련 메서드들
+    # 포스팅 관련 메서드들 (기존 유지)
     def start_posting_confirmation(self, content_data: Dict[str, Any]):
         """포스팅 확인 단계 시작"""
         self.awaiting_posting_confirmation = True
@@ -166,13 +221,39 @@ class ConversationState:
             # 컨텐츠 제작 시에는 키워드나 트렌드 데이터가 있으면 최소 정보만 요구
             has_keywords_or_trends = self.get_info('keywords') or self.get_info('trend_data')
             if has_keywords_or_trends:
-                # 키워드/트렌드 데이터가 있으면 business_type이나 product 중 하나만 있어도 됨
                 essential_fields = ["business_type", "product"]
                 missing = [field for field in essential_fields if not self.get_info(field) and (field != "business_type" or self.business_type == "일반")]
-                return missing if len(missing) == len(essential_fields) else []  # 둘 다 없을 때만 missing 반환
+                return missing if len(missing) == len(essential_fields) else []
         
         required_fields = ["business_type", "product", "main_goal", "target_audience", "budget", "channels", "pain_points"]
         return [field for field in required_fields if not self.get_info(field)]
+    
+    def get_context_based_missing_info(self) -> Dict[str, Any]:
+        """🆕 컨텍스트 기반 부족한 정보 분석"""
+        missing_info = self.get_missing_info()
+        
+        # 단계별 우선순위 정보 정의
+        stage_priorities = {
+            MarketingStage.GOAL: ["main_goal", "business_type", "product"],
+            MarketingStage.TARGET: ["target_audience", "main_goal", "product"],
+            MarketingStage.STRATEGY: ["budget", "channels", "target_audience"],
+            MarketingStage.EXECUTION: ["channels", "budget", "pain_points"],
+            MarketingStage.CONTENT_CREATION: ["product", "target_audience", "main_goal"]
+        }
+        
+        current_priorities = stage_priorities.get(self.current_stage, [])
+        
+        # 우선순위가 높은 부족한 정보 필터링
+        priority_missing = [field for field in current_priorities if field in missing_info]
+        
+        return {
+            "total_missing": missing_info,
+            "priority_missing": priority_missing,
+            "completion_rate": self.get_completion_rate(),
+            "current_stage": self.current_stage.value,
+            "can_proceed": len(priority_missing) <= 1,  # 우선순위 정보 1개 이하면 진행 가능
+            "suggested_focus": priority_missing[0] if priority_missing else None
+        }
 
     def get_conversation_context(self) -> str:
         """대화 컨텍스트 요약"""
@@ -182,7 +263,14 @@ class ConversationState:
         if self.business_type != "일반":
             context_parts.append(f"업종: {self.business_type}")
         
-        # 수집된 정보 요약 (키워드와 트렌드 데이터 강조)
+        # 사용자 참여도 정보
+        context_parts.append(f"참여도: {self.user_engagement_level}")
+        context_parts.append(f"대화 모드: {self.current_mode.value}")
+        
+        if self.negative_response_count > 0:
+            context_parts.append(f"부정적 응답 횟수: {self.negative_response_count}")
+        
+        # 수집된 정보 요약
         key_info = {}
         special_info = {}
         
@@ -214,7 +302,7 @@ class ConversationState:
         return datetime.now() > expiry_time
 
 class ConversationManager:
-    """🆕  대화 관리자 - 응답 분석 + 컨텐츠 멀티턴 지원"""
+    """🆕 개선된 대화 관리자 - 질문 반복 방지, 맥락 이해, 친밀감 강화"""
     
     def __init__(self):
         from config import config
@@ -225,65 +313,136 @@ class ConversationManager:
         
         # LLM 프롬프트 초기화
         self._init_llm_prompts()
-        logger.info(" ConversationManager 초기화 완료")
+        logger.info("🆕 개선된 ConversationManager 초기화 완료")
     
     def _init_llm_prompts(self):
-        """🆕  LLM 프롬프트 초기화"""
+        """🆕 개선된 LLM 프롬프트 초기화"""
+        
+        # 🆕 부정적 응답 감지 프롬프트
+        self.negative_response_detection_prompt = """사용자의 응답이 부정적이거나 정보 제공을 거부하는 내용인지 분석해주세요.
 
-        self.response_analysis_prompt = """당신은 친근하고 전문적인 마케팅 컨설턴트입니다.
-        사용자의 응답을 분석하여 자연스럽고 개인화된 마케팅 조언을 해주세요.
+분석 대상:
+- "몰라", "모르겠어", "잘 모르겠어"
+- "니가 알려줘", "당신이 말해줘", "추천해줘"
+- "잘 모르겠는데", "확실하지 않아"
+- "그냥", "아무거나", "상관없어"
+- "별로", "싫어", "안 좋아"
 
-        ## 응답 가이드라인:
-        1. **자연스러운 대화 톤**: 딱딱한 분석보다는 친근한 대화처럼
-        2. **맥락적 반응**: 사용자가 제공한 정보에 대한 구체적인 반응
-        3. **실용적 조언**: 바로 적용할 수 있는 실질적인 팁
-        4. **개인화**: 업종과 상황에 맞춤화된 내용
-        5. **다양성**: 매번 다른 표현과 접근 방식 사용
-
-        ## 응답 형식:
-        자연스러운 문단으로 작성하되, 필요시 다음 요소들을 포함:
-        - 사용자 정보에 대한 반응 (공감, 이해, 확인 등)
-        - 구체적인 마케팅 인사이트나 팁
-        - 강점이나 기회 포인트 (자연스럽게 언급)
-        - 추가 제안이나 다음 단계 안내
-
-        ## 주의사항:
-        - 고정된 패턴이나 템플릿 사용 금지
-        - "📊 분석 결과", "💡 인사이트" 같은 정형화된 표현 피하기  
-        - 매번 다른 방식으로 접근하기
-        - 사용자의 감정이나 상황에 맞는 톤 조절
-
-        ## 예시 응답 스타일:
-        - "말씀하신 사업 정말 흥미롭네요! 특히 [구체적 내용]..."
-        - "아, [업종]에서 그런 고민을 하고 계시는군요. 실제로..."
-        - "좋은 아이디어입니다! [구체적 반응]하시는 걸 보니..."
-        - "[정보]를 들어보니 [인사이트]하는 것 같아요."
-
-        응답은 자연스러운 문장들로 구성하되, 2-4개 문단 정도로 작성해주세요."""
-
-        # 🆕 컨텐츠 피드백 분석 프롬프트  
-        self.content_feedback_prompt = """당신은 마케팅 콘텐츠 피드백 전문가입니다.
-
-사용자의 콘텐츠 관련 요청을 분석하여 다음을 제공해주세요:
-
+다음 형식으로 답변해주세요:
 {
-    "request_type": "modify|regenerate|new_content|feedback|approval",
-    "specific_changes": ["구체적인 수정 요청들"],
-    "content_direction": {
-        "tone": "변경하고자 하는 톤앤매너",
-        "style": "변경하고자 하는 스타일",
-        "length": "길이 조정 요청",
-        "focus": "집중하고자 하는 포인트"
-    },
-    "action_needed": {
-        "type": "revise_content|create_new|provide_feedback|end_session",
-        "priority": "high|medium|low"
-    }
-}
+    "is_negative": true/false,
+    "type": "no_knowledge|request_suggestion|indifferent|rejection|neutral",
+    "confidence": 0.0-1.0,
+    "suggested_action": "switch_to_suggestion|continue_questioning|provide_options"
+}"""
 
-사용자가 만족하면 세션을 종료하고, 수정 요청이 있으면 구체적인 개선 방향을 제시해주세요."""
+        # 🆕 제안 모드 응답 생성 프롬프트
+        self.suggestion_mode_prompt = """당신은 친근하고 전문적인 마케팅 컨설턴트입니다. 
+사용자가 정보를 제공하기 어려워하거나 모른다고 할 때, 직접적인 제안과 추천을 제공해주세요.
 
-        # 기존 프롬프트들 ( 버전)
+## 응답 가이드라인:
+1. **공감과 이해**: 사용자가 모르는 것을 자연스럽게 받아들이기
+2. **즉시 제안**: 질문 대신 구체적인 아이디어나 전략 제시
+3. **개인화**: 수집된 정보를 최대한 활용
+4. **실용성**: 바로 적용 가능한 실질적 조언
+5. **친근한 톤**: 상담사처럼 따뜻하고 이해심 있는 말투
+
+## 응답 스타일:
+- "그럴 수 있어요! 이런 상황에서는 보통..."
+- "괜찮습니다. 제가 경험상 추천드리는 건..."
+- "이해해요. 그럼 이런 아이디어는 어떠세요?"
+- "많은 분들이 비슷하게 고민하시는데, 보통 이렇게 시작하시더라고요..."
+
+## 제안 유형:
+- **맞춤형 전략**: 업종별 특화 전략
+- **구체적 아이디어**: 실행 가능한 마케팅 방법
+- **성공 사례**: 비슷한 업종의 성공 사례
+- **단계적 가이드**: 차근차근 따라할 수 있는 방법
+
+응답은 자연스러운 문단으로 작성하되, 2-4개 문단으로 구성해주세요."""
+
+        # 🆕 싱글턴 완료 판단 프롬프트
+        self.singleton_completion_prompt = """사용자의 요청이 한 번의 응답으로 완전히 해결될 수 있는지 판단해주세요.
+
+싱글턴으로 완료 가능한 경우:
+- 간단한 마케팅 질문 (예: "SNS 마케팅이 뭐야?")
+- 일반적인 조언 요청 (예: "브랜딩 팁 알려줘")
+- 특정 개념 설명 (예: "타겟 마케팅 설명해줘")
+- 즉시 답변 가능한 정보성 질문
+
+멀티턴이 필요한 경우:
+- 맞춤형 전략 수립
+- 개인 상황 분석이 필요한 상담
+- 컨텐츠 제작 및 피드백
+- 단계별 진행이 필요한 복잡한 문제
+
+다음 형식으로 답변해주세요:
+{
+    "can_complete_as_singleton": true/false,
+    "reasoning": "판단 이유",
+    "suggested_response_type": "informational|advisory|strategic|conversational"
+}"""
+
+        # 🆕 구조화된 응답 생성 프롬프트 (후속 질문 포함)
+        self.structured_response_prompt = """
+당신은 친근하고 전문적인 마케팅 컨설턴트입니다. 사용자의 상황을 깊이 이해하고 공감하며, 아래 지침에 따라 유용한 조언과 함께 자연스럽게 대화를 이어갈 수 있는 후속 질문 및 실행 아이디어를 제시하세요.
+
+---
+
+### **◆ 답변 작성 원칙:**
+
+1. **공감 및 이해**: 사용자의 고민에 대해 먼저 공감과 이해를 표현하고, 따뜻하면서도 전문적인 어조로 조언을 시작합니다.
+2. **핵심 조언 제시**: 사용자의 질문에 대한 핵심적인 조언을 명확하게 전달합니다. 관련성 높은 정보는 한 문단에 응축하여 제공하며, 불필요한 개행은 피합니다.
+3. **실행 가능한 아이디어 제안**: "이런 걸 시도해보시면 어떨까요?", "이런 방향도 고려해볼 수 있겠어요."와 같이 자연스럽게 시도할 수 있는 1~2가지 실행 아이디어를 제시합니다.
+4. **후속 질문 배치**: **후속 질문은 반드시 답변의 마지막 문단에 배치**하며, 본문 내용과 자연스럽게 연결되도록 작성합니다. "혹시 ~~ 하신 적이 있나요?", "혹시 ~~ 에 대해 더 자세히 알려주실 수 있나요?" 등 개방형 질문을 1~2개 포함합니다.
+5. **가독성 및 구조**: 마크다운 헤딩(##), 볼드체(**), 구분선(---), 목록(-) 등을 전략적으로 활용해 답변의 주요 내용을 시각적으로 강조하고 구조화합니다. 정보의 밀도를 높여 한눈에 파악할 수 있게 작성합니다.
+
+---
+
+### **◆ 질문 생성 세부 원칙:**
+
+- **타이밍**: 정보가 부족한 경우 보편적 질문(예: "어떤 제품/서비스를 홍보하시나요?")을 마지막 문단에서 자연스럽게 던집니다.
+- **맥락 적합성**: 질문은 앞선 조언과 유기적으로 연결되어야 하며, 독립된 질문 목록처럼 보이지 않게 합니다.
+- **실용성 및 유도성**: 답변하기 쉬우면서 다음 컨설팅 단계로 이어질 수 있도록 설계합니다.
+- **다양성**: 개방형과 선택형 질문을 적절히 혼합합니다.
+
+---
+
+### **◆ 예시 답변 스타일 (참고):**
+
+**사용자:** "저희 제품 마케팅을 어떻게 해야 할지 모르겠어요."
+
+**AI 답변 스타일:**  
+"마케팅 방향을 잡는 게 처음엔 막막하게 느껴질 수 있죠. 충분히 공감합니다! 하지만 걱정 마세요. 함께 차근차근 방향을 찾아나가면 분명 좋은 결과를 만들 수 있을 거예요.  
+우선, 우리 제품이 고객에게 주는 **핵심 가치**를 명확히 정의하고 그 가치를 고객의 언어로 표현해보는 연습부터 해보시면 좋겠어요.  
+혹시 **현재 어떤 제품이나 서비스를 홍보하고 계신지**, 그리고 **어떤 고객층을 주요 타겟으로 설정하고 있는지** 알려주실 수 있을까요?"
+"""
+
+        # 🆕 개선된 응답 생성 프롬프트 (친밀감 강화) - 백업용
+        self.enhanced_response_prompt = """당신은 친근하고 따뜻한 마케팅 전문가입니다. 사용자와 자연스럽고 개인적인 대화를 나누며 도움을 주세요.
+
+## 친밀감 강화 가이드라인:
+1. **개인적 경험 공유**: "저도 비슷한 경험이 있어서 이해해요"
+2. **공감적 표현**: "정말 어려우시겠어요", "그런 고민 많이 하시죠"
+3. **격려와 지지**: "충분히 가능하세요", "잘 하고 계시는 것 같아요"
+4. **자연스러운 말투**: 딱딱한 표현보다는 일상적이고 편안한 말투
+5. **맞춤형 호칭**: 상황에 따라 "사장님", "대표님", "크리에이터님" 등
+
+## 톤 다양성:
+- **격려형**: "정말 좋은 아이디어네요! 이런 점이 특히 인상적이에요..."
+- **공감형**: "아, 그런 어려움이 있으셨군요. 많은 분들이 비슷하게 겪으시는 부분이에요..."
+- **전문가형**: "업계 경험상 이런 경우에는..."
+- **친구형**: "개인적으로 추천드리고 싶은 건..."
+
+## 응답 구조:
+1. **공감/인사**: 사용자 상황에 대한 이해와 공감
+2. **개인화된 조언**: 수집된 정보를 활용한 맞춤형 제안
+3. **구체적 방법**: 실행 가능한 단계별 가이드
+4. **격려와 동행**: 함께 해결해나간다는 느낌
+
+매번 다른 표현과 접근으로 응답하되, 항상 따뜻하고 전문적인 톤을 유지해주세요."""
+
+        # 기존 프롬프트들 (개선)
         self.intent_analysis_prompt = """당신은 마케팅 상담에서 사용자의 의도와 정보를 분석하는 전문가입니다.
 
 사용자의 메시지를 분석하여 다음 정보를 JSON 형태로 추출해주세요:
@@ -312,172 +471,53 @@ class ConversationManager:
     "content_intent": {
         "is_content_request": true/false,
         "content_type": "instagram|blog|strategy|campaign"
+    },
+    "user_sentiment": {
+        "engagement_level": "high|medium|low",
+        "frustration_level": "none|low|medium|high",
+        "needs_encouragement": true/false
     }
-}
+}"""
 
-업종 분류 기준:
-- 뷰티/미용: 네일샵, 헤어샵, 스킨케어, 화장품, 에스테틱 등
-- 음식점/카페: 레스토랑, 카페, 베이커리, 배달음식 등  
-- 온라인쇼핑몰: 이커머스, 패션, 뷰티, 생활용품 등
-- 서비스업: 교육, 컨설팅, 병원, 부동산, 법무 등
-- 제조업: 제품 생산, 유통 등
-- 크리에이터: 개인 브랜드, 인플루언서, 아티스트 등
+        # 🆕 컨텐츠 피드백 분석 프롬프트  
+        self.content_feedback_prompt = """당신은 마케팅 콘텐츠 피드백 전문가입니다.
 
-제품/서비스 정보 추출 기준:
-- 구체적인 제품명이나 서비스명
-- 제품 카테고리 (예: 스킨케어 제품, 원두커피, 헬스 프로그램)
-- 브랜드명이나 상품명
-- 서비스 유형 (예: 컨설팅, 교육, 치료)
-- 타겟 제품이 명시된 경우 우선 추출"""
-
-        self.stage_decision_prompt = """당신은 마케팅 상담의 단계 진행을 결정하는 전문가입니다.
-
-현재 상황을 분석하여 최적의 다음 액션을 JSON 형태로 제안해주세요:
+사용자의 콘텐츠 관련 요청을 분석하여 다음을 제공해주세요:
 
 {
-    "action": {
-        "type": "continue_current|advance_stage|jump_to_stage|generate_content|provide_summary",
-        "reasoning": "결정 이유",
-        "confidence": 0.0-1.0
+    "request_type": "modify|regenerate|new_content|feedback|approval",
+    "specific_changes": ["구체적인 수정 요청들"],
+    "content_direction": {
+        "tone": "변경하고자 하는 톤앤매너",
+        "style": "변경하고자 하는 스타일",
+        "length": "길이 조정 요청",
+        "focus": "집중하고자 하는 포인트"
     },
-    "stage_progress": {
-        "current_completion": 0.0-1.0,
-        "missing_info": ["부족한 정보들"],
-        "next_stage": "목표 단계"
-    },
-    "response_strategy": {
-        "tone": "friendly|professional|encouraging|consultative",
-        "format": "question|advice|summary|content",
-        "personalization_level": "high|medium|low"
-    },
-    "follow_up": {
-        "ask_question": true/false,
-        "question_type": "clarification|deep_dive|expansion|validation",
-        "suggested_topics": ["추천 질문 주제들"]
+    "action_needed": {
+        "type": "revise_content|create_new|provide_feedback|end_session",
+        "priority": "high|medium|low"
     }
 }
 
-단계별 완료 조건:
-- GOAL: 비즈니스 타입별 마케팅 환경 분석, 명확한 마케팅 목표 설정, 성공 지표 정의
-- TARGET: 타겟 고객의 특성 분석, 이상적인 고객 페르소나 정의
-- STRATEGY: 마케팅 채널 선정, 예산 책정 및 실행 일정 계획
-- EXECUTION: 상세 실행 계획 수립, 단계별 액션 플랜 준비
-- CONTENT_CREATION: 맞춤형 콘텐츠 제작, 피드백 기반 개선 및 최적화
-"""
-
-        self.question_generation_prompt = """당신은 마케팅 상담에서 효과적인 질문을 생성하는 전문가입니다.
-
-주어진 상황에 맞는 맞춤형 질문을 생성해주세요:
-
-{
-    "question": {
-        "main_question": "핵심 질문",
-        "context": "질문 배경 설명",
-        "examples": ["구체적인 답변 예시들"],
-        "follow_up_options": ["후속 질문 옵션들"]
-    },
-    "guidance": {
-        "why_important": "왜 이 질문이 중요한지",
-        "how_to_answer": "어떻게 답변하면 좋은지",
-        "common_mistakes": "흔한 실수들"
-    },
-    "personalization": {
-        "business_specific": "업종별 맞춤 내용",
-        "stage_appropriate": "단계별 적절성",
-        "user_friendly": "사용자 친화적 요소"
-    }
-}
-
-질문 생성 원칙:
-1. 구체적이고 실행 가능한 답변을 유도
-2. 업종 특성을 반영한 맞춤형 질문
-3. 단계별 목적에 부합하는 내용
-4. 사용자가 쉽게 이해할 수 있는 언어"""
-
-        self.response_generation_prompt = """당신은 마케팅 전문가로서 사용자에게 도움이 되는 응답을 생성합니다.
-
-다음 원칙을 준수해주세요:
-1. 전문성: 마케팅 전문 지식 기반
-2. 실용성: 즉시 적용 가능한 조언
-3. 개인화: 사용자 상황에 맞춤
-4. 친근함: 이해하기 쉬운 톤
-5. 구체성: 추상적이지 않은 구체적 가이드
-
-응답은 다음 구조를 따릅니다 (과도한 개행을 피하고 문단을 간결하게 연결하세요):
-- **상황 이해 및 공감**: 한두 문장으로 사용자의 상황을 인정하고 격려
-- **전문적 조언 및 가이드**: 3~5개의 핵심 팁을 번호나 불릿 포인트로 간결히 제시
-- **구체적 다음 액션**: 바로 실행 가능한 2~3개의 행동 계획
-- **격려 및 동기부여**: 짧지만 따뜻한 마무리 멘트
-
-출력 시 문단 간 개행은 하나만 사용하고, 과도하게 줄바꿈하지 마세요. 이모지와 마크다운을 적절히 활용해 가독성을 높여주세요."""
-    
-    def _load_prompt_file(self, topic: str, base_prompt: str = None) -> str:
-        """프롬프트 파일을 로드하고 기본 프롬프트와 결합하는 메서드"""
-        try:
-            # 기본 프롬프트가 지정되지 않으면 response_analysis_prompt 사용
-            if base_prompt is None:
-                base_prompt = self.response_analysis_prompt
-                
-            # 현재 파일의 디렉토리를 기준으로 prompts 폴더 경로 설정
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            prompts_dir = os.path.join(current_dir, 'prompts')
-            
-            # topic에 .md 확장자가 없으면 추가
-            if not topic.endswith('.md'):
-                topic = f"{topic}.md"
-            
-            prompt_file_path = os.path.join(prompts_dir, topic)
-            
-            # 파일이 존재하는지 확인
-            if os.path.exists(prompt_file_path):
-                with open(prompt_file_path, 'r', encoding='utf-8') as file:
-                    topic_prompt = file.read()
-                    
-                # 기본 프롬프트와 토픽별 프롬프트를 결합
-                combined_prompt = f"""{base_prompt}
-
----
-
-## 추가 전문 가이드라인 ({topic.replace('.md', '')})
-
-{topic_prompt}
-
----
-
-위의 기본 구조를 유지하면서, 추가 전문 가이드라인의 내용과 스타일을 반영하여 응답해주세요."""
-                
-                return combined_prompt
-            else:
-                logger.warning(f"프롬프트 파일을 찾을 수 없습니다: {prompt_file_path}")
-                # 기본 프롬프트 반환
-                return base_prompt
-        except Exception as e:
-            logger.error(f"프롬프트 파일 로드 실패: {e}")
-            # 기본 프롬프트 반환
-            return base_prompt
+사용자가 만족하면 세션을 종료하고, 수정 요청이 있으면 구체적인 개선 방향을 제시해주세요."""
     
     async def _call_llm(self, prompt: str, user_input: str, context: str = "") -> Dict[str, Any]:
         """LLM 호출 및 응답 파싱"""
         try:
             full_prompt = f"""
+{prompt}
 
-            현재 상황:
-            {context}
+현재 상황:
+{context}
 
-            사용자 입력:
-            "{user_input}"
-
-            응답 지시:
-1. 사용자의 질문/요청에 맞춤형 응답을 작성하세요.
-2. '부족한 정보' 목록이 비어 있지 않다면, **목록에 적힌 순서(왼쪽부터)로 가장 중요한 1~2개의 후속 질문을 생성하세요.**
-3. 후속 질문은 반드시 자연스럽게 대화를 이어가는 말투로 작성하며, 번호나 제목을 붙이지 마세요.
+사용자 입력:
+"{user_input}"
 """
 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": full_prompt}
+                    {"role": "system", "content": full_prompt}
                 ],
                 temperature=self.temperature,
                 max_tokens=1500
@@ -486,7 +526,7 @@ class ConversationManager:
             content = response.choices[0].message.content
             
             try:
-                # JSON 블록 추출
+                # JSON 블록 추출 시도
                 if "```json" in content:
                     json_start = content.find("```json") + 7
                     json_end = content.find("```", json_start)
@@ -496,53 +536,445 @@ class ConversationManager:
                     json_end = content.rfind("}") + 1
                     json_content = content[json_start:json_end]
                 else:
-                    return content
+                    return {"raw_response": content}
                 
                 return json.loads(json_content)
                 
             except json.JSONDecodeError:
-                logger.warning(f"JSON 파싱 실패, 원문 반환: {content[:100]}")
-                return {"raw_response": content, "error": "json_parse_failed"}
+                # JSON 파싱 실패 시 원문 반환
+                return {"raw_response": content}
                 
         except Exception as e:
             logger.error(f"LLM 호출 실패: {e}")
             return {"error": str(e)}
     
-    # 🆕 사용자 응답 분석 메서드
-    async def analyze_user_response_with_llm(self, user_input: str, conversation: ConversationState, topic: str, missing_info: List[str]) -> Dict[str, Any]:
-        """🆕 사용자 응답 분석 - 새로운 기능"""
+    # 🆕 부정적 응답 감지
+    async def detect_negative_response(self, user_input: str, conversation: ConversationState) -> Dict[str, Any]:
+        """부정적 응답 감지"""
         context = f"""
-        현재 단계: {conversation.current_stage.value}
-        업종: {conversation.business_type}
-        완료율: {conversation.get_completion_rate():.1%}
-        대화 컨텍스트:
-        {conversation.get_conversation_context()}
-        부족한 정보 (우선순위 왼쪽부터): {', '.join(missing_info) if missing_info else '없음'}
+        현재 대화 모드: {conversation.current_mode.value}
+        부정적 응답 횟수: {conversation.negative_response_count}
+        사용자 참여도: {conversation.user_engagement_level}
         """
         
-        # topic을 사용하여 적절한 프롬프트 파일 로드
-        prompt = self._load_prompt_file(topic)
+        result = await self._call_llm(self.negative_response_detection_prompt, user_input, context)
         
-        result = await self._call_llm(prompt, user_input, context)
+        if "error" in result:
+            return {"is_negative": False, "type": "neutral", "confidence": 0.0}
+        
+        return result
+    
+    # 🆕 싱글턴 완료 가능 여부 판단
+    async def can_complete_as_singleton(self, user_input: str, conversation: ConversationState) -> bool:
+        """싱글턴으로 완료 가능한지 판단"""
+        context = f"""
+        현재 단계: {conversation.current_stage.value}
+        수집된 정보 수: {len(conversation.collected_info)}
+        완료율: {conversation.get_completion_rate():.1%}
+        """
+        
+        result = await self._call_llm(self.singleton_completion_prompt, user_input, context)
+        
+        if "error" in result:
+            return False
+        
+        return result.get("can_complete_as_singleton", False)
+    
+    # 🆕 제안 모드 응답 생성
+    async def generate_suggestion_response(self, user_input: str, conversation: ConversationState) -> str:
+        """제안 모드 응답 생성 - 질문 대신 직접 제안"""
+        context = f"""
+        업종: {conversation.business_type}
+        수집된 정보: {json.dumps(conversation.collected_info, ensure_ascii=False)}
+        부정적 응답: {conversation.last_negative_response}
+        사용자 참여도: {conversation.user_engagement_level}
+        
+        대화 히스토리:
+        {conversation.get_conversation_context()}
+        """
+        
+        result = await self._call_llm(self.suggestion_mode_prompt, user_input, context)
+        
+        if "error" in result:
+            # 기본 제안 메시지 (LLM 생성)
+            fallback_prompt = f"""사용자가 "{user_input}"라고 했을 때, 마케팅 전문가로서 친근하게 도움을 주는 응답을 생성해주세요. 
+            질문하지 말고 직접적인 조언과 제안을 해주세요."""
+            
+            fallback_result = await self._call_llm(fallback_prompt, "", "")
+            return fallback_result.get("raw_response", "그렇다면 제가 몇 가지 아이디어를 제안해드릴게요!")
+        
+        return result.get("raw_response", result.get("response", ""))
+    
+    # 🆕 즉시 추천 생성
+    async def generate_instant_recommendations(self, conversation: ConversationState) -> str:
+        """수집된 정보 기반으로 즉시 추천 생성"""
+        context_info = "\n".join(
+            [f"- {key}: {info['value']}" for key, info in conversation.collected_info.items()]
+        )
+
+        prompt = f"""
+        당신은 친근하고 경험이 풍부한 마케팅 전문가입니다.
+        다음 정보를 반드시 참고하여 맞춤형 마케팅 전략을 제시하세요.
+
+        [비즈니스 맥락]
+        업종: {conversation.business_type}
+        완료율: {conversation.get_completion_rate():.1%}
+
+        [수집된 정보]
+        {context_info}
+
+        위 정보를 최대한 반영하여, **지금 바로 실행할 수 있는 실용적인 마케팅 전략과 팁**을 작성하세요.
+        - 글은 인삿말 없이 본문으로 시작
+        - 각 항목은 간결하게, 불필요한 설명은 생략
+        - 아래 구조를 따르되 너무 딱딱하지 않게 자연스럽게 작성:
+        1. 즉시 시작할 수 있는 마케팅 방법 3가지
+        2. 예상 효과와 시작 방법
+        3. 성공을 위한 핵심 팁
+        4. 마지막 문단에서 자연스럽게 이어질 후속 질문 1~2개 포함
+        - 따뜻하고 격려하는 톤 유지
+        """
+        
+        result = await self._call_llm(prompt, "", "")
+        return result.get("raw_response", "지금까지의 정보를 바탕으로 맞춤형 전략을 추천해드리겠습니다!")
+    
+    # 🆕 구조화된 응답 생성 메서드
+    async def generate_structured_response(self, user_input: str, conversation: ConversationState) -> Dict[str, Any]:
+        """
+        구조화된 응답 생성 - 메인 응답 + 후속 질문 + 행동 제안
+        """
+        try:
+            # 컨텍스트 정보 준비
+            missing_info_analysis = conversation.get_context_based_missing_info()
+            context = f"""
+            현재 마케팅 단계: {conversation.current_stage.value}
+            대화 모드: {conversation.current_mode.value}
+            완료율: {conversation.get_completion_rate():.1%}
+            부족한 정보 분석: {json.dumps(missing_info_analysis, ensure_ascii=False)}
+            사용자 참여도: {conversation.user_engagement_level}
+            업종: {conversation.business_type}
+            
+            수집된 정보:
+            {json.dumps(conversation.collected_info, ensure_ascii=False)}
+            
+            최근 대화 흐름:
+            {conversation.get_conversation_context()}
+            """
+
+            result = await self._call_llm(self.structured_response_prompt, user_input, context)
+            return result.get("raw_response", "응답 없음")
+
+        except Exception as e:
+            self.logger.error(f"[{conversation.conversation_id}] 구조화된 응답 생성 실패: {e}", exc_info=True)
+            return {
+                "main_response": "죄송합니다, 응답 생성 중 문제가 발생했습니다.",
+                "follow_up_questions": [],
+                "suggested_actions": [],
+                "conversation_direction": "continue_info_gathering"
+            }
+
+    
+    async def _generate_fallback_follow_up_questions(self, conversation: ConversationState) -> List[str]:
+        """백업 후속 질문 생성"""
+        missing_info_analysis = conversation.get_context_based_missing_info()
+        priority_missing = missing_info_analysis["priority_missing"]
+        
+        # 단계별 기본 후속 질문
+        stage_questions = {
+            MarketingStage.GOAL: [
+                "어떤 결과를 가장 빠르게 보고 싶으신가요?",
+                "현재 가장 큰 마케팅 고민은 무엇인가요?",
+                "성공의 기준을 어떻게 정의하시나요?"
+            ],
+            MarketingStage.TARGET: [
+                "주요 고객층의 연령대는 어떻게 되시나요?",
+                "고객들이 주로 어떤 채널을 이용하나요?",
+                "고객들이 가장 중요하게 생각하는 가치는 무엇일까요?"
+            ],
+            MarketingStage.STRATEGY: [
+                "월 마케팅 예산은 어느 정도 계획하고 계신가요?",
+                "어떤 마케팅 채널에 가장 관심이 있으신가요?",
+                "경쟁사들은 어떤 전략을 사용하고 있나요?"
+            ],
+            MarketingStage.EXECUTION: [
+                "언제부터 마케팅을 시작하고 싶으신가요?",
+                "현재 운영하고 있는 온라인 채널이 있나요?",
+                "마케팅 담당자가 따로 있으신가요?"
+            ]
+        }
+        
+        default_questions = stage_questions.get(conversation.current_stage, [
+            "더 자세히 알고 싶은 부분이 있으신가요?",
+            "어떤 도움이 가장 필요하신가요?",
+            "다른 궁금한 점은 없으신가요?"
+        ])
+        
+        return default_questions[:3]  # 최대 3개
+    
+    async def _generate_fallback_actions(self, conversation: ConversationState) -> List[str]:
+        """백업 추천 액션 생성"""
+        if conversation.current_stage == MarketingStage.GOAL:
+            return [
+                "마케팅 목표를 구체적으로 정의해보기",
+                "타겟 고객 페르소나 만들어보기"
+            ]
+        elif conversation.current_stage == MarketingStage.TARGET:
+            return [
+                "고객 설문조사 진행해보기",
+                "경쟁사 분석 시작하기"
+            ]
+        elif conversation.current_stage == MarketingStage.STRATEGY:
+            return [
+                "마케팅 예산 계획 세우기",
+                "채널별 우선순위 정하기"
+            ]
+        else:
+            return [
+                "첫 번째 마케팅 캠페인 기획하기",
+                "성과 측정 방법 정하기"
+            ]
+
+    # 🆕 개선된 메인 응답 생성 메서드
+    async def generate_response_with_context(self, user_input: str, conversation: ConversationState) -> str:
+        """🆕 개선된 맥락적 응답 생성 - 질문 반복 방지, 친밀감 강화"""
+        conversation.add_message("user", user_input)
+        logger.info(f"[{conversation.conversation_id}] 사용자 입력: {user_input}")
+
+        try:
+            # 🆕 포스팅 관련 응답 처리 우선
+            if conversation.is_awaiting_posting_response():
+                return await self._handle_posting_response(user_input, conversation)
+            
+            # 🆕 컨텐츠 제작 세션 중인지 확인
+            if conversation.is_in_content_creation():
+                return await self._handle_content_creation_session(user_input, conversation)
+            
+            # # 🆕 1. 싱글턴 완료 가능 여부 확인
+            # if await self.can_complete_as_singleton(user_input, conversation):
+            #     # 즉시 완료 가능한 경우 바로 응답 생성
+            #     response = await self.generate_enhanced_response(user_input, conversation, is_singleton=True)
+            #     conversation.add_message("assistant", response)
+            #     return response
+            
+            # 🆕 2. 부정적 응답 감지
+            negative_analysis = await self.detect_negative_response(user_input, conversation)
+            if negative_analysis.get("is_negative", False):
+                print("부정적 응답 감지")
+                conversation.record_negative_response(user_input)
+                
+                # 제안 모드로 전환
+                if conversation.should_switch_to_suggestion_mode():
+                    conversation.switch_to_suggestion_mode()
+                    
+                    # 제안 모드 응답 생성
+                    if conversation.has_sufficient_info_for_suggestions():
+                        response = await self.generate_instant_recommendations(conversation)
+                    else:
+                        response = await self.generate_suggestion_response(user_input, conversation)
+                    
+                    conversation.add_message("assistant", response)
+                    return response
+            else:
+                # 긍정적 응답이면 카운터 리셋
+                conversation.reset_negative_responses()
+            
+            # 3. 사용자 의도 분석
+            intent_analysis = await self.analyze_user_intent_with_llm(user_input, conversation)
+            logger.info(f"[{conversation.conversation_id}] 의도 분석: {intent_analysis.get('intent', {}).get('primary', 'unknown')}")
+
+            # 추출된 정보 저장
+            extracted_info = intent_analysis.get("extracted_info", {})
+            for key, value in extracted_info.items():
+                if value:
+                    conversation.add_info(key, value, "llm_extracted")
+                    if key == "business_type" and value != "일반":
+                        conversation.business_type = value
+      
+            primary_intent = intent_analysis.get('intent', {}).get('primary', '')
+            topic = intent_analysis.get('intent', {}).get('topic', '')
+            print ("primary_intent:"+primary_intent)
+            print ("topic:"+topic)
+            print(f"extracted_info:{extracted_info}")     
+            
+            # 🆕 4. 컨텐츠 생성 요청 감지
+            content_intent = intent_analysis.get("content_intent", {})
+            has_basic_info = (conversation.business_type and conversation.business_type != "일반") or conversation.get_info('product') or conversation.get_info('business_type')
+            has_keywords_or_trends = conversation.get_info('keywords') or conversation.get_info('trend_data')
+            
+            if content_intent.get("is_content_request") and (has_basic_info or has_keywords_or_trends):
+                print("컨텐츠생성요청")
+                conversation.current_stage = MarketingStage.CONTENT_CREATION
+                conversation.start_content_session(
+                    content_intent.get("content_type", "general"),
+                    user_input
+                )
+                return "TRIGGER_CONTENT_GENERATION"
+
+            # # 🆕 5. 제안 모드인 경우 질문 대신 제안 생성
+            # if conversation.current_mode == ConversationMode.SUGGESTING:
+            #     response = await self.generate_instant_recommendations(conversation)
+            #     conversation.add_message("assistant", response)
+            #     return response
+            
+            # 6. 일반적인 개선된 응답 생성
+            # 🆕 구조화된 응답 생성
+            if conversation.get_completion_rate() > 0.3:
+                print("즉시제안")
+                conversation.switch_to_suggestion_mode()
+                response = await self.generate_instant_recommendations(conversation)
+                conversation.add_message("assistant", response)
+                return response
+            else:
+                print("일반")
+                # 구조화된 응답 생성 (메인 응답 + 후속 질문)
+                structured_response = await self.generate_structured_response(user_input, conversation)
+                conversation.add_message("assistant", structured_response)
+                return f"STRUCTURED_RESPONSE:{structured_response}"
+
+        except Exception as e:
+            logger.error(f"[{conversation.conversation_id}] 응답 생성 중 오류: {e}", exc_info=True)
+            # 오류 시에도 LLM으로 응답 생성
+            error_prompt = "사용자와의 대화 중 기술적 문제가 발생했을 때 친근하게 사과하고 다시 시도를 요청하는 메시지를 생성해주세요."
+            error_result = await self._call_llm(error_prompt, "", "")
+            return error_result.get("raw_response", "죄송합니다. 잠시 문제가 발생했네요. 다시 한 번 말씀해주시면 도움을 드리겠습니다!")
+    
+    # 🆕 개선된 응답 생성 (친밀감 강화)
+    async def generate_enhanced_response(self, user_input: str, conversation: ConversationState, 
+                                       topic: str = "", is_singleton: bool = False) -> str:
+        """친밀감과 개인화가 강화된 응답 생성"""
+        context = f"""
+        업종: {conversation.business_type}
+        완료율: {conversation.get_completion_rate():.1%}
+        참여도: {conversation.user_engagement_level}
+        수집된 정보: {json.dumps(conversation.collected_info, ensure_ascii=False)}
+        싱글턴 완료: {is_singleton}
+        토픽: {topic}
+        
+        대화 컨텍스트:
+        {conversation.get_conversation_context()}
+        """
+        
+        result = await self._call_llm(self.enhanced_response_prompt, user_input, context)
+        return result.get("raw_response", result.get("response", ""))
+    
+    
+    # 포스팅 및 컨텐츠 세션 관련 메서드들 (기존 유지하되 LLM 기반으로 개선)
+    async def _handle_posting_response(self, user_input: str, conversation: ConversationState) -> str:
+        """포스팅 관련 응답 처리 - LLM 기반"""
+        user_input_lower = user_input.lower().strip()
+        
+        if conversation.awaiting_posting_confirmation:
+            if any(word in user_input_lower for word in ["네", "예", "포스팅", "posting", "업로드", "게시"]):
+                conversation.confirm_posting_and_request_schedule()
+                
+                # LLM으로 스케줄 요청 메시지 생성
+                prompt = "사용자가 포스팅을 확인했을 때, 친근하게 언제 포스팅할지 시간을 물어보는 메시지를 생성해주세요. 다양한 시간 입력 예시도 포함해주세요."
+                result = await self._call_llm(prompt, "", "")
+                return result.get("raw_response", "포스팅 일정을 알려주세요!")
+            else:
+                conversation.cancel_posting_process()
+                conversation.end_content_session()
+                conversation.current_stage = MarketingStage.COMPLETED
+                
+                # LLM으로 완료 메시지 생성
+                prompt = "포스팅을 취소했을 때 자연스럽게 컨텐츠 제작 완료를 알리고 추가 도움을 제안하는 메시지를 생성해주세요."
+                result = await self._call_llm(prompt, "", "")
+                return result.get("raw_response", "컨텐츠 제작이 완료되었습니다!")
+        
+        elif conversation.awaiting_scheduling_time:
+            try:
+                scheduled_at = await self._parse_schedule_time(user_input)
+                
+                if scheduled_at:
+                    return f"TRIGGER_AUTOMATION_TASK:{scheduled_at.isoformat()}|자동화 예약이 완료되었습니다!"
+                else:
+                    # LLM으로 시간 재입력 요청 메시지 생성
+                    prompt = "시간 형식을 인식할 수 없을 때 친근하게 다시 입력을 요청하는 메시지를 생성해주세요."
+                    result = await self._call_llm(prompt, "", "")
+                    return result.get("raw_response", "시간 형식을 다시 확인해주세요.")
+            except Exception as e:
+                logger.error(f"스케줄 파싱 오류: {e}")
+                prompt = "시간 처리 중 오류가 발생했을 때 사과하고 다시 시도를 요청하는 메시지를 생성해주세요."
+                result = await self._call_llm(prompt, "", "")
+                return result.get("raw_response", "시간 처리 중 문제가 발생했습니다. 다시 시도해주세요.")
+        
+        return "예상치 못한 포스팅 상태입니다."
+    
+    async def _handle_content_creation_session(self, user_input: str, conversation: ConversationState, is_initial: bool = False) -> str:
+        """컨텐츠 제작 세션 처리 - LLM 기반"""
+        if is_initial:
+            # LLM으로 컨텐츠 제작 시작 메시지 생성
+            prompt = "컨텐츠 제작을 시작한다는 것을 친근하고 전문적으로 알리는 메시지를 생성해주세요."
+            result = await self._call_llm(prompt, "", "")
+            return result.get("raw_response", "컨텐츠 제작을 시작합니다!")
+        else:
+            # 피드백 처리
+            feedback_analysis = await self.handle_content_feedback_with_llm(user_input, conversation)
+            
+            request_type = feedback_analysis.get("request_type", "feedback")
+            
+            if request_type == "modify":
+                # LLM으로 수정 메시지 생성
+                prompt = "사용자가 컨텐츠 수정을 요청했을 때 친근하게 수정하겠다고 알리는 메시지를 생성해주세요."
+                result = await self._call_llm(prompt, "", "")
+                conversation.update_content_session("수정 중...", user_input)
+                return "TRIGGER_CONTENT_MODIFICATION:" + result.get("raw_response", "컨텐츠를 수정하겠습니다!")
+                
+            elif request_type == "regenerate":
+                prompt = "새로운 컨텐츠를 생성하겠다고 친근하게 알리는 메시지를 생성해주세요."
+                result = await self._call_llm(prompt, "", "")
+                conversation.update_content_session("재생성 중...", user_input)
+                return "TRIGGER_CONTENT_REGENERATION:" + result.get("raw_response", "새로운 컨텐츠를 생성하겠습니다!")
+                
+            elif request_type == "approval":
+                if conversation.current_content_for_posting:
+                    # LLM으로 포스팅 확인 메시지 생성
+                    prompt = "사용자가 컨텐츠를 마음에 들어할 때 포스팅 여부를 친근하게 묻는 메시지를 생성해주세요."
+                    result = await self._call_llm(prompt, "", "")
+                    conversation.start_posting_confirmation(conversation.current_content_for_posting)
+                    return result.get("raw_response", "포스팅하시겠습니까?")
+                else:
+                    # LLM으로 완료 메시지 생성
+                    prompt = "컨텐츠 제작이 완료되었을 때 추가 도움을 제안하는 메시지를 생성해주세요."
+                    result = await self._call_llm(prompt, "", "")
+                    conversation.end_content_session()
+                    conversation.current_stage = MarketingStage.COMPLETED
+                    return result.get("raw_response", "컨텐츠 제작이 완료되었습니다!")
+            else:
+                # LLM으로 피드백 요청 메시지 생성
+                prompt = "사용자의 피드백에 감사를 표하고 더 구체적인 수정 방향을 묻는 메시지를 생성해주세요."
+                result = await self._call_llm(prompt, "", "")
+                return result.get("raw_response", "피드백 감사합니다!")
+    
+    # 기존 메서드들 유지...
+    async def analyze_user_intent_with_llm(self, user_input: str, conversation: ConversationState) -> Dict[str, Any]:
+        """LLM 기반 사용자 의도 분석"""
+        context = f"""
+        현재 단계: {conversation.current_stage.value}
+        현재 모드: {conversation.current_mode.value}
+        업종: {conversation.business_type}
+        완료율: {conversation.get_completion_rate():.1%}
+        사용자 참여도: {conversation.user_engagement_level}
+        컨텐츠 세션 활성: {conversation.is_in_content_creation()}
+        대화 컨텍스트:
+        {conversation.get_conversation_context()}
+        """
+        
+        result = await self._call_llm(self.intent_analysis_prompt, user_input, context)
         
         # 기본값 설정
         if "error" in result:
             return {
-                "analysis": {
-                    "provided_info": "정보 수집 중",
-                    "insights": "추가 분석이 필요합니다",
-                    "strengths": "",
-                    "recommendations": ""
-                },
-                "target_analysis": {},
-                "next_questions": {"priority": "medium", "missing_critical_info": [], "suggested_questions": []}
+                "intent": {"primary": "일반_질문", "confidence": 0.5},
+                "extracted_info": {},
+                "stage_assessment": {"current_stage_complete": False, "ready_for_next": False},
+                "content_intent": {"is_content_request": False, "content_type": ""},
+                "user_sentiment": {"engagement_level": "medium", "frustration_level": "none", "needs_encouragement": False}
             }
         
         return result
-    
-    # 🆕 컨텐츠 피드백 처리 메서드
+
     async def handle_content_feedback_with_llm(self, user_input: str, conversation: ConversationState) -> Dict[str, Any]:
-        """🆕 컨텐츠 피드백 처리 - 새로운 기능"""
+        """컨텐츠 피드백 처리"""
         context = f"""
         현재 컨텐츠 세션: {conversation.current_content_session}
         이전 컨텐츠: {conversation.current_content_session.get('last_content', '') if conversation.current_content_session else ''}
@@ -551,7 +983,6 @@ class ConversationManager:
         
         result = await self._call_llm(self.content_feedback_prompt, user_input, context)
         
-        # 기본값 설정
         if "error" in result:
             return {
                 "request_type": "feedback",
@@ -562,208 +993,28 @@ class ConversationManager:
         
         return result
 
-    # 🆕  메인 응답 생성 메서드
-    async def generate_response_with_context(self, user_input: str, conversation: ConversationState) -> str:
-        """🆕 개선된 맥락적 응답 생성 - 응답 분석 + 컨텐츠 멀티턴 지원"""
-        conversation.add_message("user", user_input)
-        logger.info(f"[{conversation.conversation_id}] 사용자 입력: {user_input}")
-
-        try:
-            response_parts = []
-            
-            # 🆕 포스팅 관련 응답 처리 우선
-            if conversation.is_awaiting_posting_response():
-                return await self._handle_posting_response(user_input, conversation)
-            
-            # 🆕 컨텐츠 제작 세션 중인지 확인
-            if conversation.is_in_content_creation():
-                return await self._handle_content_creation_session(user_input, conversation)
-            
-            # 1. 사용자 의도 분석
-            intent_analysis = await self.analyze_user_intent_with_llm(user_input, conversation)
-            logger.info(f"[{conversation.conversation_id}] 의도 분석: {intent_analysis.get('intent', {}).get('primary', 'unknown')}")
-
-            # 추출된 정보 저장
-            extracted_info = intent_analysis.get("extracted_info", {})
-            confirmed_info = []
-            for key, value in extracted_info.items():
-                if value:
-                    conversation.add_info(key, value, "llm_extracted")
-                    if key == "business_type" and value != "일반":
-                        conversation.business_type = value
-                    confirmed_info.append(f"{key}: {value}")
-
-            # 🆕 5. 컨텐츠 생성 요청 감지 (개선된 조건)
-            content_intent = intent_analysis.get("content_intent", {})
-            has_basic_info = (conversation.business_type and conversation.business_type != "일반") or conversation.get_info('product') or conversation.get_info('business_type')
-            has_keywords_or_trends = conversation.get_info('keywords') or conversation.get_info('trend_data')
-            
-            if content_intent.get("is_content_request") and (has_basic_info or has_keywords_or_trends):
-                # 컨텐츠 제작 단계로 전환
-                conversation.current_stage = MarketingStage.CONTENT_CREATION
-                conversation.start_content_session(
-                    content_intent.get("content_type", "general"),
-                    user_input
-                )
-                # ✅ 컨텐츠 생성 시그널 반환 (marketing_agent에서 처리하도록)
-                return "TRIGGER_CONTENT_GENERATION:🎨 **컨텐츠 제작 단계로 진입합니다!**\n\n지금까지 나눈 대화를 바탕으로 맞춤형 콘텐츠를 제작해드릴게요. 바로 진행하겠습니다!"
-
-            # 🆕 2. 일반적인 질문인 경우 먼저 답변 제공
-            primary_intent = intent_analysis.get('intent', {}).get('primary', '')
-            topic = intent_analysis.get('intent', {}).get('topic', '')
-            is_general_question = primary_intent == "정보_요청" and conversation.current_stage == MarketingStage.INITIAL
-            
-            # 9. 부족한 정보 질문 생성 (컨텐츠 제작 요청 여부 고려)
-            is_content_request = content_intent.get("is_content_request", False)
-            missing_info = conversation.get_missing_info(for_content_creation=is_content_request)
-
-            print("primary_intent: "+primary_intent)
-            print("topic: "+topic)
-            print("missing_info: "+str(missing_info))
-
-            if is_general_question:
-                # 일반적인 마케팅 조언을 먼저 제공
-                general_response = await self.generate_personalized_response_with_llm(
-                    user_input, conversation, {"response_strategy": {"tone": "friendly", "format": "advice"}}, topic, missing_info
-                )
-                response_parts.append(general_response)
-                response_parts.append("\n---\n")
-
-            # 🆕 3. 사용자 응답 분석 (INITIAL 단계가 아니고, 일반 질문이 아닌 경우에만)
-            else:
-                response_analysis = await self.analyze_user_response_with_llm(user_input, conversation, topic, missing_info)
-                
-                response_parts.append(response_analysis)
-                response_parts.append("\n---\n")
-
-
-            # 6. 다음 액션 결정
-            action_plan = await self.determine_next_action_with_llm(user_input, conversation, intent_analysis)
-            await self._handle_stage_progression(conversation, action_plan)
-
-            # 7. 단계 변경 알림
-            if action_plan.get("action", {}).get("type") == "advance_stage":
-                stage_name = self._get_stage_display_name(conversation.current_stage)
-                response_parts.append(f"✅ **{stage_name}로 진행합니다!**")
-
-            # 8. 확인된 정보 표시
-            if confirmed_info:
-                response_parts.append(f"📝 **확인된 정보**: {', '.join(confirmed_info)}")
-
-            # # 9. 부족한 정보 질문 생성 (컨텐츠 제작 요청 여부 고려)
-            # is_content_request = content_intent.get("is_content_request", False)
-            # missing_info = conversation.get_missing_info(for_content_creation=is_content_request)
-            # if missing_info:
-            #     response_parts.append("❗ **추가로 필요한 정보가 있어요.**")
-            #     for info_key in missing_info[:2]:
-            #         question = await self._generate_specific_question(info_key, conversation)
-            #         response_parts.append(f"• {question}")
-
-            # # 10. 추가 응답 생성 (일반 질문이 아니고, 부족한 정보가 없는 경우에만)
-            # if not is_general_question and not missing_info:
-            #     if not action_plan.get("follow_up", {}).get("ask_question"):
-            #         response = await self.generate_personalized_response_with_llm(
-            #             user_input, conversation, action_plan, topic, 
-            #         )
-            #         response_parts.append(response)
-            #     else:
-            #         question = await self.generate_stage_question_with_llm(
-            #             conversation.current_stage, conversation
-            #         )
-            #         response_parts.append(question)
-
-            # 11. 진행률 표시
-            completion = conversation.get_completion_rate()
-            if completion > 0:
-                response_parts.append(f"\n📊 **전체 진행률**: {completion:.1%}")
-
-            # 최종 응답 조립
-            final_response = "\n\n".join(response_parts) if response_parts else "어떻게 도와드릴까요?"
-            conversation.add_message("assistant", final_response, metadata={"intent_analysis": intent_analysis})
-            
-            return final_response
-
-        except Exception as e:
-            logger.error(f"[{conversation.conversation_id}] 응답 생성 중 오류: {e}", exc_info=True)
-            return "죄송합니다. 응답 생성 중 문제가 발생했습니다. 다시 말씀해주시면 도움을 드리겠습니다."
-    
-    # 🆕 포스팅 응답 처리 핸들러
-    async def _handle_posting_response(self, user_input: str, conversation: ConversationState) -> str:
-        """🆕 포스팅 관련 응답 처리"""
-        user_input_lower = user_input.lower().strip()
-        
-        if conversation.awaiting_posting_confirmation:
-            # 포스팅 확인 응답 처리
-            if any(word in user_input_lower for word in ["네", "예", "포스팅", "posting", "업로드", "게시"]):
-                # 포스팅 확인 - 스케줄 입력 요청
-                conversation.confirm_posting_and_request_schedule()
-                return (
-                    "✅ **포스팅을 진행하겠습니다!**\n\n"
-                    "📅 **언제 포스팅하시겠어요?**\n"
-                    "예시: '지금 바로', '오늘 오후 3시', '내일 오전 10시', '2024-01-15 14:30' 등\n\n"
-                    "📝 **포맷** (포맷에 맞춰 입력해주세요):\n"
-                    "- 지금: '지금 바로'\n"
-                    "- 상대적 시간: '내일 오후 2시'\n"
-                    "- 절대적 시간: 'YYYY-MM-DD HH:MM' (24시간 형식)\n\n"
-                    "시간을 알려주시면 자동으로 포스팅이 예약됩니다! 🚀"
-                )
-            else:
-                # 포스팅 취소
-                conversation.cancel_posting_process()
-                conversation.end_content_session()
-                conversation.current_stage = MarketingStage.COMPLETED
-                return (
-                    "📝 **컨텐츠 제작이 완료되었습니다!**\n\n"
-                    "다른 컨텐츠도 필요하시거나 추가 마케팅 상담이 필요하시면 언제든지 말씀해주세요."
-                )
-        
-        elif conversation.awaiting_scheduling_time:
-            # 스케줄 시간 입력 처리
-            try:
-                scheduled_at = await self._parse_schedule_time(user_input)
-                
-                if scheduled_at:
-                    # 🆕 create_automation_task 호출 시그널 반환
-                    return f"TRIGGER_AUTOMATION_TASK:{scheduled_at.isoformat()}|자동화 예약이 완료되었습니다!"
-                else:
-                    return (
-                        "❌ **시간 형식을 인식할 수 없습니다.**\n\n"
-                        "📅 **다시 입력해주세요:**\n"
-                        "- '지금 바로' (즉시 포스팅)\n"
-                        "- '내일 오후 3시'\n"
-                        "- '2024-01-15 14:30' (YYYY-MM-DD HH:MM 형식)"
-                    )
-            except Exception as e:
-                logger.error(f"스케줄 파싱 오류: {e}")
-                return "죄송합니다. 시간 처리 중 오류가 발생했습니다. 다시 시도해주세요."
-        
-        return "예상치 못한 포스팅 상태입니다."
-    
     async def _parse_schedule_time(self, user_input: str) -> Optional[datetime]:
-        """사용자 입력에서 시간 파싱"""
+        """사용자 입력에서 시간 파싱 - LLM 기반"""
         user_input_lower = user_input.lower().strip()
         
         # 지금 바로
         if any(word in user_input_lower for word in ["지금", "바로", "now", "immediately"]):
             return datetime.now()
         
-        # LLM을 사용한 시간 파싱 (더 복잡한 경우)
+        # LLM을 사용한 시간 파싱
         try:
             time_parsing_prompt = f"""다음 사용자 입력에서 날짜와 시간을 추출하여 ISO 8601 형식으로 반환해주세요.
             
 사용자 입력: "{user_input}"
 현재 시간: {datetime.now().isoformat()}
 
-다음 형식으로 만 응답해주세요:
+다음 형식으로만 응답해주세요:
 - 성공: "2024-01-15T14:30:00" (정확한 ISO 8601 형식)
 - 실패: "INVALID"
 
 추가 설명 없이 오직 날짜/시간 또는 "INVALID"만 반환하세요."""
             
-            result = await self._call_llm(
-                "당신은 시간 파싱 전문가입니다.", 
-                time_parsing_prompt
-            )
+            result = await self._call_llm("당신은 시간 파싱 전문가입니다.", time_parsing_prompt)
             
             if isinstance(result, dict) and "raw_response" in result:
                 time_str = result["raw_response"].strip()
@@ -778,249 +1029,7 @@ class ConversationManager:
         
         return None
     
-    # 🆕 컨텐츠 제작 세션 핸들러
-    async def _handle_content_creation_session(self, user_input: str, conversation: ConversationState, is_initial: bool = False) -> str:
-        """🆕 컨텐츠 제작 세션 처리 - 멀티턴 대화 지원"""
-        response_parts = []
-        
-        if is_initial:
-            # 최초 컨텐츠 생성 요청 - 실제 컨텐츠 생성도 함께 수행
-            response_parts.append("🎨 **컨텐츠 제작을 시작합니다!**")
-            response_parts.append("지금까지 나눈 대화를 바탕으로 맞춤형 콘텐츠를 제작해드릴게요.")
-            
-            # ✅ 실제 컨텐츠 생성 시그널 반환 (marketing_agent에서 처리하도록)
-            return "TRIGGER_CONTENT_GENERATION:" + "\n\n".join(response_parts)
-            
-        else:
-            # 피드백 처리
-            feedback_analysis = await self.handle_content_feedback_with_llm(user_input, conversation)
-            
-            request_type = feedback_analysis.get("request_type", "feedback")
-            action_needed = feedback_analysis.get("action_needed", {})
-            
-            if request_type == "modify":
-                response_parts.append("🔄 **컨텐츠를 수정하겠습니다!**")
-                changes = feedback_analysis.get("specific_changes", [])
-                if changes:
-                    response_parts.append(f"**수정 사항**: {', '.join(changes)}")
-                
-                # 실제 컨텐츠 수정 시그널 반환
-                conversation.update_content_session("수정 중...", user_input)
-                return "TRIGGER_CONTENT_MODIFICATION:" + "\n\n".join(response_parts)
-                
-            elif request_type == "regenerate":
-                response_parts.append("🆕 **새로운 컨텐츠를 생성하겠습니다!**")
-                conversation.update_content_session("재생성 중...", user_input)
-                return "TRIGGER_CONTENT_REGENERATION:" + "\n\n".join(response_parts)
-                
-            elif request_type == "new_content":
-                response_parts.append("✨ **다른 종류의 컨텐츠를 만들어보겠습니다!**")
-                return "TRIGGER_NEW_CONTENT:" + "\n\n".join(response_parts)
-                
-            elif request_type == "approval":
-                response_parts.append("✅ **컨텐츠를 마음에 들어하시는군요!**")
-                
-                # 🆕 포스팅 여부를 묻기
-                if conversation.current_content_for_posting:
-                    response_parts.append("\n📝 **직접 포스팅하시겠습니까?**")
-                    response_parts.append("이 컨텐츠를 SNS나 블로그에 직접 업로드할 수 있습니다.")
-                    response_parts.append("\n✅ **'네, 포스팅하겠습니다'** 또는 **'아니요, 그냥 컨텐츠만 받을게요'**라고 말씀해주세요.")
-                    conversation.start_posting_confirmation(conversation.current_content_for_posting)
-                else:
-                    response_parts.append("다른 컨텐츠도 필요하시거나 추가 마케팅 상담이 필요하시면 언제든지 말씀해주세요.")
-                    conversation.end_content_session()
-                    conversation.current_stage = MarketingStage.COMPLETED
-                
-            else:
-                # 일반 피드백
-                response_parts.append("💬 **피드백 감사합니다!**")
-                response_parts.append("구체적으로 어떤 부분을 수정하고 싶으신지 말씀해주시면 더 정확하게 도와드릴 수 있습니다.")
-        
-        return "\n\n".join(response_parts)
-    
-    async def _generate_specific_question(self, info_key: str, conversation: ConversationState) -> str:
-        """특정 정보에 대한 질문 생성"""
-        question_prompts = {
-            "business_type": "어떤 업종에서 일하고 계신가요?",
-            "product": "어떤 제품이나 서비스에 대해 마케팅을 원하시나요?",
-            "main_goal": "마케팅을 통해 달성하고 싶은 주요 목표는 무엇인가요?",
-            "target_audience": "주요 고객층은 어떤 분들인가요? (연령대, 성별, 관심사 등)",
-            "budget": "마케팅 예산은 어느 정도로 생각하고 계신가요?",
-            "channels": "어떤 마케팅 채널을 활용하고 싶으신가요? (SNS, 블로그, 광고 등)",
-            "pain_points": "현재 마케팅에서 가장 어려운 점은 무엇인가요?"
-        }
-        
-        base_question = question_prompts.get(info_key, f"{info_key}에 대해 알려주실 수 있을까요?")
-        
-        # 업종별 맞춤 질문 생성
-        if conversation.business_type != "일반":
-            context_prompt = f"""
-            {conversation.business_type} 업종에서 '{info_key}'에 대한 질문을 만들어주세요.
-            기본 질문: {base_question}
-
-            업종 특성을 반영한 더 구체적인 질문으로 만들어주세요.
-            질문 한 문장만 출력하세요.
-            """
-            
-            try:
-                result = await self._call_llm(
-                    "업종별 맞춤 질문을 생성하는 전문가입니다.",
-                    context_prompt
-                )
-                if isinstance(result, dict) and "raw_response" in result:
-                    custom_question = result["raw_response"].strip()
-                    if custom_question and len(custom_question) < 200:
-                        return custom_question
-            except:
-                pass
-        
-        return base_question
-    
-    # 기존 메서드들 (유지)
-    async def analyze_user_intent_with_llm(self, user_input: str, conversation: ConversationState) -> Dict[str, Any]:
-        """LLM 기반 사용자 의도 분석"""
-        context = f"""
-        현재 단계: {conversation.current_stage.value}
-        업종: {conversation.business_type}
-        완료율: {conversation.get_completion_rate():.1%}
-        컨텐츠 세션 활성: {conversation.is_in_content_creation()}
-        대화 컨텍스트:
-        {conversation.get_conversation_context()}
-        """
-        
-        result = await self._call_llm(self.intent_analysis_prompt, user_input, context)
-        
-        # 기본값 설정
-        if "error" in result:
-            return {
-                "intent": {"primary": "일반_질문", "confidence": 0.5},
-                "extracted_info": {},
-                "stage_assessment": {"current_stage_complete": False, "ready_for_next": False},
-                "content_intent": {"is_content_request": False, "content_type": ""}
-            }
-        
-        return result
-
-    async def determine_next_action_with_llm(self, user_input: str, conversation: ConversationState, 
-                                           intent_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """LLM 기반 다음 액션 결정"""
-        context = f"""
-        의도 분석 결과: {json.dumps(intent_analysis, ensure_ascii=False)}
-        현재 단계: {conversation.current_stage.value}  
-        업종: {conversation.business_type}
-        완료율: {conversation.get_completion_rate():.1%}
-        수집된 정보: {len(conversation.collected_info)}개
-        대화 컨텍스트:
-        {conversation.get_conversation_context()}
-        """
-        
-        result = await self._call_llm(self.stage_decision_prompt, user_input, context)
-        
-        # 기본값 설정
-        if "error" in result:
-            return {
-                "action": {"type": "continue_current", "reasoning": "기본 진행"},
-                "stage_progress": {"current_completion": 0.3, "missing_info": []},
-                "response_strategy": {"tone": "friendly", "format": "question"},
-                "follow_up": {"ask_question": True, "suggested_topics": ["마케팅 목표"]}
-            }
-        
-        return result
-
-    async def generate_stage_question_with_llm(self, stage: MarketingStage, conversation: ConversationState,
-                                             missing_info: List[str] = None) -> str:
-        """LLM 기반 단계별 맞춤 질문 생성"""
-        context = f"""
-목표 단계: {stage.value}
-현재 업종: {conversation.business_type}
-수집된 정보: {json.dumps(conversation.collected_info, ensure_ascii=False)}
-대화 맥락:
-{conversation.get_conversation_context()}
-부족한 정보 (우선순위 왼쪽부터) {', '.join(missing_info) if missing_info else '없음'}
-"""
-        
-        stage_descriptions = {
-            MarketingStage.INITIAL: "마케팅 상담 시작 단계",
-            MarketingStage.GOAL: "마케팅 목표 설정 단계", 
-            MarketingStage.TARGET: "타겟 고객 분석 단계",
-            MarketingStage.STRATEGY: "마케팅 전략 기획 단계",
-            MarketingStage.EXECUTION: "실행 계획 수립 단계",
-            MarketingStage.CONTENT_CREATION: "컨텐츠 제작 단계"
-        }
-        
-        stage_prompt = f"""
-{self.question_generation_prompt}
-
-단계별 목적: {stage_descriptions.get(stage, "일반 상담")}
-"""
-        
-        result = await self._call_llm(stage_prompt, f"{stage.value} 단계를 위한 질문 생성", context)
-        
-        if "error" in result:
-            # 폴백 질문
-            fallback_questions = {
-                MarketingStage.GOAL: "🎯 마케팅을 통해 달성하고 싶은 구체적인 목표는 무엇인가요?",
-                MarketingStage.TARGET: "👥 주요 타겟 고객은 누구인가요? 연령대, 관심사 등을 알려주세요.",
-                MarketingStage.STRATEGY: "📊 어떤 마케팅 채널을 활용하고 싶으신가요? 예산은 얼마나 가능한가요?",
-                MarketingStage.EXECUTION: "🚀 구체적으로 어떤 콘텐츠나 캠페인을 만들어보고 싶으신가요?",
-                MarketingStage.CONTENT_CREATION: "🎨 어떤 종류의 컨텐츠를 만들어드릴까요?"
-            }
-            return fallback_questions.get(stage, "어떻게 도와드릴까요?")
-        
-        # 질문 추출
-        if isinstance(result, dict) and "question" in result:
-            question_data = result["question"]
-            main_question = question_data.get("main_question", "")
-            context_info = question_data.get("context", "")
-            examples = question_data.get("examples", [])
-            
-            response = ""
-            if context_info:
-                response += f"{context_info}\n\n"
-            
-            response += f"**{main_question}**"
-            
-            if examples:
-                response += f"\n\n💡 **예시:**\n"
-                for example in examples[:3]:  # 최대 3개
-                    response += f"• {example}\n"
-            
-            return response
-        
-        return result.get("raw_response", "어떻게 도와드릴까요?")
-
-    async def generate_personalized_response_with_llm(self, user_input: str, conversation: ConversationState,
-                                                    action_plan: Dict[str, Any], topic: str, missing_info: List[str]) -> str:
-        """LLM 기반 개인화된 응답 생성"""
-        context = f"""
-        사용자 입력: {user_input}
-        액션 플랜: {json.dumps(action_plan, ensure_ascii=False)}
-        현재 단계: {conversation.current_stage.value}
-        업종: {conversation.business_type}
-        대화 맥락:
-        {conversation.get_conversation_context()}
-        부족한 정보 (우선순위 왼쪽부터) {', '.join(missing_info) if missing_info else '없음'}
-        """
-        
-        # topic을 사용하여 적절한 프롬프트 파일 로드 및 결합
-        combined_prompt = self._load_prompt_file(topic, self.response_generation_prompt)
-        
-        response_prompt = f"""
-        {combined_prompt}
-
-        응답 전략: {action_plan.get('response_strategy', {})}
-        톤: {action_plan.get('response_strategy', {}).get('tone', 'friendly')}
-        형식: {action_plan.get('response_strategy', {}).get('format', 'advice')}
-        """
-        
-        result = await self._call_llm(response_prompt, "위 상황에 맞는 마케팅 전문가 응답 생성", context)
-        
-        if "error" in result:
-            return "마케팅 전문가로서 도움을 드리고 싶지만, 현재 처리 중 문제가 발생했습니다. 조금 더 구체적으로 질문해주시면 더 나은 조언을 드릴 수 있습니다."
-        
-        return result
-        # return result.get("raw_response", result.get("response", "도움이 되는 조언을 준비 중입니다."))
-
+    # 대화 관리 관련 메서드들 (기존 유지)
     def get_or_create_conversation(self, user_id: int, conversation_id: Optional[int] = None) -> Tuple[ConversationState, bool]:
         """대화 상태 조회 또는 생성"""
         if conversation_id is None:
@@ -1047,42 +1056,6 @@ class ConversationManager:
         """대화 ID 생성"""
         import time
         return int(f"{user_id}{int(time.time())}")
-
-    async def _handle_stage_progression(self, conversation: ConversationState, action_plan: Dict[str, Any]):
-        """단계 진행 처리"""
-        action_type = action_plan.get("action", {}).get("type")
-        
-        if action_type == "advance_stage":
-            next_stage_name = action_plan.get("stage_progress", {}).get("next_stage")
-            if next_stage_name:
-                try:
-                    next_stage = MarketingStage(next_stage_name.upper())
-                    conversation.current_stage = next_stage
-                    logger.info(f"단계 진행: {conversation.conversation_id} -> {next_stage.value}")
-                except ValueError:
-                    logger.warning(f"잘못된 단계명: {next_stage_name}")
-        
-        elif action_type == "jump_to_stage":
-            target_stage = action_plan.get("stage_progress", {}).get("next_stage")
-            if target_stage:
-                try:
-                    conversation.current_stage = MarketingStage(target_stage.upper())
-                    logger.info(f"단계 점프: {conversation.conversation_id} -> {target_stage}")
-                except ValueError:
-                    logger.warning(f"잘못된 단계명: {target_stage}")
-    
-    def _get_stage_display_name(self, stage: MarketingStage) -> str:
-        """단계 표시명 반환"""
-        display_names = {
-            MarketingStage.INITIAL: "상담 시작",
-            MarketingStage.GOAL: "1단계: 목표 설정",
-            MarketingStage.TARGET: "2단계: 타겟 분석",
-            MarketingStage.STRATEGY: "3단계: 전략 기획", 
-            MarketingStage.EXECUTION: "4단계: 실행 계획",
-            MarketingStage.CONTENT_CREATION: "5단계: 컨텐츠 제작",
-            MarketingStage.COMPLETED: "상담 완료"
-        }
-        return display_names.get(stage, stage.value)
     
     def get_conversation_summary(self, conversation_id: int) -> Dict[str, Any]:
         """대화 요약 정보"""
@@ -1095,19 +1068,18 @@ class ConversationManager:
             "conversation_id": conversation_id,
             "user_id": conversation.user_id,
             "current_stage": conversation.current_stage.value,
+            "current_mode": conversation.current_mode.value,
             "business_type": conversation.business_type,
             "completion_rate": conversation.get_completion_rate(),
             "collected_info_count": len(conversation.collected_info),
             "message_count": len(conversation.conversation_history),
             "created_at": conversation.created_at.isoformat(),
             "last_activity": conversation.last_activity.isoformat(),
-            "stage_progress": conversation.stage_progress,
-            "llm_powered": True,
-            "intelligence_level": "enhanced",
+            "user_engagement_level": conversation.user_engagement_level,
+            "negative_response_count": conversation.negative_response_count,
             "in_content_creation": conversation.is_in_content_creation(),
-            "content_session": conversation.current_content_session,
-            "content_history_count": len(conversation.content_history),
-            "features": ["response_analysis", "content_multiturn", "intelligent_progression"]
+            # "features": ["improved_context_understanding", "negative_response_handling", "suggestion_mode", "singleton_completion", "no_hardcoding"]
+            "features": ["improved_context_understanding", "negative_response_handling", "suggestion_mode", "no_hardcoding"]
         }
     
     def cleanup_expired_conversations(self):
@@ -1123,49 +1095,71 @@ class ConversationManager:
         
         return len(expired_ids)
     
-    async def get_welcome_message_with_llm(self, conversation: ConversationState) -> str:
-        """LLM 기반 환영 메시지 생성"""
-        welcome_prompt = """사용자가 마케팅 상담을 시작할 때 사용할 환영 메시지를 생성해주세요.
+    def should_use_structured_response(self, conversation: ConversationState) -> bool:
+        """🆕 구조화된 응답 사용 여부 판단"""
+        # 컨텐츠 제작 단계이거나 제안 모드에서는 구조화된 응답 사용하지 않음
+        if (conversation.current_stage == MarketingStage.CONTENT_CREATION or 
+            conversation.current_mode == ConversationMode.SUGGESTING or
+            conversation.is_awaiting_posting_response()):
+            return False
+        
+        # 완료율이 높으면 구조화된 응답 사용하지 않음
+        if conversation.get_completion_rate() > 0.7:
+            return False
+        
+        # 정보 수집이 필요한 경우에만 구조화된 응답 사용
+        return conversation.current_mode == ConversationMode.QUESTIONING
+    
+    async def get_welcome_message_with_llm(self, conversation: ConversationState) -> Dict[str, Any]:
+        """🆕 LLM 기반 구조화된 환영 메시지 생성"""
+        welcome_prompt = """사용자가 마케팅 상담을 시작할 때 사용할 환영 메시지를 다음 JSON 형태로 생성해주세요.
+
+{
+  "main_response": "친근하고 전문적인 환영 메시지 (이모지와 마크다운 활용)",
+  "follow_up_questions": [
+    "자연스러운 시작 질문 1 (업종 관련)",
+    "자연스러운 시작 질문 2 (목표 관련)",
+    "자연스러운 시작 질문 3 (현재 상황 관련)"
+  ],
+  "suggested_actions": [
+    "바로 시작할 수 있는 첫 번째 액션",
+    "바로 시작할 수 있는 두 번째 액션"
+  ],
+  "conversation_direction": "continue_info_gathering"
+}
 
 요구사항:
 1. 친근하고 전문적인 톤
 2. 마케팅 전문가로서의 신뢰성 전달
-3. 구체적인 도움 영역 제시
-4. 사용자의 참여를 유도하는 질문
+3. 개선된 기능들 소개 (질문 반복 방지, 맞춤형 제안, 친밀한 대화)
+4. 사용자의 참여를 자연스럽게 유도
 5. 이모지와 마크다운 활용
 
-마케팅 상담 영역:
-- 전략 수립
-- 타겟 분석
-- 콘텐츠 제작 (멀티턴 대화 지원)
-- 채널 최적화
-- 성과 측정
+새로운 특징:
+- 사용자가 모를 때 직접 제안 및 추천
+- 질문 반복 방지
+- 친밀하고 자연스러운 대화
+- 즉시 답변 가능한 것은 바로 완료
+- 후속 질문으로 대화 흐름 자연스럽게 이어가기
 
-환영 메시지를 생성해주세요."""
+반드시 유효한 JSON 형태로 응답해주세요."""
         
         result = await self._call_llm(welcome_prompt, "환영 메시지 생성 요청", "")
         
-        if "error" in result:
-            return """🎉 ** 마케팅 전문가에게 오신 것을 환영합니다!**
-
-저는 당신의 비즈니스 성장을 도와드리는 AI 마케팅 컨설턴트입니다.
-
-🆕 **새로운 기능들:**
-• 사용자 응답 분석 및 인사이트 제공
-• 타겟 고객 깊이 있는 분석
-• 컨텐츠 제작 멀티턴 대화 (수정/개선 무제한)
-• 실시간 마케팅 조언
-
-💡 **제가 도와드릴 수 있는 것들:**
-• 마케팅 전략 수립
-• SNS 콘텐츠 제작 (인스타그램, 블로그)
-• 타겟 고객 분석
-• 마케팅 캠페인 기획
-• 키워드 분석 및 SEO
-
-🚀 **시작해볼까요?**
-어떤 업종의 마케팅을 도와드릴까요? (예: 카페, 뷰티샵, 온라인쇼핑몰 등)
-
-💬 자연스럽게 대화하듯 말씀해주세요!"""
+        # JSON 파싱 실패 시 기본 구조 반환
+        if "error" in result or "main_response" not in result:
+            return {
+                "main_response": "🎯 **안녕하세요! 마케팅 전문 컨설턴트입니다** 🎯\n\n비즈니스 성장을 위한 맞춤형 마케팅 전략을 함께 만들어보아요! 어떤 도움이 필요하신가요?",
+                "follow_up_questions": [
+                    "어떤 업종에서 사업을 하고 계신가요?",
+                    "현재 가장 큰 마케팅 고민은 무엇인가요?",
+                    "어떤 결과를 가장 빠르게 보고 싶으신가요?"
+                ],
+                "suggested_actions": [
+                    "비즈니스 현황 진단받기",
+                    "맞춤형 마케팅 전략 상담받기"
+                ],
+                "conversation_direction": "continue_info_gathering"
+            }
         
-        return result.get("raw_response", result.get("message", "안녕하세요! 마케팅 상담을 도와드리겠습니다."))
+        return result

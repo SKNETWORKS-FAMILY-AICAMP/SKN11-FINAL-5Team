@@ -102,7 +102,7 @@ class TaskAgent:
             # 자동화 요청인지 확인
             automation_type = None
             if (
-                intent_analysis["intent"] == IntentType.TASK_AUTOMATION or
+                intent_analysis["intent"] == "task_automation" or
                 any(keyword in query.message for keyword in ["자동화", "자동", "등록", "생성", "업로드"])
             ):
                 automation_type = await self.llm_handler.classify_automation_intent(query.message)
@@ -213,7 +213,7 @@ class TaskAgent:
                 response=response_text,
                 confidence=intent_analysis.get("confidence", 0.5),
                 routing_decision=routing_decision,
-                sources=search_result.sources if search_result else None,
+                sources=", ".join(search_result.sources) if search_result and search_result.sources else None,
                 metadata={
                     "actions": actions,
                     "intent": intent_analysis["intent"],

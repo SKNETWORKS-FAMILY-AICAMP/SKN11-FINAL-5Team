@@ -1,6 +1,5 @@
 """
-통합 비즈니스 기획 에이전트 매니저 - 멀티턴 대화 시스템
-마케팅 에이전트의 구조를 참고하여 리팩토링
+통합 비즈니스 기획 에이전트 매니저 - 멀티턴/싱글톤 대화 시스템
 """
 
 import logging
@@ -10,6 +9,12 @@ from pathlib import Path
 from enum import Enum
 import json
 from datetime import datetime
+
+# 메시지 타입 정의
+from typing import Dict, Any, List, Optional, Tuple, Literal
+
+# 메시지 역할 타입
+MessageRole = Literal["system", "user", "assistant"]
 
 # 공통 모듈 임포트
 from shared_modules import (
@@ -33,6 +38,16 @@ from shared_modules import (
 
 from buisness_planning_agent.config.persona_config import PERSONA_CONFIG, get_persona_by_topic
 from buisness_planning_agent.config.prompts_config import PROMPT_META
+from buisness_planning_agent.utils.business_utils import (
+    format_topic_prompts,
+    format_business_summary,
+    get_business_topics,
+    get_info_gathering_questions,
+    extract_business_info_with_llm,
+    validate_conversation_completeness,
+    generate_single_turn_response,
+    create_conversation_state_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +139,7 @@ class ConversationState:
         return completed_fields / total_fields if total_fields > 0 else 0.0
 
 class BusinessPlanningAgentManager:
-    """통합 비즈니스 기획 에이전트 관리자 - 멀티턴 대화 시스템"""
+    """통합 비즈니스 기획 에이전트 관리자 - 멀티턴/싱글톤 대화 시스템"""
     
     def __init__(self):
         """비즈니스 기획 매니저 초기화"""
@@ -138,38 +153,12 @@ class BusinessPlanningAgentManager:
         # 전문 지식 벡터 스토어 설정
         self.knowledge_collection = 'business-planning-knowledge'
         
-        # 비즈니스 기획 토픽 정의
-        self.business_topics = {
-            "startup_preparation": "창업 준비 및 체크리스트",
-            "idea_validation": "아이디어 검증 및 시장성 분석",
-            "business_model": "비즈니스 모델 및 린캔버스",
-            "market_research": "시장 조사 및 경쟁 분석",
-            "mvp_development": "MVP 개발 및 초기 제품 설계",
-            "funding_strategy": "자금 조달 및 투자 유치",
-            "business_registration": "사업자 등록 및 법적 절차",
-            "financial_planning": "재무 계획 및 예산 관리",
-            "growth_strategy": "성장 전략 및 확장 계획",
-            "risk_management": "리스크 관리 및 위기 대응"
-        }
+        # 비즈니스 기획 토픽 및 질문 가져오기
+        self.business_topics = get_business_topics()
+        self.info_gathering_questions = get_info_gathering_questions()
         
         # 대화 상태 관리 (메모리 기반)
         self.conversation_states: Dict[int, ConversationState] = {}
-        
-        # 단계별 정보 수집 질문 템플릿
-        self.info_gathering_questions = {
-            "business_idea": "어떤 비즈니스 아이디어를 가지고 계신가요?",
-            "industry": "어떤 업종/산업 분야인가요?",
-            "target_customers": "주요 타겟 고객은 누구인가요?",
-            "unique_value": "기존과 다른 차별점이나 고유 가치는 무엇인가요?",
-            "business_stage": "현재 어느 단계에 있나요? (아이디어/준비/운영 등)",
-            "budget": "초기 투자 가능한 예산은 어느 정도인가요?",
-            "timeline": "언제까지 사업을 시작하고 싶으신가요?",
-            "location": "사업 지역이나 위치가 정해져 있나요?",
-            "team_size": "혼자 시작하시나요? 팀이 있나요?",
-            "experience": "관련 업계 경험이나 전문성이 있으신가요?",
-            "goals": "1-2년 내 달성하고 싶은 목표는 무엇인가요?",
-            "concerns": "가장 걱정되거나 어려운 부분은 무엇인가요?"
-        }
         
         # 지식 기반 초기화
         self._initialize_knowledge_base()
@@ -246,8 +235,8 @@ class BusinessPlanningAgentManager:
             logger.error(f"LLM 토픽 분류 실패: {e}")
             return ["startup_preparation", "business_model"]
     
-    def analyze_user_intent_and_stage(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
-        """사용자 의도 및 대화 단계 분석"""
+    def analyze_user_intent_and_stage_with_llm(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
+        """LLM을 활용한 사용자 의도 및 대화 단계 분석"""
         try:
             context_info = {
                 "current_stage": state.stage.value,
@@ -274,14 +263,15 @@ class BusinessPlanningAgentManager:
     "next_stage_recommendation": "info_gathering|analysis|planning|proposal|feedback|refinement|final_result",
     "user_sentiment": "positive|neutral|negative|frustrated",
     "urgency_level": "high|medium|low",
-    "suggested_questions": ["추가로 물어볼 질문들"]
+    "suggested_questions": ["추가로 물어볼 질문들"],
+    "business_focus_areas": ["분석해야 할 비즈니스 영역들"]
 }}
 
 분석 결과:"""
 
             messages = [
-                {"role": "system", "content": "당신은 비즈니스 기획 상담 전문가로서 대화 흐름과 사용자 의도를 정확히 분석합니다."},
-                {"role": "user", "content": intent_analysis_prompt}
+                SystemMessage(content="당신은 비즈니스 기획 상담 전문가로서 대화 흐름과 사용자 의도를 정확히 분석합니다."),
+                HumanMessage(content=intent_analysis_prompt)
             ]
             
             response = self.llm_manager.generate_response_sync(messages, output_format="json")
@@ -302,11 +292,12 @@ class BusinessPlanningAgentManager:
                 "next_stage_recommendation": "info_gathering",
                 "user_sentiment": "neutral",
                 "urgency_level": "medium",
-                "suggested_questions": []
+                "suggested_questions": [],
+                "business_focus_areas": []
             }
             
         except Exception as e:
-            logger.error(f"의도 및 단계 분석 실패: {e}")
+            logger.error(f"LLM 의도 및 단계 분석 실패: {e}")
             return {
                 "intent_type": "general_inquiry",
                 "confidence": 0.5,
@@ -314,62 +305,84 @@ class BusinessPlanningAgentManager:
                 "next_stage_recommendation": "info_gathering",
                 "user_sentiment": "neutral",
                 "urgency_level": "medium",
-                "suggested_questions": []
+                "suggested_questions": [],
+                "business_focus_areas": []
             }
+    
+    def extract_business_information_with_llm(self, user_input: str, current_info: Dict[str, Any]) -> Dict[str, Any]:
+        """LLM을 활용한 비즈니스 정보 추출"""
+        return extract_business_info_with_llm(self.llm_manager, user_input, current_info, self.info_gathering_questions)
     
     def handle_information_gathering(self, user_input: str, state: ConversationState, intent_analysis: Dict[str, Any]) -> str:
         """정보 수집 단계 처리"""
         
-        # 사용자 입력에서 정보 추출
-        extracted_info = intent_analysis.get("extracted_info", {})
+        # LLM 기반 정보 추출
+        extracted_info = self.extract_business_information_with_llm(user_input, state.collected_info)
         
         # 수집된 정보 업데이트
         for field, value in extracted_info.items():
             if field in state.collected_info and value:
                 state.add_collected_info(field, value)
         
-        # 다음 질문 결정
-        missing_info = []
-        for field, question in self.info_gathering_questions.items():
-            if not state.collected_info.get(field):
-                missing_info.append((field, question))
-        
         # 정보 수집 완료 확인
-        if state.is_information_complete() or len(missing_info) <= 2:
+        completion_check = validate_conversation_completeness(state.collected_info, self.info_gathering_questions)
+        
+        if completion_check["is_complete"] or completion_check["completion_rate"] >= 0.7:
             # 분석 단계로 전환
             state.update_stage(ConversationStage.ANALYSIS)
             return self._generate_transition_to_analysis_response(state)
         
-        # 다음 정보 수집 질문
-        next_field, next_question = missing_info[0]
+        # 다음 정보 수집 질문 생성
+        missing_fields = completion_check["missing_fields"]
+        next_question = self._generate_next_question_with_llm(user_input, state, missing_fields)
         
-        collected_summary = []
-        for field, value in state.collected_info.items():
-            if value:
-                collected_summary.append(f"- {self.info_gathering_questions.get(field, field)}: {value}")
-        
-        response = f"""감사합니다! 지금까지 수집된 정보를 정리해보겠습니다:
+        return next_question
+    
+    def _generate_next_question_with_llm(self, user_input: str, state: ConversationState, missing_fields: List[str]) -> str:
+        """LLM 기반 다음 질문 생성"""
+        try:
+            collected_summary = format_business_summary(state.collected_info, self.info_gathering_questions)
+            
+            question_prompt = f"""사용자의 비즈니스 정보 수집을 위한 다음 질문을 생성해주세요.
 
-{chr(10).join(collected_summary) if collected_summary else "아직 수집된 정보가 없습니다."}
+현재 수집된 정보:
+{collected_summary}
 
-💡 **다음 질문**: {next_question}
+아직 필요한 정보 항목들:
+{chr(10).join([f"- {field}: {self.info_gathering_questions.get(field, field)}" for field in missing_fields[:3]])}
 
-더 정확한 맞춤 비즈니스 계획을 위해 위 정보를 알려주세요!"""
-        
-        return response
+사용자의 마지막 답변: "{user_input}"
+
+위 정보를 바탕으로:
+1. 수집된 정보에 대한 간단한 요약과 감사 인사
+2. 가장 중요한 다음 질문 1개를 자연스럽게 제시
+3. 왜 이 정보가 필요한지 간단한 설명 포함
+
+친근하고 전문적인 톤으로 답변해주세요."""
+
+            messages = [
+                {"role": "system", "content": "당신은 비즈니스 컨설턴트로서 자연스러운 대화 흐름으로 정보를 수집합니다."},
+                {"role": "user", "content": question_prompt}
+            ]
+            
+            response = self.llm_manager.generate_response_sync(messages)
+            return response if response else "다음 정보를 알려주세요."
+            
+        except Exception as e:
+            logger.error(f"다음 질문 생성 실패: {e}")
+            if missing_fields:
+                field = missing_fields[0]
+                return f"💡 **다음 질문**: {self.info_gathering_questions.get(field, field)}\n\n더 정확한 맞춤 비즈니스 계획을 위해 위 정보를 알려주세요!"
+            return "추가 정보를 알려주세요."
     
     def _generate_transition_to_analysis_response(self, state: ConversationState) -> str:
         """분석 단계로 전환 시 응답 생성"""
-        collected_info_summary = []
-        for field, value in state.collected_info.items():
-            if value:
-                field_name = self.info_gathering_questions.get(field, field)
-                collected_info_summary.append(f"- {field_name}: {value}")
+        summary = format_business_summary(state.collected_info, self.info_gathering_questions)
         
         return f"""🎯 **정보 수집 완료!** 
 
 수집된 정보:
-{chr(10).join(collected_info_summary)}
+{summary}
 
 이제 이 정보를 바탕으로 **심층 분석**을 진행하겠습니다. 
 잠시만 기다려주세요... 📊"""
@@ -392,37 +405,8 @@ class BusinessPlanningAgentManager:
             # 관련 지식 검색
             relevant_knowledge = self.get_relevant_knowledge(analysis_context, topics)
             
-            # 분석 프롬프트 생성
-            analysis_prompt = f"""다음 정보를 바탕으로 비즈니스 전문가 관점에서 심층 분석을 수행해주세요.
-
-수집된 비즈니스 정보:
-{json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
-
-관련 비즈니스 토픽: {', '.join(topics)}
-
-토픽별 분석 지침:
-{self._format_topic_prompts(topic_prompts)}
-
-전문 지식 참고:
-{chr(10).join(relevant_knowledge) if relevant_knowledge else "기본 비즈니스 지식 활용"}
-
-위 토픽별 지침에 따라 다음 분석을 수행해주세요:
-
-1. **비즈니스 아이디어 분석**: 아이디어의 강점과 개선점
-2. **시장 기회 분석**: 시장 상황과 기회 요소
-3. **경쟁력 분석**: 차별화 포인트와 경쟁 우위
-4. **리스크 분석**: 예상 위험 요소와 대응 방안
-5. **실현 가능성**: 현실적인 실행 가능성 평가
-6. **우선순위**: 가장 먼저 해야 할 3가지
-
-전문적이면서도 실행 가능한 분석을 제공해주세요."""
-
-            messages = [
-                {"role": "system", "content": "당신은 비즈니스 전략 전문가로서 주어진 토픽별 지침에 따라 데이터 기반의 실용적인 분석을 제공합니다."},
-                {"role": "user", "content": analysis_prompt}
-            ]
-            
-            analysis_result = self.llm_manager.generate_response_sync(messages)
+            # LLM 기반 분석 수행
+            analysis_result = self._perform_llm_analysis(state, topics, topic_prompts, relevant_knowledge)
             
             # 분석 결과 저장
             state.analysis_results = {
@@ -446,17 +430,43 @@ class BusinessPlanningAgentManager:
             logger.error(f"분석 단계 처리 실패: {e}")
             return "분석 중 오류가 발생했습니다. 다시 시도해주세요."
     
-    def _format_topic_prompts(self, topic_prompts: Dict[str, str]) -> str:
-        """토픽별 프롬프트를 분석용으로 포맷팅"""
-        if not topic_prompts:
-            return "기본 비즈니스 분석 수행"
-        
-        formatted = []
-        for topic, prompt_content in topic_prompts.items():
-            topic_name = self.business_topics.get(topic, topic)
-            formatted.append(f"[{topic_name}]\n{prompt_content}\n")
-        
-        return "\n".join(formatted)
+    def _perform_llm_analysis(self, state: ConversationState, topics: List[str], topic_prompts: Dict[str, str], relevant_knowledge: List[str]) -> str:
+        """LLM 기반 비즈니스 분석 수행"""
+        try:
+            analysis_prompt = f"""다음 정보를 바탕으로 비즈니스 전문가 관점에서 심층 분석을 수행해주세요.
+
+수집된 비즈니스 정보:
+{json.dumps(state.collected_info, ensure_ascii=False, indent=2)}
+
+관련 비즈니스 토픽: {', '.join(topics)}
+
+토픽별 분석 지침:
+{format_topic_prompts(topic_prompts, self.business_topics)}
+
+전문 지식 참고:
+{chr(10).join(relevant_knowledge) if relevant_knowledge else "기본 비즈니스 지식 활용"}
+
+위 토픽별 지침에 따라 다음 분석을 수행해주세요:
+
+1. **비즈니스 아이디어 분석**: 아이디어의 강점과 개선점
+2. **시장 기회 분석**: 시장 상황과 기회 요소
+3. **경쟁력 분석**: 차별화 포인트와 경쟁 우위
+4. **리스크 분석**: 예상 위험 요소와 대응 방안
+5. **실현 가능성**: 현실적인 실행 가능성 평가
+6. **우선순위**: 가장 먼저 해야 할 3가지
+
+전문적이면서도 실행 가능한 분석을 제공해주세요."""
+
+            messages = [
+                {"role": "system", "content": "당신은 비즈니스 전략 전문가로서 주어진 토픽별 지침에 따라 데이터 기반의 실용적인 분석을 제공합니다."},
+                {"role": "user", "content": analysis_prompt}
+            ]
+            
+            return self.llm_manager.generate_response_sync(messages)
+            
+        except Exception as e:
+            logger.error(f"LLM 분석 수행 실패: {e}")
+            return "분석 중 오류가 발생했습니다."
     
     def get_relevant_knowledge(self, query: str, topics: List[str] = None) -> List[str]:
         """관련 전문 지식 검색"""
@@ -482,22 +492,9 @@ class BusinessPlanningAgentManager:
     def handle_lean_canvas_request(self, user_input: str, state: ConversationState) -> str:
         """린캔버스 요청 처리"""
         try:
-            # 기본값: Common
-            template_title = "린 캔버스_common"
-
-            # 수집된 정보를 바탕으로 맞춤형 템플릿 선택
-            business_idea = state.collected_info.get("business_idea", "")
-            industry = state.collected_info.get("industry", "")
+            # LLM 기반 맞춤형 템플릿 선택
+            template_title = self._select_lean_canvas_template_with_llm(state.collected_info)
             
-            if "네일" in business_idea or "네일" in industry:
-                template_title = "린 캔버스_nail"
-            elif "속눈썹" in business_idea or "속눈썹" in industry:
-                template_title = "린 캔버스_eyelash"
-            elif "쇼핑몰" in business_idea or "이커머스" in industry:
-                template_title = "린 캔버스_ecommers"
-            elif "유튜버" in business_idea or "크리에이터" in business_idea:
-                template_title = "린 캔버스_creator"
-
             # 템플릿 조회
             template = get_template_by_title(template_title)
             
@@ -518,86 +515,208 @@ class BusinessPlanningAgentManager:
             logger.error(f"린캔버스 요청 처리 실패: {e}")
             return "린캔버스 템플릿 로드 중 오류가 발생했습니다."
     
+    def _select_lean_canvas_template_with_llm(self, business_info: Dict[str, Any]) -> str:
+        """LLM 기반 맞춤형 린캔버스 템플릿 선택"""
+        try:
+            template_selection_prompt = f"""다음 비즈니스 정보를 바탕으로 가장 적합한 린캔버스 템플릿을 선택해주세요.
+
+비즈니스 정보:
+{json.dumps(business_info, ensure_ascii=False, indent=2)}
+
+사용 가능한 템플릿:
+- 린 캔버스_common: 일반적인 비즈니스 모델
+- 린 캔버스_nail: 네일샵/네일아트 관련 비즈니스
+- 린 캔버스_eyelash: 속눈썹 연장/관련 비즈니스
+- 린 캔버스_ecommers: 쇼핑몰/이커머스 비즈니스
+- 린 캔버스_creator: 유튜버/크리에이터 비즈니스
+
+가장 적합한 템플릿 이름만 정확히 답변해주세요."""
+
+            messages = [
+                {"role": "system", "content": "당신은 비즈니스 모델 전문가로서 주어진 정보에 가장 적합한 린캔버스 템플릿을 선택합니다."},
+                {"role": "user", "content": template_selection_prompt}
+            ]
+            
+            response = self.llm_manager.generate_response_sync(messages)
+            
+            # 유효한 템플릿인지 확인
+            valid_templates = [
+                "린 캔버스_common", "린 캔버스_nail", "린 캔버스_eyelash", 
+                "린 캔버스_ecommers", "린 캔버스_creator"
+            ]
+            
+            for template in valid_templates:
+                if template in response:
+                    return template
+            
+            return "린 캔버스_common"  # 기본값
+            
+        except Exception as e:
+            logger.error(f"LLM 기반 템플릿 선택 실패: {e}")
+            return "린 캔버스_common"
+    
+    def handle_single_turn_request(self, user_input: str, user_id: int) -> str:
+        """싱글톤 요청 처리"""
+        try:
+            return generate_single_turn_response(
+                llm_manager=self.llm_manager,
+                user_input=user_input,
+                business_topics=self.business_topics,
+                classify_func=self.classify_business_topic_with_llm,
+                load_prompt_func=self.load_topic_prompt,
+                get_knowledge_func=self.get_relevant_knowledge
+            )
+        except Exception as e:
+            logger.error(f"싱글톤 요청 처리 실패: {e}")
+            return "요청 처리 중 오류가 발생했습니다. 다시 시도해주세요."
+    
+    def determine_conversation_mode(self, user_input: str, conversation_id: Optional[int]) -> str:
+        """대화 모드 결정 (싱글톤 vs 멀티턴)"""
+        try:
+            # conversation_id가 None이면 싱글톤
+            if conversation_id is None:
+                return "single_turn"
+            
+            # 기존 대화 상태가 있으면 멀티턴
+            if conversation_id in self.conversation_states:
+                return "multi_turn"
+            
+            # LLM 기반 모드 판단
+            mode_analysis_prompt = f"""다음 사용자 질문을 분석하여 적절한 상담 방식을 결정해주세요.
+
+사용자 질문: "{user_input}"
+
+다음 중 하나로 답변해주세요:
+- single_turn: 간단한 질문이나 즉석 답변이 가능한 경우
+- multi_turn: 체계적인 상담이나 정보 수집이 필요한 경우
+
+판단 기준:
+- 복잡한 비즈니스 계획 상담 → multi_turn
+- 간단한 정보 문의나 일반적인 질문 → single_turn
+- 린캔버스 요청 → single_turn (즉시 제공 가능)
+- 개인 맞춤 분석 요청 → multi_turn
+
+답변:"""
+
+            messages = [
+                {"role": "system", "content": "당신은 사용자 질문의 복잡도를 판단하여 적절한 상담 방식을 결정하는 전문가입니다."},
+                {"role": "user", "content": mode_analysis_prompt}
+            ]
+            
+            response = self.llm_manager.generate_response_sync(convert_messages_to_dict(messages))
+            
+            if "single_turn" in response.lower():
+                return "single_turn"
+            elif "multi_turn" in response.lower():
+                return "multi_turn"
+            else:
+                # 기본값: 복잡한 질문으로 간주
+                return "multi_turn"
+                
+        except Exception as e:
+            logger.error(f"대화 모드 결정 실패: {e}")
+            return "multi_turn"  # 기본값
+    
     def process_user_query(
         self, 
         user_input: str, 
         user_id: int, 
         conversation_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """사용자 쿼리 처리 - 멀티턴 대화 플로우"""
+        """사용자 쿼리 처리 - 멀티턴/싱글톤 지원"""
         
         try:
-            logger.info(f"멀티턴 비즈니스 기획 쿼리 처리 시작: {user_input[:50]}...")
+            logger.info(f"비즈니스 기획 쿼리 처리 시작: {user_input[:50]}...")
             
-            # 대화 세션 처리
-            session_info = get_or_create_conversation_session(user_id, conversation_id)
-            conversation_id = session_info["conversation_id"]
+            # 대화 모드 결정
+            conversation_mode = self.determine_conversation_mode(user_input, conversation_id)
             
-            # 대화 상태 조회/생성
-            state = self.get_or_create_conversation_state(conversation_id, user_id)
-            
-            # 사용자 메시지 저장
-            with get_session_context() as db:
-                create_message(db, conversation_id, "user", "business_planning", user_input)
-            
-            # 린캔버스 요청 체크
-            if "린캔버스" in user_input:
-                response_content = self.handle_lean_canvas_request(user_input, state)
-            else:
-                # 의도 및 단계 분석
-                intent_analysis = self.analyze_user_intent_and_stage(user_input, state)
+            if conversation_mode == "single_turn":
+                # 싱글톤 처리
+                response_content = self.handle_single_turn_request(user_input, user_id)
                 
-                # 현재 단계에 따른 처리
-                if state.stage == ConversationStage.INITIAL:
-                    # 초기 접촉 시 정보 수집 단계로 전환
-                    state.update_stage(ConversationStage.INFORMATION_GATHERING)
-                    response_content = f"""안녕하세요! 1인 창업 전문 비즈니스 컨설턴트입니다. 🚀
+                return create_business_response(
+                    conversation_id=None,
+                    answer=response_content,
+                    topics=self.classify_business_topic_with_llm(user_input),
+                    sources="싱글톤 응답 시스템"
+                )
+            
+            else:
+                # 멀티턴 처리
+                return self._handle_multi_turn_conversation(user_input, user_id, conversation_id)
+            
+        except Exception as e:
+            logger.error(f"비즈니스 기획 쿼리 처리 실패: {e}")
+            return create_error_response(
+                error_message=f"비즈니스 기획 상담 처리 중 오류가 발생했습니다: {str(e)}",
+                error_code="BUSINESS_PLANNING_ERROR"
+            )
+    
+    def _handle_multi_turn_conversation(self, user_input: str, user_id: int, conversation_id: Optional[int]) -> Dict[str, Any]:
+        """멀티턴 대화 처리"""
+        # 대화 세션 처리
+        session_info = get_or_create_conversation_session(user_id, conversation_id)
+        conversation_id = session_info["conversation_id"]
+        
+        # 대화 상태 조회/생성
+        state = self.get_or_create_conversation_state(conversation_id, user_id)
+        
+        # 사용자 메시지 저장
+        with get_session_context() as db:
+            create_message(db, conversation_id, "user", "business_planning", user_input)
+        
+        # 린캔버스 요청 체크
+        if "린캔버스" in user_input:
+            response_content = self.handle_lean_canvas_request(user_input, state)
+        else:
+            # 의도 및 단계 분석
+            intent_analysis = self.analyze_user_intent_and_stage_with_llm(user_input, state)
+            
+            # 현재 단계에 따른 처리
+            if state.stage == ConversationStage.INITIAL:
+                # 초기 접촉 시 정보 수집 단계로 전환
+                state.update_stage(ConversationStage.INFORMATION_GATHERING)
+                response_content = f"""안녕하세요! 1인 창업 전문 비즈니스 컨설턴트입니다. 🚀
 
 맞춤형 비즈니스 계획을 수립하기 위해 몇 가지 질문을 드리겠습니다.
 
 **첫 번째 질문**: {list(self.info_gathering_questions.values())[0]}
 
 체계적인 비즈니스 계획 수립을 위해 차근차근 진행해보겠습니다!"""
-                    
-                elif state.stage == ConversationStage.INFORMATION_GATHERING:
-                    response_content = self.handle_information_gathering(user_input, state, intent_analysis)
-                    
-                elif state.stage == ConversationStage.ANALYSIS:
-                    response_content = self.handle_analysis_stage(user_input, state)
-                    
-                # 추가 단계들은 필요시 구현
-                else:
-                    response_content = "죄송합니다. 아직 구현되지 않은 단계입니다."
-            
-            # 응답 메시지 저장
-            insert_message_raw(
-                conversation_id=conversation_id,
-                sender_type="agent",
-                agent_type="business_planning",
-                content=response_content
-            )
-            
-            # 표준 응답 형식으로 반환
-            return create_business_response(
-                conversation_id=conversation_id,
-                answer=response_content,
-                topics=getattr(state.analysis_results, 'primary_topics', []),
-                sources=f"멀티턴 대화 시스템 (단계: {state.stage.value})"
-            )
-            
-        except Exception as e:
-            logger.error(f"멀티턴 비즈니스 기획 쿼리 처리 실패: {e}")
-            return create_error_response(
-                error_message=f"비즈니스 기획 상담 처리 중 오류가 발생했습니다: {str(e)}",
-                error_code="MULTITURN_BUSINESS_ERROR"
-            )
+                
+            elif state.stage == ConversationStage.INFORMATION_GATHERING:
+                response_content = self.handle_information_gathering(user_input, state, intent_analysis)
+                
+            elif state.stage == ConversationStage.ANALYSIS:
+                response_content = self.handle_analysis_stage(user_input, state)
+                
+            # 추가 단계들은 필요시 구현
+            else:
+                response_content = "죄송합니다. 아직 구현되지 않은 단계입니다."
+        
+        # 응답 메시지 저장
+        insert_message_raw(
+            conversation_id=conversation_id,
+            sender_type="agent",
+            agent_type="business_planning",
+            content=response_content
+        )
+        
+        # 표준 응답 형식으로 반환
+        return create_business_response(
+            conversation_id=conversation_id,
+            answer=response_content,
+            topics=getattr(state.analysis_results, 'primary_topics', []),
+            sources=f"멀티턴 대화 시스템 (단계: {state.stage.value})"
+        )
     
     def get_agent_status(self) -> Dict[str, Any]:
         """비즈니스 기획 에이전트 상태 반환"""
         return {
             "agent_type": "business_planning",
-            "version": "3.0.0",
-            "conversation_system": "multiturn",
+            "version": "4.0.0",
+            "conversation_system": "multi_turn_and_single_turn",
             "stages": [stage.value for stage in ConversationStage],
             "active_conversations": len(self.conversation_states),
             "conversation_stages": {

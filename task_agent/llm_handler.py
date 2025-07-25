@@ -264,6 +264,3 @@ class TaskAgentLLMHandler:
         """LLM 연결 테스트"""
         return self.llm_manager.test_connection()
 
-
-# 기존 코드와의 호환성을 위한 클래스 별칭
-LLMHandler = TaskAgentLLMHandler

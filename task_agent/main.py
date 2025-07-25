@@ -11,18 +11,14 @@ os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 os.environ['CHROMA_TELEMETRY'] = 'False' 
 os.environ['DO_NOT_TRACK'] = '1'
 
-import uuid
-# Add these imports if not already present
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import logging
-from fastapi import FastAPI, HTTPException, Depends, Query, Path
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import logging
 from models import (UserQuery, AutomationRequest, EmailRequest, 
-                    InstagramPostRequest, EventCreate, EventUpdate, EventResponse, 
+                    InstagramPostRequest, EventCreate, EventResponse, 
                     CalendarListResponse, QuickEventCreate)
 from utils import TaskAgentLogger, TaskAgentResponseFormatter
 from agent import TaskAgent

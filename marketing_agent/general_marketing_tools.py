@@ -139,14 +139,7 @@ class MarketingTools:
         
         return await self.mcp_marketing_tools.generate_instagram_content()
     
-    async def generate_related_keywords(self, base_keyword: str, count: int = 10) -> List[str]:
-        """관련 키워드 생성 (MCP 연동)"""
-        if not self.mcp_marketing_tools:
-            return [base_keyword]
-        
-        return await self.mcp_marketing_tools.generate_related_keywords(base_keyword, count)
-    
-    async def create_strategy_content(self, target_keyword: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_strategy_content(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """전략 콘텐츠 생성 워크플로우"""
         try:            
             result = await self.generate_marketing_strategy(context)
@@ -154,7 +147,6 @@ class MarketingTools:
             if result.get("success"):
                 result["tool_type"] = "content_generation"
                 result["content_type"] = "strategy"
-                result["base_keyword"] = target_keyword
             
             return result
             
@@ -167,7 +159,7 @@ class MarketingTools:
                 "content_type": "strategy"
             }
     
-    async def create_campaign_content(self, target_keyword: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_campaign_content(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """캠페인 콘텐츠 생성 워크플로우"""
         try:
             result = await self.create_campaign_plan(context)
@@ -175,7 +167,6 @@ class MarketingTools:
             if result.get("success"):
                 result["tool_type"] = "content_generation"
                 result["content_type"] = "campaign"
-                result["base_keyword"] = target_keyword
             
             return result
             
@@ -341,14 +332,12 @@ class MarketingTools:
                 "type": "campaign_plan"
             }
     
-    async def create_instagram_post(self, keyword: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def create_instagram_post(self, keyword: List[str], context: Dict[str, Any] = None) -> Dict[str, Any]:
         """인스타그램 포스트 생성 (기본 버전)"""
         try:
             business_type = context.get("business_type", "일반") if context else "일반"
             target_audience = context.get("target_audience", "20-30대") if context else "20-30대"
             product = context.get("product", "미정") if context else "미정"
-            # 관련 키워드 생성
-            related_keywords = await self.generate_related_keywords(keyword, 5)
             
             prompt = f"""{keyword}에 대한 인스타그램 포스트를 작성해주세요.
 
@@ -356,7 +345,7 @@ class MarketingTools:
             - 업종: {business_type}
             - 타겟: {target_audience}
             - 제품: {product}
-            - 관련 키워드: {', '.join(related_keywords)}
+            - 관련 키워드: {', '.join(keyword)}
             - 매력적인 캡션 (이모지 포함)
             - 관련 해시태그 20개
             - 참여를 유도하는 CTA (Call-to-Action)
@@ -400,15 +389,12 @@ class MarketingTools:
                 "type": "instagram_post"
             }
     
-    async def create_blog_post(self, keyword: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def create_blog_post(self, keyword: List[str], context: Dict[str, Any] = None) -> Dict[str, Any]:
         """블로그 포스트 생성 (기본 버전)"""
         try:
             business_type = context.get("business_type", "일반") if context else "일반"
             target_audience = context.get("target_audience", "일반 고객") if context else "일반 고객"
             product = context.get("product", "미정") if context else "미정"
-            
-            # 관련 키워드 생성
-            related_keywords = await self.generate_related_keywords(keyword, 8)
             
             # 블로그 템플릿 사용
             blog_template = self.templates.get("blog_marketing.md", "")
@@ -420,7 +406,7 @@ class MarketingTools:
 - 업종: {business_type}
 - 타겟 독자: {target_audience}
 - 제품: {product}
-- 관련 키워드: {', '.join(related_keywords)}
+- 관련 키워드: {', '.join(keyword)}
 - 1500-2000자 분량
 - SEO 최적화된 제목
 - 목차와 소제목
@@ -472,13 +458,10 @@ SEO 키워드: [관련 키워드 5개]
     async def analyze_keywords(self, keyword: str) -> Dict[str, Any]:
         """키워드 분석 및 관련 키워드 추천"""
         try:
-            # 관련 키워드 생성
-            related_keywords = await self.generate_related_keywords(keyword, 15)
-            
             prompt = f"""
 '{keyword}'에 대한 마케팅 키워드 분석을 해주세요.
 
-**관련 키워드**: {', '.join(related_keywords)}
+**관련 키워드**: {', '.join(keyword)}
 
 **분석 항목:**
 1. 주요 키워드 특성 분석

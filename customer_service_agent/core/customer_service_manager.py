@@ -470,16 +470,16 @@ class CustomerServiceAgentManager:
             # 2. 기존 대화 히스토리 조회
             with get_session_context() as db:
                 recent_messages = get_recent_messages(db, conversation_id, limit=2)
-            
-            if not recent_messages or len(recent_messages) < 2:
-                logger.info("히스토리 부족 - 싱글턴 모드")
-                return True  # 히스토리가 없으면 싱글턴
-            
-            # 3. 마지막 메시지 확인
-            last_message = recent_messages[-1] if recent_messages else ""
+                
+                if not recent_messages or len(recent_messages) < 2:
+                    logger.info("히스토리 부족 - 싱글턴 모드")
+                    return True  # 히스토리가 없으면 싱글턴
+                
+                # 3. 마지막 메시지 확인
+                last_message = recent_messages[-1].content if recent_messages else ""
             
             # 4. 후속 질문인지 LLM으로 판단
-            is_followup = self.is_follow_up(user_input, last_message.get('content'))
+            is_followup = self.is_follow_up(user_input, last_message)
             
             if is_followup:
                 logger.info("후속 질문 감지 - 멀티턴 모드 유지")
