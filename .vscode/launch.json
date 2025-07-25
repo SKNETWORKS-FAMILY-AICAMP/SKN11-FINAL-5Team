@@ -1,0 +1,99 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "🧠 Unified Agent System",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "main",
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+      {
+        "name": "💼 Business Planning Agent (8001)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "business_planning:app",
+          "--host", "0.0.0.0",
+          "--port", "8001"
+        ],
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/buisness_planning_agent",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+      {
+        "name": "🤝 Customer Service Agent (8002)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "main:app",
+          "--host", "0.0.0.0",
+          "--port", "8002"
+        ],
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/customer_service_agent",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+      {
+        "name": "📢 Marketing Agent (8003)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "rag:app",
+          "--host", "0.0.0.0",
+          "--port", "8003"
+        ],
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/marketing_agent",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+      {
+        "name": "🧠 Mental Agent (8004)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "main:app",
+          "--host", "0.0.0.0",
+          "--port", "8004"
+        ],
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/mental_agent",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+      {
+        "name": "⚡ Task Automation Agent (8005)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "main:app",
+          "--host", "0.0.0.0",
+          "--port", "8005"
+        ],
+        "cwd": "${workspaceFolder}/SKN11-FINAL-5Team/task_agent",
+        "envFile": "${workspaceFolder}/SKN11-FINAL-5Team/unified_agent_system/.env",
+        "justMyCode": false
+      },
+    ],
+    "compounds": [
+        {
+          "name": "🚀 모든 에이전트 디버깅",
+          "configurations": [
+            "🧠 Unified Agent System",
+            "💼 Business Planning Agent (8001)",
+            "🤝 Customer Service Agent (8002)",
+            "📢 Marketing Agent (8003)",
+            "🧠 Mental Agent (8004)",
+            "⚡ Task Automation Agent (8005)"
+          ],
+          "stopAll": true
+        }
+    ]
+  }
+  

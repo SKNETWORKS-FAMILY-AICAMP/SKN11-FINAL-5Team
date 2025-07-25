@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+ <html lang="ko">
+ <head>
+   <meta charset="UTF-8" />
+   <title>Lean Canvas | 3-3-2 구조</title>
+   <style>
+     body {
+       font-family: sans-serif;
+       margin: 40px;
+       background: #046BBF;
+       min-height: 100vh;
+     }
+     .canvas-container {
+       max-width: 1200px;
+       margin: 0 auto;
+       background: #046BBF;
+       border-radius: 20px;
+       padding: 30px;
+     }
+     .canvas-title {
+       text-align: center;
+       padding: 20px;
+       color: white;
+       font-size: 28px;
+       font-weight: bold;
+       margin-bottom: 30px;
+     }
+     .canvas-grid {
+       display: grid;
+       grid-template-rows: 1fr 1fr 1fr;
+       gap: 20px;
+       min-height: 600px;
+       margin-bottom: 30px;
+     }
+     .row-1, .row-2 {
+       display: grid;
+       grid-template-columns: 1fr 1fr 1fr;
+       gap: 20px;
+     }
+     .row-3 {
+       display: grid;
+       grid-template-columns: 1fr 1fr;
+       gap: 20px;
+     }
+     .box {
+       background: #F2CB05;
+       padding: 25px;
+       border-radius: 20px;
+       display: flex;
+       flex-direction: column;
+       box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+     }
+     .box-header {
+       display: flex;
+       align-items: center;
+       margin-bottom: 15px;
+     }
+     .box-number {
+       background: #333;
+       color: white;
+       width: 35px;
+       height: 35px;
+       border-radius: 50%;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       font-weight: bold;
+       margin-right: 15px;
+       font-size: 16px;
+     }
+     .box-title {
+       font-size: 18px;
+       font-weight: bold;
+       color: #333;
+       margin: 0;
+     }
+     .box-subtitle {
+       font-size: 13px;
+       color: #555;
+       margin-top: 3px;
+       line-height: 1.3;
+     }
+     .textarea-wrapper {
+       position: relative;
+     }
+     textarea, .preview-textarea {
+       border: 2px solid #333;
+       border-radius: 12px;
+       padding: 15px;
+       font-size: 14px;
+       line-height: 1.5;
+       min-height: 120px;
+       font-family: inherit;
+       background: rgba(255,255,255,0.9);
+       color: #333;
+       white-space: pre-wrap;
+       width: 90%;
+     }
+     textarea {
+       resize: vertical;
+     }
+     .preview-textarea {
+       display: none;
+     }
+     textarea:focus {
+       outline: none;
+       border-color: #046BBF;
+       box-shadow: 0 0 0 3px rgba(4, 107, 191, 0.2);
+       background: white;
+     }
+     .download-section {
+       display: flex;
+       justify-content: center;
+       margin-top: 20px;
+     }
+     .download-button {
+       padding: 18px 40px;
+       background: #F22233;
+       color: white;
+       border: none;
+       border-radius: 20px;
+       font-size: 18px;
+       font-weight: bold;
+       cursor: pointer;
+       transition: all 0.3s;
+       box-shadow: 0 6px 20px rgba(242, 34, 51, 0.3);
+     }
+     .download-button:hover {
+       background: #d01e2b;
+       transform: translateY(-3px);
+       box-shadow: 0 8px 25px rgba(242, 34, 51, 0.4);
+     }
+   </style>
+ </head>
+ <body>
+
+  <div class="canvas-container" id="capture-area">
+    <h1 class="canvas-title">Lean Canvas - 1인 온라인 쇼핑몰 사업 모델</h1>
+
+    <form id="leanCanvasForm">
+      <div class="canvas-grid">
+
+        <!-- 첫 번째 행: 3개 박스 -->
+        <div class="row-1">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">1</div>
+              <div>
+                <div class="box-title">문제 Problem</div>
+                <div class="box-subtitle">가장 중요한 문제 3가지 대안</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="problem" placeholder="고객이 직면한 주요 문제점들을 작성하세요">• 대형 쇼핑몰에서는 나만의 스타일에 맞는 상품을 찾기 어려움
+• 모든 사람이 비슷한 옷과 소품만 가지고 있어서 개성 표현이 힘듦
+• 예쁘고 특별한 소규모 브랜드 상품들이 묻혀서 찾기 어려움</textarea>
+              <div class="preview-textarea">• 대형 쇼핑몰에서는 나만의 스타일에 맞는 상품을 찾기 어려움
+• 모든 사람이 비슷한 옷과 소품만 가지고 있어서 개성 표현이 힘듦
+• 예쁘고 특별한 소규모 브랜드 상품들이 묻혀서 찾기 어려움</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">2</div>
+              <div>
+                <div class="box-title">아이디어 Solution</div>
+                <div class="box-subtitle">문제 해결을 위한 3가지 대안</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="solution" placeholder="문제를 해결할 수 있는 솔루션을 작성하세요">• 네이버 스마트스토어나 카페24로 만든 온라인 쇼핑몰
+• 인스타그램 DM으로 고객 상담 및 맞춤 추천
+• 소량씩 다양한 상품을 입고해서 특별함 유지</textarea>
+              <div class="preview-textarea">• 네이버 스마트스토어나 카페24로 만든 온라인 쇼핑몰
+• 인스타그램 DM으로 고객 상담 및 맞춤 추천
+• 소량씩 다양한 상품을 입고해서 특별함 유지</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">3</div>
+              <div>
+                <div class="box-title">가치 Unique Value Proposition</div>
+                <div class="box-subtitle">차별성을 설명하는 설득력 있는 한 문장의 메시지</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="unique_value_proposition" placeholder="고객이 선택해야 하는 이유를 명확히 작성하세요">"남들이 모르는 예쁜 아이템만 모아놓은 특별한 쇼핑몰"
+
+• 흔하지 않은 예쁜 상품들만 골라서 판매
+• 고객 취향에 맞는 상품을 직접 추천
+• 상품마다 특별한 이야기와 브랜드 소개 제공</textarea>
+              <div class="preview-textarea">"남들이 모르는 예쁜 아이템만 모아놓은 특별한 쇼핑몰"
+
+• 흔하지 않은 예쁜 상품들만 골라서 판매
+• 고객 취향에 맞는 상품을 직접 추천
+• 상품마다 특별한 이야기와 브랜드 소개 제공</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 두 번째 행: 3개 박스 -->
+        <div class="row-2">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">4</div>
+              <div>
+                <div class="box-title">핵심활동 Key Metrics</div>
+                <div class="box-subtitle">검증이 필요한 항목 도출</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="key_metrics" placeholder="성공을 측정할 수 있는 핵심 지표들을 작성하세요">• 한 달 방문자 수
+• 구매 전환율 (100명 방문 시 몇 명이 구매하는지)
+• 재구매 고객 비율
+• 한 번 주문할 때 평균 구매 금액
+• 인스타그램 팔로워 수</textarea>
+              <div class="preview-textarea">• 한 달 방문자 수
+• 구매 전환율 (100명 방문 시 몇 명이 구매하는지)
+• 재구매 고객 비율
+• 한 번 주문할 때 평균 구매 금액
+• 인스타그램 팔로워 수</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">5</div>
+              <div>
+                <div class="box-title">관계 Unfair Advantage</div>
+                <div class="box-subtitle">쉽게 복제할 수 없는 강점</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="unfair_advantage" placeholder="경쟁사가 쉽게 따라할 수 없는 고유한 강점을 작성하세요">• 직접 발품을 팔아 찾아낸 특별한 상품들
+• 고객 한 명 한 명과의 개인적인 소통과 관계
+• 빠른 트렌드 파악과 상품 선별 능력</textarea>
+              <div class="preview-textarea">• 직접 발품을 팔아 찾아낸 특별한 상품들
+• 고객 한 명 한 명과의 개인적인 소통과 관계
+• 빠른 트렌드 파악과 상품 선별 능력</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">6</div>
+              <div>
+                <div class="box-title">고객 Customer Segments</div>
+                <div class="box-subtitle">타겟 고객</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="customer_segments" placeholder="주요 타겟 고객층을 구체적으로 작성하세요">• 20-30대 여성 직장인과 대학생
+• 남들과 다른 스타일을 좋아하는 사람들
+• 인스타그램을 자주 사용하고 온라인 쇼핑을 즐기는 사람들</textarea>
+              <div class="preview-textarea">• 20-30대 여성 직장인과 대학생
+• 남들과 다른 스타일을 좋아하는 사람들
+• 인스타그램을 자주 사용하고 온라인 쇼핑을 즐기는 사람들</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 세 번째 행: 2개 박스 -->
+        <div class="row-3">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">7</div>
+              <div>
+                <div class="box-title">비용 구조 Cost Structure</div>
+                <div class="box-subtitle">고객 획득 비용, 유통 비용, 서버 유지 비용, 인건비 등</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="cost_structure" placeholder="주요 비용 항목들을 구체적으로 작성하세요">• 상품 구매비용 (매출의 50-60%)
+• 택배비 (매출의 5-10%)
+• 쇼핑몰 운영비 (월 5-10만원)
+• 인스타그램 광고비 (월 10-30만원)
+• 개인 생활비 및 기타</textarea>
+              <div class="preview-textarea">• 상품 구매비용 (매출의 50-60%)
+• 택배비 (매출의 5-10%)
+• 쇼핑몰 운영비 (월 5-10만원)
+• 인스타그램 광고비 (월 10-30만원)
+• 개인 생활비 및 기타</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">9</div>
+              <div>
+                <div class="box-title">수익원 Revenue Streams</div>
+                <div class="box-subtitle">수익 창출 모델, 고객 생애 가치, 운영 수익</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="revenue_streams" placeholder="수익을 창출할 수 있는 방법들을 작성하세요">• 상품 판매 수익 (구매가격과 판매가격의 차이)
+• 배송비 수익 (실제 택배비보다 조금 더 받기)</textarea>
+              <div class="preview-textarea">• 상품 판매 수익 (구매가격과 판매가격의 차이)
+• 배송비 수익 (실제 택배비보다 조금 더 받기)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</body>
+ </html>
+
+

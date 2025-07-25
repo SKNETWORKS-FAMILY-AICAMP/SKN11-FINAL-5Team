@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+ <html lang="ko">
+ <head>
+   <meta charset="UTF-8" />
+   <title>Lean Canvas | 3-3-2 구조</title>
+   <style>
+     body {
+       font-family: sans-serif;
+       margin: 40px;
+       background: #046BBF;
+       min-height: 100vh;
+     }
+     .canvas-container {
+       max-width: 1200px;
+       margin: 0 auto;
+       background: #046BBF;
+       border-radius: 20px;
+       padding: 30px;
+     }
+     .canvas-title {
+       text-align: center;
+       padding: 20px;
+       color: white;
+       font-size: 28px;
+       font-weight: bold;
+       margin-bottom: 30px;
+     }
+     .canvas-grid {
+       display: grid;
+       grid-template-rows: 1fr 1fr 1fr;
+       gap: 20px;
+       min-height: 600px;
+       margin-bottom: 30px;
+     }
+     .row-1, .row-2 {
+       display: grid;
+       grid-template-columns: 1fr 1fr 1fr;
+       gap: 20px;
+     }
+     .row-3 {
+       display: grid;
+       grid-template-columns: 1fr 1fr;
+       gap: 20px;
+     }
+     .box {
+       background: #F2CB05;
+       padding: 25px;
+       border-radius: 20px;
+       display: flex;
+       flex-direction: column;
+       box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+     }
+     .box-header {
+       display: flex;
+       align-items: center;
+       margin-bottom: 15px;
+     }
+     .box-number {
+       background: #333;
+       color: white;
+       width: 35px;
+       height: 35px;
+       border-radius: 50%;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       font-weight: bold;
+       margin-right: 15px;
+       font-size: 16px;
+     }
+     .box-title {
+       font-size: 18px;
+       font-weight: bold;
+       color: #333;
+       margin: 0;
+     }
+     .box-subtitle {
+       font-size: 13px;
+       color: #555;
+       margin-top: 3px;
+       line-height: 1.3;
+     }
+     .textarea-wrapper {
+       position: relative;
+     }
+     textarea, .preview-textarea {
+       border: 2px solid #333;
+       border-radius: 12px;
+       padding: 15px;
+       font-size: 14px;
+       line-height: 1.5;
+       min-height: 120px;
+       font-family: inherit;
+       background: rgba(255,255,255,0.9);
+       color: #333;
+       white-space: pre-wrap;
+       width: 90%;
+     }
+     textarea {
+       resize: vertical;
+     }
+     .preview-textarea {
+       display: none;
+     }
+     textarea:focus {
+       outline: none;
+       border-color: #046BBF;
+       box-shadow: 0 0 0 3px rgba(4, 107, 191, 0.2);
+       background: white;
+     }
+   </style>
+ </head>
+ <body>
+
+  <div class="canvas-container">
+    <h1 class="canvas-title">Lean Canvas - 1인 네일샵 사업 모델</h1>
+
+    <form id="leanCanvasForm">
+      <div class="canvas-grid">
+
+        <!-- 첫 번째 행: 3개 박스 -->
+        <div class="row-1">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">1</div>
+              <div>
+                <div class="box-title">문제 Problem</div>
+                <div class="box-subtitle">가장 중요한 문제 3가지 대안</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="problem" placeholder="고객이 직면한 주요 문제점들을 작성하세요">• 대형 네일샵은 예약이 어렵고 대기시간이 길어짐
+• 획일적인 서비스로 개인 맞춤형 디자인 제한  
+• 높은 가격 대비 아쉬운 서비스 퀄리티</textarea>
+              <div class="preview-textarea">• 대형 네일샵은 예약이 어렵고 대기시간이 길어짐
+• 획일적인 서비스로 개인 맞춤형 디자인 제한  
+• 높은 가격 대비 아쉬운 서비스 퀄리티</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">2</div>
+              <div>
+                <div class="box-title">아이디어 Solution</div>
+                <div class="box-subtitle">문제 해결을 위한 3가지 대안</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="solution" placeholder="문제를 해결할 수 있는 솔루션을 작성하세요">• 소규모 프라이빗 네일 스튜디오 운영
+• 개인 맞춤형 네일 디자인 서비스  
+• 예약제 운영으로 충분한 시간 확보</textarea>
+              <div class="preview-textarea">• 소규모 프라이빗 네일 스튜디오 운영
+• 개인 맞춤형 네일 디자인 서비스  
+• 예약제 운영으로 충분한 시간 확보</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">3</div>
+              <div>
+                <div class="box-title">가치 Unique Value Proposition</div>
+                <div class="box-subtitle">차별성을 설명하는 설득력 있는 한 문장의 메시지</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="unique_value_proposition" placeholder="고객이 선택해야 하는 이유를 명확히 작성하세요">"오직 당신만을 위한 프라이빗 네일 아틀리에"
+
+• 1:1 맞춤형 상담과 디자인 서비스
+• 편안하고 아늑한 프라이빗 공간  
+• 개성 있고 트렌디한 오리지널 디자인</textarea>
+              <div class="preview-textarea">"오직 당신만을 위한 프라이빗 네일 아틀리에"
+
+• 1:1 맞춤형 상담과 디자인 서비스
+• 편안하고 아늑한 프라이빗 공간  
+• 개성 있고 트렌디한 오리지널 디자인</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 두 번째 행: 3개 박스 -->
+        <div class="row-2">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">4</div>
+              <div>
+                <div class="box-title">핵심활동 Key Metrics</div>
+                <div class="box-subtitle">검증이 필요한 항목 도출</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="key_metrics" placeholder="성공을 측정할 수 있는 핵심 지표들을 작성하세요">• 월간 고객 수
+• 재방문율 (고객 유지율)
+• 평균 서비스 단가
+• 예약 취소율
+• 고객 만족도 점수</textarea>
+              <div class="preview-textarea">• 월간 고객 수
+• 재방문율 (고객 유지율)
+• 평균 서비스 단가
+• 예약 취소율
+• 고객 만족도 점수</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">5</div>
+              <div>
+                <div class="box-title">관계 Unfair Advantage</div>
+                <div class="box-subtitle">쉽게 복제할 수 없는 강점</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="unfair_advantage" placeholder="경쟁사가 쉽게 따라할 수 없는 고유한 강점을 작성하세요">• 뛰어난 네일아트 기술과 감각
+• 개인화된 고객 서비스 제공 능력
+• 아늑하고 편안한 공간 운영
+• 지속적인 트렌드 연구와 기술 개발</textarea>
+              <div class="preview-textarea">• 뛰어난 네일아트 기술과 감각
+• 개인화된 고객 서비스 제공 능력
+• 아늑하고 편안한 공간 운영
+• 지속적인 트렌드 연구와 기술 개발</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">6</div>
+              <div>
+                <div class="box-title">고객 Customer Segments</div>
+                <div class="box-subtitle">타겟 고객</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="customer_segments" placeholder="주요 타겟 고객층을 구체적으로 작성하세요">• 20-40대 네일아트를 즐기는 여성
+• 개성 있는 디자인을 원하는 고객
+• 편안하고 프라이빗한 공간을 선호하는 고객
+• 정기적인 네일 관리가 필요한 직장인</textarea>
+              <div class="preview-textarea">• 20-40대 네일아트를 즐기는 여성
+• 개성 있는 디자인을 원하는 고객
+• 편안하고 프라이빗한 공간을 선호하는 고객
+• 정기적인 네일 관리가 필요한 직장인</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 세 번째 행: 2개 박스 -->
+        <div class="row-3">
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">7</div>
+              <div>
+                <div class="box-title">비용 구조 Cost Structure</div>
+                <div class="box-subtitle">고객 획득 비용, 유통 비용, 서버 유지 비용, 인건비 등</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="cost_structure" placeholder="주요 비용 항목들을 구체적으로 작성하세요">• 임대료 및 공과금 (25%)
+• 네일 용품 및 재료비 (30%)  
+• 장비 구입 및 유지비 (15%)
+• 마케팅비 (15%)
+• 개인 생활비 및 기타 (15%)</textarea>
+              <div class="preview-textarea">• 임대료 및 공과금 (25%)
+• 네일 용품 및 재료비 (30%)  
+• 장비 구입 및 유지비 (15%)
+• 마케팅비 (15%)
+• 개인 생활비 및 기타 (15%)</div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <div class="box-number">9</div>
+              <div>
+                <div class="box-title">수익원 Revenue Streams</div>
+                <div class="box-subtitle">수익 창출 모델, 고객 생애 가치, 운영 수익</div>
+              </div>
+            </div>
+            <div class="textarea-wrapper">
+              <textarea name="revenue_streams" placeholder="수익을 창출할 수 있는 방법들을 작성하세요">• 네일아트 서비스 요금 (기본/프리미엄)
+• 젤 네일 및 연장 서비스
+• 네일 케어 패키지 상품  
+• 홈케어 제품 판매</textarea>
+              <div class="preview-textarea">• 네일아트 서비스 요금 (기본/프리미엄)
+• 젤 네일 및 연장 서비스
+• 네일 케어 패키지 상품  
+• 홈케어 제품 판매</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</body>
+
+</html>

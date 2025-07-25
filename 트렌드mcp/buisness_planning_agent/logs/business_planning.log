@@ -1,0 +1,354 @@
+2025-07-08 10:08:51,533 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-08 10:09:51,393 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-08 10:12:01,793 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-08 10:15:19,422 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-08 10:15:19,577 - business_planning - INFO - 새 대화 세션 생성: 85
+2025-07-08 10:15:20,779 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-08 10:15:20,821 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-08 11:09:16,729 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 09:28:59,376 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 09:29:18,416 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:29:18,755 - business_planning - INFO - 새 대화 세션 생성: 96
+2025-07-14 09:29:28,028 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:29:28,109 - business_planning - INFO - 새 대화 세션 생성: 97
+2025-07-14 09:29:29,565 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-14 09:29:29,614 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-14 09:44:57,002 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 09:44:57,127 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:44:57,387 - business_planning - INFO - 새 대화 세션 생성: 98
+2025-07-14 09:45:22,688 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:45:22,778 - business_planning - INFO - 새 대화 세션 생성: 99
+2025-07-14 09:45:33,357 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:45:33,455 - business_planning - INFO - 새 대화 세션 생성: 100
+2025-07-14 09:46:14,528 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:46:14,727 - business_planning - INFO - 새 대화 세션 생성: 101
+2025-07-14 09:46:16,641 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:46:16,762 - business_planning - INFO - 새 대화 세션 생성: 102
+2025-07-14 09:46:17,669 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 09:47:32,193 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 09:47:36,260 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:47:36,539 - business_planning - INFO - 새 대화 세션 생성: 103
+2025-07-14 09:48:46,935 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 09:48:47,013 - business_planning - INFO - 새 대화 세션 생성: 104
+2025-07-14 10:01:21,653 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:01:21,751 - business_planning - INFO - 새 대화 세션 생성: 105
+2025-07-14 10:01:24,351 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:01:24,456 - business_planning - INFO - 새 대화 세션 생성: 106
+2025-07-14 10:04:36,262 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:04:36,549 - business_planning - INFO - 새 대화 세션 생성: 107
+2025-07-14 10:05:34,036 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:05:40,106 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:05:40,354 - business_planning - INFO - 새 대화 세션 생성: 108
+2025-07-14 10:07:38,681 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:07:38,762 - business_planning - INFO - 새 대화 세션 생성: 109
+2025-07-14 10:07:41,513 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:07:41,597 - business_planning - INFO - 새 대화 세션 생성: 110
+2025-07-14 10:07:45,246 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:07:45,340 - business_planning - INFO - 새 대화 세션 생성: 111
+2025-07-14 10:22:03,531 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:22:03,602 - business_planning - INFO - 새 대화 세션 생성: 112
+2025-07-14 10:23:53,347 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:23:53,552 - business_planning - INFO - 새 대화 세션 생성: 113
+2025-07-14 10:23:54,481 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-14 10:27:09,146 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:27:45,238 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:27:45,551 - business_planning - INFO - 새 대화 세션 생성: 114
+2025-07-14 10:27:51,521 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:27:51,624 - business_planning - INFO - 새 대화 세션 생성: 115
+2025-07-14 10:27:53,858 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-14 10:28:26,985 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:28:27,307 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:28:27,562 - business_planning - INFO - 새 대화 세션 생성: 116
+2025-07-14 10:28:35,766 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:28:35,850 - business_planning - INFO - 새 대화 세션 생성: 117
+2025-07-14 10:28:36,897 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 10:30:20,289 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:30:22,444 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:30:22,684 - business_planning - INFO - 새 대화 세션 생성: 118
+2025-07-14 10:30:35,168 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 10:31:41,652 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:31:41,731 - business_planning - INFO - 새 대화 세션 생성: 119
+2025-07-14 10:31:42,752 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 10:32:01,507 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:32:03,138 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:32:03,427 - business_planning - INFO - 새 대화 세션 생성: 120
+2025-07-14 10:32:04,585 - business_planning - INFO - 토픽 분류 결과: ['business_model', 'startup_preparation']
+2025-07-14 10:39:00,458 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:39:18,463 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:39:18,765 - business_planning - INFO - 새 대화 세션 생성: 121
+2025-07-14 10:39:23,725 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 10:47:26,575 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 10:47:48,701 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:47:48,967 - business_planning - INFO - 새 대화 세션 생성: 122
+2025-07-14 10:48:06,044 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 10:49:46,656 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 10:49:46,749 - business_planning - INFO - 새 대화 세션 생성: 123
+2025-07-14 10:49:57,090 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 11:07:20,901 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 11:07:47,122 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:07:48,209 - business_planning - INFO - 새 대화 세션 생성: 124
+2025-07-14 11:08:04,876 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 11:08:54,668 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 11:11:07,766 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 11:11:59,268 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:11:59,907 - business_planning - INFO - 새 대화 세션 생성: 125
+2025-07-14 11:12:31,790 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:12:31,901 - business_planning - INFO - 새 대화 세션 생성: 126
+2025-07-14 11:12:33,861 - business_planning - ERROR - PDF 생성 실패: No wkhtmltopdf executable found: "b''"
+If this file exists please check that this process can read it or you can pass path to it manually in method call, check README. Otherwise please install wkhtmltopdf - https://github.com/JazzCore/python-pdfkit/wiki/Installing-wkhtmltopdf
+2025-07-14 11:14:56,720 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 11:15:51,271 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 11:16:00,873 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:16:02,014 - business_planning - INFO - 새 대화 세션 생성: 127
+2025-07-14 11:16:07,540 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:16:07,650 - business_planning - INFO - 새 대화 세션 생성: 128
+2025-07-14 11:34:42,388 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:34:42,477 - business_planning - INFO - 새 대화 세션 생성: 129
+2025-07-14 11:41:00,000 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 11:41:00,608 - business_planning - INFO - 새 대화 세션 생성: 130
+2025-07-14 12:16:47,902 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:16:48,039 - business_planning - INFO - 새 대화 세션 생성: 133
+2025-07-14 12:18:12,364 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 12:19:08,852 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:19:09,174 - business_planning - INFO - 새 대화 세션 생성: 134
+2025-07-14 12:25:35,114 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:25:35,265 - business_planning - INFO - 새 대화 세션 생성: 135
+2025-07-14 12:29:49,311 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:29:49,468 - business_planning - INFO - 새 대화 세션 생성: 136
+2025-07-14 12:30:37,455 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:30:38,383 - business_planning - INFO - 새 대화 세션 생성: 137
+2025-07-14 12:37:27,071 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 12:38:07,197 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:38:07,463 - business_planning - INFO - 새 대화 세션 생성: 138
+2025-07-14 12:46:41,336 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:46:41,409 - business_planning - INFO - 새 대화 세션 생성: 139
+2025-07-14 12:47:35,832 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 12:47:52,087 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 12:47:52,434 - business_planning - INFO - 새 대화 세션 생성: 140
+2025-07-14 14:05:58,985 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:05:59,194 - business_planning - INFO - 새 대화 세션 생성: 141
+2025-07-14 14:06:00,431 - business_planning - INFO - 토픽 분류 결과: ['business_model']
+2025-07-14 14:06:24,537 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 14:06:49,160 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 14:06:52,851 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:06:53,152 - business_planning - INFO - 새 대화 세션 생성: 142
+2025-07-14 14:11:42,696 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:11:42,780 - business_planning - INFO - 새 대화 세션 생성: 143
+2025-07-14 14:15:05,343 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:15:05,457 - business_planning - INFO - 새 대화 세션 생성: 144
+2025-07-14 14:34:23,165 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:34:23,277 - business_planning - INFO - 새 대화 세션 생성: 150
+2025-07-14 14:34:45,424 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:34:45,574 - business_planning - INFO - 새 대화 세션 생성: 151
+2025-07-14 14:34:46,681 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 14:51:35,584 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 14:51:35,803 - business_planning - INFO - 새 대화 세션 생성: 152
+2025-07-14 15:04:45,110 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 15:04:45,220 - business_planning - INFO - 새 대화 세션 생성: 153
+2025-07-14 15:27:46,722 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 15:27:47,185 - business_planning - INFO - 새 대화 세션 생성: 154
+2025-07-14 15:27:49,068 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 15:28:15,562 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 15:28:15,635 - business_planning - INFO - 새 대화 세션 생성: 155
+2025-07-14 15:31:42,783 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 15:31:43,039 - business_planning - INFO - 새 대화 세션 생성: 156
+2025-07-14 15:43:22,744 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 15:44:59,428 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 15:59:13,880 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 16:03:28,219 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 16:05:16,397 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 16:12:14,865 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 16:12:16,497 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-14 16:12:42,947 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-14 16:12:43,917 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation', 'idea_validation']
+2025-07-14 16:12:44,176 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-14 16:12:44,177 - business_planning - INFO - 프롬프트 로드 성공: idea_validation
+2025-07-14 16:25:51,092 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 17:19:22,501 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 17:37:24,231 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-14 19:25:35,249 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 09:15:34,799 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 11:07:11,577 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 11:09:06,832 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 11:48:40,596 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 11:49:11,945 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 11:49:15,922 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-16 11:49:30,045 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 11:49:31,991 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation', 'business_model', 'market_research', 'financial_planning']
+2025-07-16 11:49:32,036 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 11:49:32,042 - business_planning - INFO - 프롬프트 로드 성공: business_model
+2025-07-16 11:49:32,049 - business_planning - INFO - 프롬프트 로드 성공: market_research
+2025-07-16 11:49:32,065 - business_planning - INFO - 프롬프트 로드 성공: financial_planning
+2025-07-16 12:01:22,111 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:15:46,652 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:18:47,665 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:20:15,261 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:27:53,745 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:29:01,030 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:40:35,934 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:41:52,736 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:44:06,901 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:44:51,005 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 12:45:13,716 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 12:50:02,550 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 13:55:34,277 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 13:55:35,771 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation', 'idea_validation', 'market_research']
+2025-07-16 13:55:35,825 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 13:55:35,832 - business_planning - INFO - 프롬프트 로드 성공: idea_validation
+2025-07-16 13:55:35,833 - business_planning - INFO - 프롬프트 로드 성공: market_research
+2025-07-16 13:55:37,171 - business_planning - ERROR - RAG 쿼리 실행 실패: Missing some input keys: {'\n      font-size', '\n      resize', '\n      background', '\n      border', '\n      max-width', '\n      font-family', '\n      outline', '\n      position', '\n      text-align', '\n      display', '\n      padding'}
+2025-07-16 13:55:37,172 - business_planning - ERROR - 폴백 응답 생성 실패: '\n      font-family'
+2025-07-16 13:56:09,766 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 13:56:10,578 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-16 13:56:10,613 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 13:56:11,397 - business_planning - ERROR - RAG 쿼리 실행 실패: Missing some input keys: {'\n      font-size', '\n      resize', '\n      background', '\n      border', '\n      max-width', '\n      font-family', '\n      outline', '\n      position', '\n      text-align', '\n      display', '\n      padding'}
+2025-07-16 13:56:11,398 - business_planning - ERROR - 폴백 응답 생성 실패: '\n      font-family'
+2025-07-16 13:58:15,889 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 13:58:16,633 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-16 13:58:16,663 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 13:58:28,635 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:02:22,050 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:03:41,553 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:05:24,267 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:06:32,551 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:12:24,102 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:16:59,223 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:19:30,317 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:21:04,591 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:24:31,809 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:29:26,439 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:29:32,312 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:29:37,000 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:32:17,356 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:34:57,000 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:40:34,104 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 14:46:09,864 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 15:25:23,965 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 15:27:10,173 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 15:27:29,554 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 15:29:54,170 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 15:34:10,322 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 15:38:09,291 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 15:39:34,091 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 15:44:16,739 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 16:07:25,110 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:02:21,169 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:07:48,597 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:11:09,535 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:13:47,116 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:15:55,283 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 17:26:25,034 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 17:30:31,382 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:14:25,255 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 18:14:48,505 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:21:14,040 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:21:35,084 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:21:51,656 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:25:44,355 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:29:31,505 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:29:40,247 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:29:41,869 - business_planning - INFO - 토픽 분류 결과: ['idea_validation', 'business_model', 'market_research', 'mvp_development']
+2025-07-16 18:29:57,706 - business_planning - INFO - 프롬프트 로드 성공: idea_validation
+2025-07-16 18:29:57,711 - business_planning - INFO - 프롬프트 로드 성공: business_model
+2025-07-16 18:29:57,716 - business_planning - INFO - 프롬프트 로드 성공: market_research
+2025-07-16 18:29:57,728 - business_planning - INFO - 프롬프트 로드 성공: mvp_development
+2025-07-16 18:30:05,296 - business_planning - ERROR - RAG 쿼리 실행 실패: Missing some input keys: {'\n       font-family', '\n       display', '\n       position', '\n       resize', '\n       border', '\n       max-width', '\n       outline', '\n       padding', '\n       font-size', '\n       background', '\n       text-align'}
+2025-07-16 18:30:05,296 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-16 18:30:46,270 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:41:51,342 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:46:46,368 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:47:42,943 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:47:44,175 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-16 18:47:48,899 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 18:47:54,327 - business_planning - ERROR - RAG 쿼리 실행 실패: Missing some input keys: {'\n       font-family', '\n       position', '\n       display', '\n       border', '\n       max-width', '\n       outline', '\n       font-size', '\n       resize', '\n       background', '\n       text-align'}
+2025-07-16 18:47:54,327 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-16 18:52:24,846 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:53:19,235 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:53:20,148 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-16 18:53:28,880 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-16 18:53:45,537 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:53:46,367 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-16 18:57:40,740 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-16 18:57:40,784 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:57:40,894 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 18:57:41,721 - business_planning - INFO - 토픽 분류 결과: []
+2025-07-16 18:57:45,328 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation', 'business_registration']
+2025-07-16 18:57:50,333 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 18:57:50,340 - business_planning - INFO - 프롬프트 로드 성공: business_registration
+2025-07-16 18:58:01,652 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 19:07:04,473 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 19:08:28,603 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 19:08:30,109 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-16 19:08:39,036 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 19:08:40,087 - business_planning - ERROR - RAG 쿼리 실행 실패: Missing some input keys: {'\n       max-width', '\n       border', '\n       display', '\n       background', '\n       outline', '\n       font-size', '\n       text-align', '\n       resize', '\n       padding', '\n       font-family', '\n       position'}
+2025-07-16 19:08:40,087 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-16 19:14:20,392 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-16 19:15:43,220 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-16 19:15:44,897 - business_planning - INFO - 토픽 분류 결과: ['startup_preparation']
+2025-07-16 19:15:56,816 - business_planning - INFO - 프롬프트 로드 성공: startup_preparation
+2025-07-16 19:19:56,762 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 09:09:01,738 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 09:25:13,887 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 09:29:14,556 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 09:30:38,156 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 09:32:05,743 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 09:33:14,306 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:02:54,751 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:03:19,501 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:03:20,520 - business_planning - INFO - 토픽 분류 결과: ['business_model']
+2025-07-17 10:03:26,926 - business_planning - INFO - 프롬프트 로드 성공: business_model
+2025-07-17 10:03:27,206 - business_planning - ERROR - 폴백 응답 생성 실패: '\n       font-family'
+2025-07-17 10:03:34,631 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:09:27,023 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:10:12,365 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:10:12,869 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:10:37,011 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:10:37,299 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:10:56,621 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:10:57,088 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:11:19,750 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:11:20,017 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:12:03,682 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:12:03,936 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:13:30,518 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:13:30,690 - business_planning - ERROR - 쿼리 처리 중 오류 발생: BaseModel.model_dump_json() got an unexpected keyword argument 'ensure_ascii'
+2025-07-17 10:16:39,243 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:18:36,212 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:20:09,256 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:27:53,699 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:28:13,164 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:30:06,507 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:30:33,621 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:34:28,743 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:34:38,244 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:35:27,804 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:36:13,139 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:36:36,670 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:36:59,251 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:38:52,566 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:39:18,574 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:40:31,807 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:43:55,652 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 10:44:24,124 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:54:09,351 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:54:40,808 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 10:55:17,061 - business_planning - ERROR - PDF 생성 실패: 'PdfCreateRequest' object has no attribute 'title'
+2025-07-17 10:55:50,938 - business_planning - ERROR - PDF 생성 실패: 'PdfCreateRequest' object has no attribute 'title'
+2025-07-17 10:59:44,937 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 11:00:06,451 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 11:00:24,038 - business_planning - ERROR - PDF 생성 실패: 'PdfCreateRequest' object has no attribute 'title'
+2025-07-17 11:03:36,314 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 11:03:50,875 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 11:03:59,801 - business_planning - ERROR - PDF 생성 실패: 'PdfCreateRequest' object has no attribute 'title'
+2025-07-17 11:07:48,839 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 11:08:20,349 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 11:51:10,440 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 15:16:23,872 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 15:18:28,876 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
+2025-07-17 17:52:52,087 - business_planning - INFO - BusinessPlanningService 초기화 완료
+2025-07-17 17:53:06,037 - business_planning - INFO - 쿼리 처리 시작 - user_id: 3
