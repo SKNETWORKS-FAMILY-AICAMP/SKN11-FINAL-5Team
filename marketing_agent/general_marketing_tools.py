@@ -350,33 +350,32 @@ class MarketingTools:
             # 관련 키워드 생성
             related_keywords = await self.generate_related_keywords(keyword, 5)
             
-            prompt = f"""
-                {keyword}에 대한 인스타그램 포스트를 작성해주세요.
+            prompt = f"""{keyword}에 대한 인스타그램 포스트를 작성해주세요.
 
-                **요구사항:**
-                - 업종: {business_type}
-                - 타겟: {target_audience}
-                - 제품: {product}
-                - 관련 키워드: {', '.join(related_keywords)}
-                - 매력적인 캡션 (이모지 포함)
-                - 관련 해시태그 20개
-                - 참여를 유도하는 CTA (Call-to-Action)
-                - 포스트에 어울리는 이미지 콘셉트 3가지를 제안 (예: 제품 클로즈업, 고객 사용 후기, 라이프스타일 연출 등)
+            **요구사항:**
+            - 업종: {business_type}
+            - 타겟: {target_audience}
+            - 제품: {product}
+            - 관련 키워드: {', '.join(related_keywords)}
+            - 매력적인 캡션 (이모지 포함)
+            - 관련 해시태그 20개
+            - 참여를 유도하는 CTA (Call-to-Action)
+            - 포스트에 어울리는 이미지 콘셉트 3가지를 제안 (예: 제품 클로즈업, 고객 사용 후기, 라이프스타일 연출 등)
 
-                **출력 형식:**
-                캡션:
-                [매력적인 캡션 내용]
+            **출력 형식:**
+            캡션:  
+            [매력적인 캡션 내용]
 
-                해시태그:
-                #해시태그1 #해시태그2 ... (20개)
+            해시태그:  
+            #해시태그1 #해시태그2 ... (20개)
 
-                CTA:
-                [참여 유도 문구]
+            CTA:  
+            [참여 유도 문구]
 
-                이미지 아이디어:
-                [이미지 아이디어 1]
-                [이미지 아이디어 2]
-                [이미지 아이디어 3]"""
+            이미지 아이디어:  
+            - [이모지] [이미지 아이디어 1]  
+            - [이모지] [이미지 아이디어 2]  
+            - [이모지] [이미지 아이디어 3]"""
 
             content = await self.generate_content_with_llm(prompt, context)
             

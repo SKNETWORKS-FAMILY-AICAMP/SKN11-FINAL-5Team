@@ -55,21 +55,32 @@ class MarketingAgent:
             
                 # ✅ 컨텐츠 생성 시그널 확인 및 처리
                 if response_text.startswith("TRIGGER_"):
-                    trigger_type, display_text = response_text.split(":", 1)
-                    response_text = display_text
-                    
-                    # 실제 컨텐츠 생성 수행
-                    if trigger_type in ["TRIGGER_CONTENT_GENERATION", "TRIGGER_CONTENT_MODIFICATION", "TRIGGER_CONTENT_REGENERATION", "TRIGGER_NEW_CONTENT"]:
-                        content_result = await self._handle_content_generation_with_llm(user_input, conversation)
-                        if content_result and content_result.get("success"):
-                            tool_results = content_result
-                            formatted_content = self._format_tool_results(content_result)
-                            response_text += f"\n\n{formatted_content}"
-                            
-                            # 컨텐츠 세션 업데이트
-                            conversation.update_content_session(formatted_content, user_input)
-                        else:
-                            response_text += "\n\n❌ 컨텐츠 생성 중 오류가 발생했습니다. 다시 시도해주세요."
+                    trigger_parts = response_text.split(":", 1)
+                    if len(trigger_parts) == 2:
+                        trigger_type, display_text = trigger_parts
+                        response_text = display_text
+                        
+                        # ✅ 자동화 작업 생성 처리
+                        if trigger_type == "TRIGGER_AUTOMATION_TASK":
+                            automation_result = await self._handle_automation_task_creation(display_text, conversation)
+                            if automation_result.get("success"):
+                                response_text = automation_result["message"]
+                            else:
+                                response_text = f"❌ 자동화 예약 실패: {automation_result.get('error', '알 수 없는 오류')}"
+                        
+                        # 실제 컨텐츠 생성 수행
+                        elif trigger_type in ["TRIGGER_CONTENT_GENERATION", "TRIGGER_CONTENT_MODIFICATION", "TRIGGER_CONTENT_REGENERATION", "TRIGGER_NEW_CONTENT"]:
+                            content_result = await self._handle_content_generation_with_llm(user_input, conversation)
+                            if content_result and content_result.get("success"):
+                                tool_results = content_result
+                                formatted_content = self._format_tool_results(content_result)
+                                response_text += f"\n\n{formatted_content}"
+                                
+                                # 🆕 컨텐츠 세션 업데이트 및 포스팅 데이터 설정
+                                conversation.update_content_session(formatted_content, user_input)
+                                conversation.current_content_for_posting = content_result
+                            else:
+                                response_text += "\n\n❌ 컨텐츠 생성 중 오류가 발생했습니다. 다시 시도해주세요."
             else:
                 # 3. 일반 대화 처리 (응답 분석 포함)
                 response_text = await self.conversation_manager.generate_response_with_context(user_input, conversation)
@@ -86,8 +97,9 @@ class MarketingAgent:
                         formatted_content = self._format_tool_results(content_result)
                         response_text += f"\n\n{formatted_content}"
                         
-                        # 컨텐츠 세션 업데이트
+                        # 🆕 컨텐츠 세션 업데이트 및 포스팅 데이터 설정
                         conversation.update_content_session(formatted_content, user_input)
+                        conversation.current_content_for_posting = content_result
                     else:
                         response_text += "\n\n❌ 컨텐츠 생성 중 오류가 발생했습니다. 다시 시도해주세요."
             
@@ -173,6 +185,88 @@ class MarketingAgent:
         
         # 실행 단계이거나 충분한 정보가 있으면서 콘텐츠 요청이 있는 경우
         return is_execution_stage or has_enough_info
+    
+    async def _handle_automation_task_creation(self, display_text: str, conversation) -> Dict[str, Any]:
+        """자동화 작업 생성 처리"""
+        try:
+            # display_text에서 scheduled_at 추출 ("scheduled_at|message" 형식)
+            if "|" in display_text:
+                scheduled_at_str, message = display_text.split("|", 1)
+            else:
+                return {
+                    "success": False,
+                    "error": "스케줄 시간 정보가 없습니다."
+                }
+            
+            # 날짜 파싱
+            try:
+                from datetime import datetime
+                scheduled_at = datetime.fromisoformat(scheduled_at_str)
+            except ValueError:
+                return {
+                    "success": False,
+                    "error": f"잘못된 날짜 형식: {scheduled_at_str}"
+                }
+            
+            # create_automation_task 호출
+            try:
+                from shared_modules.database import SessionLocal
+                from shared_modules.queries import create_automation_task
+                
+                with SessionLocal() as db:
+                    # 컨텐츠 데이터 준비
+                    content_data = conversation.current_content_for_posting or {}
+                    task_data = {
+                        "content_type": content_data.get("type", "general"),
+                        "content": content_data.get("full_content", ""),
+                        "platform": "social_media",  # 기본값
+                        "user_id": conversation.user_id,
+                        "conversation_id": conversation.conversation_id
+                    }
+                    
+                    # 자동화 작업 생성
+                    automation_task = create_automation_task(
+                        db=db,
+                        user_id=conversation.user_id,
+                        task_type="social_posting",
+                        title=f"마케팅 컨텐츠 자동 포스팅",
+                        template_id=None,  # 필요시 템플릿 ID 추가
+                        task_data=task_data,
+                        conversation_id=conversation.conversation_id,
+                        scheduled_at=scheduled_at
+                    )
+                    
+                    if automation_task:
+                        # 포스팅 프로세스 완료
+                        conversation.complete_posting_process()
+                        conversation.end_content_session()
+                        conversation.current_stage = MarketingStage.COMPLETED
+                        
+                        return {
+                            "success": True,
+                            "message": f"🎉 **자동화 예약 완료!**\n\n📅 **예약 시간**: {scheduled_at.strftime('%Y년 %m월 %d일 %H:%M')}\n🚀 **상태**: 예약 대기 중\n\n컨텐츠가 지정된 시간에 자동으로 포스팅됩니다!",
+                            "task_id": automation_task.task_id,
+                            "scheduled_at": scheduled_at.isoformat()
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": "데이터베이스에 작업 저장 실패"
+                        }
+                        
+            except Exception as db_error:
+                logger.error(f"데이터베이스 오류: {db_error}")
+                return {
+                    "success": False,
+                    "error": f"데이터베이스 오류: {str(db_error)}"
+                }
+                
+        except Exception as e:
+            logger.error(f"자동화 작업 생성 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     async def _handle_content_generation_with_llm(self, user_input: str, conversation) -> Optional[Dict[str, Any]]:
         """LLM 기반 콘텐츠 생성 처리"""
@@ -528,6 +622,10 @@ content_type: [instagram/blog/strategy/campaign 중 하나만]
                 # 일반 오류
                 return f"❌ 콘텐츠 생성 중 오류가 발생했습니다: {tool_results.get('error', '알 수 없는 오류')}"
         
+        # 키워드 리서치 결과인지 확인 (keywords와 trend_data가 모두 있는 경우)
+        if 'keywords' in tool_results and 'trend_data' in tool_results:
+            return self._format_keyword_research_result(tool_results)
+        
         content_type = tool_results.get("type", "content")
         
         if content_type == "instagram_post":
@@ -573,6 +671,64 @@ content_type: [instagram/blog/strategy/campaign 중 하나만]
         
         if result.get("keywords"):
             formatted += f"**SEO 키워드:** {result['keywords']}"
+        
+        return formatted
+    
+    def _format_keyword_research_result(self, result: Dict[str, Any]) -> str:
+        """키워드 리서치 결과 포맷팅"""
+        formatted = "🔍 **키워드 리서치 결과가 완성되었습니다!**\n\n"
+        
+        # 키워드 목록 표시
+        keywords = result.get('keywords', [])
+        if keywords:
+            formatted += "🏷️ **추천 키워드:**\n"
+            for i, keyword in enumerate(keywords[:10], 1):  # 상위 10개만 표시
+                formatted += f"{i}. {keyword}\n"
+            
+            if len(keywords) > 10:
+                formatted += f"\n... 총 {len(keywords)}개 키워드 (상위 10개 표시)\n"
+            formatted += "\n"
+        
+        # 트렌드 데이터 표시
+        trend_data = result.get('trend_data', {})
+        if trend_data.get('success') and trend_data.get('data'):
+            formatted += "📈 **키워드 트렌드 분석:**\n"
+            
+            trend_items = trend_data['data']
+            for item in trend_items:
+                keyword_name = item.get('title', '')
+                trend_values = item.get('data', [])
+                
+                if trend_values:
+                    # 최신 트렌드 비율 추출
+                    latest_ratio = trend_values[0].get('ratio', 0)
+                    if latest_ratio > 0:
+                        # 비율에 따른 시각적 표시
+                        if latest_ratio >= 80:
+                            trend_icon = "🔥"  # 고온
+                        elif latest_ratio >= 50:
+                            trend_icon = "🔴"  # 중간
+                        elif latest_ratio >= 20:
+                            trend_icon = "🟡"  # 낮음
+                        else:
+                            trend_icon = "⚪"  # 매우 낮음
+                        
+                        formatted += f"{trend_icon} **{keyword_name}**: {latest_ratio:.1f}%\n"
+                    else:
+                        formatted += f"⚫ **{keyword_name}**: 데이터 없음\n"
+                else:
+                    formatted += f"⚫ **{keyword_name}**: 데이터 없음\n"
+            
+            # 분석 기간 정보
+            period = trend_data.get('period', '')
+            if period:
+                formatted += f"\n📅 **분석 기간:** {period}\n"
+        
+        # 마케팅 활용 팁
+        formatted += "\n💡 **마케팅 활용 팁:**\n"
+        formatted += "• 고온 트렌드 (🔥) 키워드를 우선 활용하세요\n"
+        formatted += "• 여러 키워드를 조합하여 콘텐츠를 제작하세요\n"
+        formatted += "• 땅기 트렌드를 고려하여 전략을 수립하세요"
         
         return formatted
     
