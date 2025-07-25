@@ -16,7 +16,8 @@
       "module": "main",
       "cwd": "${workspaceFolder}/unified_agent_system",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "💼 Business Planning Agent (8001)",
@@ -24,16 +25,21 @@
       "request": "launch",
       "module": "uvicorn",
       "args": [
-        "business_planning:app",
+        "main:app",
         "--host",
         "0.0.0.0",
         "--port",
         "8001",
-        "--reload"
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/buisness_planning_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "🤝 Customer Service Agent (8002)",
@@ -46,11 +52,16 @@
         "0.0.0.0",
         "--port",
         "8002",
-        "--reload"
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/customer_service_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "📢 Marketing Agent (8003)",
@@ -65,11 +76,14 @@
         "8003",
         "--reload",
         "--log-level",
-        "info"
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/marketing_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "🧠 Mental Agent (8004)",
@@ -82,11 +96,16 @@
         "0.0.0.0",
         "--port",
         "8004",
-        "--reload"
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "⚡ Task Automation Agent (8005)",
@@ -99,11 +118,16 @@
         "0.0.0.0",
         "--port",
         "8005",
-        "--reload"
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/task_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     }
   ],
   "compounds": [

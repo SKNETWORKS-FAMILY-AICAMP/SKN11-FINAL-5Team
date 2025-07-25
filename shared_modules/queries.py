@@ -21,11 +21,26 @@ logger = logging.getLogger(__name__)
 # -------------------
 # User 관련 함수 (새 DDL 스키마 적용)
 # -------------------
+# queries.py의 create_user_social 함수를 다음과 같이 수정하세요:
+
 def create_user_social(db: Session, provider: str, social_id: str, email: str, 
-                      nickname: str = "", access_token: str = "", refresh_token: str = None,
-                      admin: bool = False, experience: bool = False, business_type: str = None):
-    """소셜 로그인 사용자 생성 (새 DDL 스키마)"""
+                      nickname: str = "", 
+                      access_token: str = "", 
+                      refresh_token: str = None,
+                      business_type: str = None,
+                      experience: int =None,
+                      admin: bool = False):
+    """소셜 로그인 사용자 생성 (새 DDL 스키마) - 파라미터 순서 수정"""
     try:
+        # 🔍 디버깅 로그 추가
+        logger.info(f"create_user_social 함수 호출:")
+        logger.info(f"  - provider: {provider}")
+        logger.info(f"  - social_id: {social_id}")
+        logger.info(f"  - email: {email}")
+        logger.info(f"  - nickname: {nickname}")
+        logger.info(f"  - business_type: {business_type}")
+        logger.info(f"  - experience: {experience}")
+        
         user = db_models.User(
             email=email,
             nickname=nickname or email.split('@')[0],
@@ -33,14 +48,24 @@ def create_user_social(db: Session, provider: str, social_id: str, email: str,
             provider=provider,
             social_id=social_id,
             admin=admin,
-            experience=experience,
+            experience=experience,  # 🔧 이 필드가 제대로 설정되도록 수정
             access_token=access_token,
             refresh_token=refresh_token
         )
+        
         db.add(user)
         db.commit()
         db.refresh(user)
+        
+        # 🔍 생성 후 확인 로그
+        logger.info(f"사용자 생성 완료:")
+        logger.info(f"  - user_id: {user.user_id}")
+        logger.info(f"  - nickname: {user.nickname}")
+        logger.info(f"  - business_type: {user.business_type}")
+        logger.info(f"  - experience: {user.experience}")
+        
         return user
+        
     except Exception as e:
         logger.error(f"[create_user_social 오류] {e}", exc_info=True)
         db.rollback()
@@ -86,7 +111,7 @@ def update_user_tokens(db: Session, user_id: int, access_token: str, refresh_tok
         db.rollback()
         return False
 
-def update_user_experience(db: Session, user_id: int, experience: bool) -> bool:
+def update_user_experience(db: Session, user_id: int, experience: int) -> bool:
     """사용자 경험 여부 업데이트"""
     try:
         user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
@@ -191,7 +216,7 @@ def ensure_test_user(db: Session, user_id: int):
             provider="local",
             social_id=f"test_{user_id}",
             admin=False,
-            experience=False,
+            experience=0,
             access_token=f"test_token_{user_id}",
             refresh_token=None
         )
@@ -297,14 +322,26 @@ def end_conversation(db: Session, conversation_id: int) -> bool:
 # Message 관련 함수 (DDL sender_type 제약조건 적용)
 # -------------------
 def create_message(db: Session, conversation_id: int, sender_type: str, agent_type: str, content: str):
-    """메시지 생성 (DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
+    """메시지 생성 (중복 방지 + DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
     try:
         # sender_type을 DDL 제약조건에 맞게 변환
         if sender_type.lower() == 'user':
             sender_type = 'USER'
         elif sender_type.lower() == 'agent':
             sender_type = 'AGENT'
-        
+
+        # **중복 메시지 방지 로직**
+        last_msg = (
+            db.query(db_models.Message)
+            .filter(db_models.Message.conversation_id == conversation_id)
+            .order_by(db_models.Message.created_at.desc())
+            .first()
+        )
+        if last_msg and last_msg.content == content and last_msg.sender_type == sender_type:
+            logger.info(f"[create_message] 중복 메시지 감지: {content[:30]}...")
+            return last_msg
+
+        # 새로운 메시지 생성
         msg = db_models.Message(
             conversation_id=conversation_id,
             sender_type=sender_type,
@@ -319,6 +356,7 @@ def create_message(db: Session, conversation_id: int, sender_type: str, agent_ty
         logger.error(f"[create_message 오류] {e}", exc_info=True)
         db.rollback()
         return None
+
 
 def get_conversation_messages(db: Session, conversation_id: int, limit: int = 100, offset: int = 0):
     try:
@@ -802,7 +840,7 @@ def handle_db_error(e: Exception, operation: str):
 # Raw SQL 함수들 (기존 코드 호환성용)
 # -------------------
 def insert_user_raw(email: str, nickname: str, provider: str, social_id: str, 
-                   access_token: str, admin: bool = False, experience: bool = False,
+                   access_token: str, experience: int, admin: bool = False,
                    business_type: str = None, refresh_token: str = None) -> int:
     """Raw SQL을 사용한 사용자 삽입 (새 DDL 스키마)"""
     try:

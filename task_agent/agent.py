@@ -100,12 +100,7 @@ class TaskAgent:
             )
             
             # 자동화 요청인지 확인
-            automation_type = None
-            if (
-                intent_analysis["intent"] == "task_automation" or
-                any(keyword in query.message for keyword in ["자동화", "자동", "등록", "생성", "업로드"])
-            ):
-                automation_type = await self.llm_handler.classify_automation_intent(query.message)
+            automation_type = await self.llm_handler.classify_automation_intent(query.message)
             
             # 자동화 완료 데이터 확인 (포맷에 맞게 입력된 데이터인지 확인)
             is_automation_data = self._check_if_automation_data(query.message, conversation_history)

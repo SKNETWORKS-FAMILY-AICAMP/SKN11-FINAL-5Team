@@ -27,6 +27,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 
 export default function HomePage() {
 
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [user, setUser] = useState<any>(null)
   const router = useRouter()
 
@@ -42,12 +43,17 @@ export default function HomePage() {
     }
   }, [])
 
+  const handleLogout = () => {
+    localStorage.clear()
+    window.location.href = "/login"
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
       {/* Navigation */}
+      {/* Navigation - 메인페이지와 동일한 헤더 */}
       <nav className="px-6 py-4 sticky top-0 bg-white/90 backdrop-blur-sm border-b border-gray-200 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-
           <div className="flex items-center space-x-3">
             <Image
               src="/3D_고양이.png?height=40&width=40"
@@ -57,31 +63,58 @@ export default function HomePage() {
               className="rounded-full"
             />
             <span className="text-2xl font-bold text-gray-900">TinkerBell</span>
-            <span className="text-sm text-gray-500 font-medium">Business</span>
           </div>
 
           <div className="hidden md:flex items-center space-x-8">
-            <a href="#service" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+            <Link href="/#service" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
               서비스 소개
-            </a>
-            <a href="#consultation" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+            </Link>
+            <Link href="/chat" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
               상담하기
-            </a>
+            </Link>
             <Link href="/faq" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
               FAQ
             </Link>
             {user ? (
-              <Link href="/mypage" className="block">
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center cursor-pointer">
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
+                >
                   <User className="h-4 w-4 text-green-600" />
-                </div>
-              </Link>
+                </button>
+
+                {showProfileMenu && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                    <Link
+                      href="/mypage"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      마이페이지
+                    </Link>
+                    <Link
+                      href="/workspace"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      워크스페이스
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">
                 로그인
               </Link>
             )}
-          </div> 
+          </div>
         </div>
       </nav>
 
@@ -102,7 +135,9 @@ export default function HomePage() {
               <p className="text-xl text-gray-600 leading-relaxed max-w-lg">
                 사업기획부터 마케팅, 고객관리, 자동화, 멘탈케어까지
                 <br />
-                TinkerBell의 다중 AI 에이전트가 창업의 모든 순간을 함께합니다
+                TinkerBell의 다중 AI 에이전트 창업의 모든 순간을
+                <br />
+                함께합니다
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/chat">
@@ -139,39 +174,43 @@ export default function HomePage() {
       <section className="px-6 py-20 bg-gradient-to-r from-red-50 to-orange-50">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-6">1인 창업자의 현실적인 고민들</h2>
-            <p className="text-xl text-gray-600 max-w-4xl mx-auto leading-relaxed">
+            <h2 className="text-4xl font-bold text-gray-900 mb-6">
+              1인 창업자의
               <br />
-              <span className="font-bold text-gray-900"></span>
+              희망과 성장 포인트
+            </h2>
+            <p className="text-xl text-gray-600 max-w-4xl mx-auto leading-relaxed">
+              
+              혼자서도 성공할 수 있는 창업의 핵심 영역들을 함께 해결해나가요
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               {
                 icon: "/icons/3D_사업기획.png",
-                title: "사업 타당성 분석",
-                desc: "시장 분석과 사업 계획 수립의 어려움",
+                title: "사업 가능성 찾기",
+                desc: "시장 분석과 사업 계획을\n함께 다듬어요.",
                 color: "text-red-600",
                 bg: "bg-red-100",
               },
               {
                 icon: "/icons/3D_마케팅.png",
-                title: "홍보/마케팅",
-                desc: "효과적인 마케팅 전략 부재",
+                title: "홍보/마케팅 성장",
+                desc: "효과적인 마케팅 전략을\n함께 만들어가요.",
                 color: "text-orange-600",
                 bg: "bg-orange-100",
               },
               {
                 icon: "/icons/3D_시장정보 획득.png",
                 title: "시장정보 획득",
-                desc: "트렌드와 경쟁사 정보 부족",
+                desc: "트렌드와 경쟁사 정보를\n빠르게 캐치해요.",
                 color: "text-green-600",
                 bg: "bg-green-100",
               },
               {
-                icon: "/icons/3D_고립감.png",
-                title: "사회적 고립감",
-                desc: "혼자 일하며 느끼는 외로움과 불안감",
+                icon: "/icons/with.png",
+                title: "함께하는 연결감",
+                desc: "외로움 대신 함께하는\n든든함을 느껴요.",
                 color: "text-yellow-600",
                 bg: "bg-yellow-100",
               },
@@ -190,13 +229,10 @@ export default function HomePage() {
                   <CardTitle className="text-lg">{item.title}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-center">
-                  <p className="text-gray-600">{item.desc}</p>
+                  <p className="text-gray-600 whitespace-pre-line">{item.desc}</p>
                 </CardContent>
               </Card>
             ))}
-          </div>
-          <div className="mt-12 text-center">
-            <p className="text-lg text-gray-700 font-medium"></p>
           </div>
         </div>
       </section>
@@ -205,30 +241,38 @@ export default function HomePage() {
       <section id="service" className="px-6 py-20 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-6">TinkerBell이 제공하는 통합 솔루션</h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              다중 AI 에이전트가 협업하여 창업의 모든 단계에서 실질적이고 전문적인 도움을 제공합니다
+            <h2 className="text-4xl font-bold text-gray-900 mb-6">
+              TinkerBell이 제공하는
+              <br />
+              통합 솔루션
+            </h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+              다중 AI 에이전트가 협업하여
+              <br />
+              창업의 모든 단계에서
+              <br />
+              실질적이고 전문적인 도움을 제공합니다
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
                 title: "스마트 자동화",
-                desc: "반복적인 업무를 자동화하여 핵심 비즈니스에 집중할 수 있도록 지원",
+                desc: "반복적인 업무를 자동화하여\n핵심 비즈니스에 집중할 수 있도록 지원",
                 features: ["SNS 자동 포스팅", "일정 관리 및 알림", "고객 응대 자동화"],
                 color: "text-yellow-600",
                 bg: "bg-yellow-100",
               },
               {
                 title: "실시간 상담",
-                desc: "24시간 언제든지 사업 관련 질문과 고민을 상담할 수 있는 AI 파트너",
+                desc: "24시간 언제든지 사업 관련\n질문과 고민을 상담할 수 있는 AI 파트너",
                 features: ["사업 기획 상담", "마케팅 전략 수립", "트렌드 분석"],
                 color: "text-green-600",
                 bg: "bg-green-100",
               },
               {
                 title: "멘탈 케어",
-                desc: "창업 과정에서 느끼는 스트레스와 외로움을 함께 해결하는 심리적 지원",
+                desc: "창업 과정에서 느끼는 스트레스와\n외로움을 함께 해결하는 심리적 지원",
                 features: ["감정 상담", "동기 부여", "스트레스 관리"],
                 color: "text-emerald-600",
                 bg: "bg-emerald-100",
@@ -237,7 +281,7 @@ export default function HomePage() {
               <Card key={index} className="border-0 shadow-lg hover:shadow-xl transition-shadow bg-white">
                 <CardHeader>
                   <CardTitle className="text-xl">{item.title}</CardTitle>
-                  <p className="text-gray-600 mt-2">{item.desc}</p>
+                  <p className="text-gray-600 mt-2 whitespace-pre-line">{item.desc}</p>
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-2">
@@ -259,10 +303,15 @@ export default function HomePage() {
       <section className="px-6 py-20 bg-gradient-to-br from-green-50 to-yellow-50">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-6">창업 성장 3단계별 맞춤 지원</h2>
+            <h2 className="text-4xl font-bold text-gray-900 mb-6">
+              창업 성장 3단계별
+              <br />
+              맞춤 지원
+            </h2>
             <p className="text-xl text-gray-600">
-              <span className="font-bold text-green-600">예시 창업 여정</span>을 통해 TinkerBell의 지원 과정을
-              확인해보세요
+              <span className="font-bold text-green-600">예시 창업 여정</span>을 통해
+              <br />
+              TinkerBell의 지원 과정을 확인해보세요
             </p>
           </div>
           <div className="space-y-16">
@@ -276,11 +325,11 @@ export default function HomePage() {
                 questions: [
                   {
                     q: "어떤 마켓에 입점해야 하지?",
-                    a: "에이블리, 지그재그 등 입점 절차를 단계별로 안내하며 사업기획까지 함께 도와드립니다",
+                    a: "에이블리, 지그재그 등 입점 절차를 단계별로 안내하며\n사업기획까지 함께 도와드립니다",
                   },
                   {
                     q: "요즘 유행하는 스타일은 뭐야?",
-                    a: "20대 여성 소비자 트렌드를 분석한 데이터를 기반으로, 상품 기획에 바로 활용할 수 있는 인사이트를 제공합니다",
+                    a: "20대 여성 소비자 트렌드를 분석한 데이터를 기반으로,\n상품 기획에 바로 활용할 수 있는 인사이트를 제공합니다",
                   },
                 ],
               },
@@ -293,11 +342,11 @@ export default function HomePage() {
                 questions: [
                   {
                     q: "나 이번주에 신상 촬영 있어!",
-                    a: "중요한 일정이 있을 땐 TinkerBell이 일정을 자동으로 캘린더에 등록하고, 리마인드까지 설정해줍니다",
+                    a: "중요한 일정이 있을 땐 TinkerBell이 일정을 자동으로\n캘린더에 등록하고, 리마인드까지 설정해줍니다",
                   },
                   {
                     q: "배송 지연에 고객이 화났어요",
-                    a: "이런 경우에는 고객 응대 에이전트가 상황과 고객에 맞춘 응대 문장을 자동으로 제안합니다",
+                    a: "이런 경우에는 고객 응대 에이전트가\n상황과 고객에 맞춘 응대 문장을 자동으로 제안합니다",
                   },
                 ],
               },
@@ -310,11 +359,11 @@ export default function HomePage() {
                 questions: [
                   {
                     q: "다음주에 신상품 5개 올릴 건데, 인스타 자동 포스팅 해줘!",
-                    a: "마케팅 에이전트와 자동화 에이전트가 협업하여 SNS 콘텐츠를 예약 발행합니다",
+                    a: "마케팅 에이전트와 자동화 에이전트가 협업하여\nSNS 콘텐츠를 예약 발행합니다",
                   },
                   {
                     q: "주문도 줄고 자신감이 없어요…",
-                    a: "사용자가 힘들 때 멘탈케어 에이전트가 따뜻한 위로를 건네고, 일정 조정이나 스트레스 관리까지 함께 도와줍니다",
+                    a: "사용자가 힘들 때 멘탈케어 에이전트가 따뜻한 위로를 건네고,\n일정 조정이나 스트레스 관리까지 함께 도와줍니다",
                   },
                 ],
               },
@@ -345,7 +394,7 @@ export default function HomePage() {
                           </div>
                           <div>
                             <span className="text-yellow-600 font-bold">A: </span>
-                            <span className="text-gray-700">{item.a}</span>
+                            <span className="text-gray-700 whitespace-pre-line">{item.a}</span>
                           </div>
                         </CardContent>
                       </Card>
@@ -363,51 +412,54 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-6">상담하기</h2>
-            <p className="text-xl text-gray-600">창업에 대한 고민이 있으시다면 언제든지 연락해주세요</p>
+            <p className="text-xl text-gray-600">
+              창업에 대한 고민이 있으시다면
+              <br />
+              언제든지 연락해주세요
+            </p>
           </div>
           <div className="grid md:grid-cols-2 gap-8">
             <Card className="border-0 shadow-lg bg-white p-8">
-  <div className="text-center">
-    {/* 전화 상담 이미지 아이콘 */}
-    <Image
-      src="/icons/3D_전화.png"
-      alt="전화 상담"
-      width={48}
-      height={48}
-      className="mx-auto mb-4"
-    />
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">전화 상담</h3>
-    <p className="text-gray-600 mb-4">전문 상담사와 직접 통화</p>
-    <p className="text-2xl font-bold text-green-600 mb-4">1588-0000</p>
-    <div className="flex items-center justify-center text-sm text-gray-500">
-      <Clock className="h-4 w-4 mr-1" />
-      평일 09:00 - 18:00
-    </div>
-  </div>
-</Card>
+              <div className="text-center">
+                {/* 전화 상담 이미지 아이콘 */}
+                <Image
+                  src="/icons/3D_전화.png"
+                  alt="전화 상담"
+                  width={48}
+                  height={48}
+                  className="mx-auto mb-4"
+                />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">전화 상담</h3>
+                <p className="text-gray-600 mb-4">전문 상담사와 직접 통화</p>
+                <p className="text-2xl font-bold text-green-600 mb-4">1588-0000</p>
+                <div className="flex items-center justify-center text-sm text-gray-500">
+                  <Clock className="h-4 w-4 mr-1" />
+                  평일 09:00 - 18:00
+                </div>
+              </div>
+            </Card>
 
-<Card className="border-0 shadow-lg bg-white p-8">
-  <div className="text-center">
-    {/* AI 상담 이미지 아이콘 */}
-    <Image
-      src="/icons/3D_메세지.png"
-      alt="AI 상담"
-      width={48}
-      height={48}
-      className="mx-auto mb-4"
-    />
-    <h3 className="text-xl font-semibold text-gray-900 mb-2">AI 상담</h3>
-    <p className="text-gray-600 mb-4">24시간 AI 챗봇 상담</p>
-    <Link href="/chat">
-      <Button className="bg-yellow-500 hover:bg-yellow-600 w-full mb-4">채팅 시작하기</Button>
-    </Link>
-    <div className="flex items-center justify-center text-sm text-gray-500">
-      <Clock className="h-4 w-4 mr-1" />
-      24시간 언제든지
-    </div>
-  </div>
-</Card>
-
+            <Card className="border-0 shadow-lg bg-white p-8">
+              <div className="text-center">
+                {/* AI 상담 이미지 아이콘 */}
+                <Image
+                  src="/icons/3D_메세지.png"
+                  alt="AI 상담"
+                  width={48}
+                  height={48}
+                  className="mx-auto mb-4"
+                />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">AI 상담</h3>
+                <p className="text-gray-600 mb-4">24시간 AI 챗봇 상담</p>
+                <Link href="/chat">
+                  <Button className="bg-yellow-500 hover:bg-yellow-600 w-full mb-4">채팅 시작하기</Button>
+                </Link>
+                <div className="flex items-center justify-center text-sm text-gray-500">
+                  <Clock className="h-4 w-4 mr-1" />
+                  24시간 언제든지
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
       </section>
@@ -417,7 +469,11 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-6">자주 묻는 질문</h2>
-            <p className="text-xl text-gray-600">TinkerBell에 대해 궁금한 점들을 확인해보세요</p>
+            <p className="text-xl text-gray-600">
+              TinkerBell에 대해
+              <br />
+              궁금한 점들을 확인해보세요
+            </p>
           </div>
           <div className="bg-white rounded-lg shadow-lg p-8">
             <div className="space-y-4">
@@ -449,11 +505,17 @@ export default function HomePage() {
       {/* CTA Section */}
       <section className="px-6 py-20 bg-gradient-to-r from-green-600 to-emerald-700">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl font-bold text-white mb-6">이제 혼자가 아닙니다</h2>
+          <h2 className="text-4xl font-bold text-white mb-6">
+            이제 혼자가 아닙니다
+          </h2>
           <p className="text-xl text-green-100 mb-12 leading-relaxed">
-            TinkerBell과 함께 창업의 꿈을 현실로 만들어보세요
+            TinkerBell과 함께
             <br />
-            <span className="font-bold text-yellow-300">다중 AI 에이전트팀</span>이 24시간 당신을 지원합니다
+            창업의 꿈을 현실로 만들어보세요
+            <br />
+            <span className="font-bold text-yellow-300">다중 AI 에이전트팀</span>이
+            <br />
+            24시간 당신을 지원합니다
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="bg-white text-green-600 hover:bg-gray-100 text-lg px-8 py-3 rounded-full">
@@ -487,12 +549,13 @@ export default function HomePage() {
                   />
                 </div>
                 <span className="text-2xl font-bold">TinkerBell</span>
-                <span className="text-sm text-gray-400">Business</span>
               </div>
               <p className="text-gray-400 mb-4">
                 1인 창업자를 위한 AI 어시스턴트
                 <br />
-                혼자서도 한 팀처럼, 창업의 모든 순간을 함께합니다
+                혼자서도 한 팀처럼,
+                <br />
+                창업의 모든 순간을 함께합니다
               </p>
             </div>
             <div>

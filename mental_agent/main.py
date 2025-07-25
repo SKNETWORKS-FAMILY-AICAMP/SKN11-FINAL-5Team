@@ -9,6 +9,7 @@ from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from fastapi import Body
 
 # 공통 모듈 임포트
 from shared_modules import (
@@ -43,7 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 정신건강 매니저 인스턴스
+# 정신건강 매니저 인스턴스 
 mental_health_manager = MentalHealthAgentManager()
 
 # 요청 모델
@@ -305,6 +306,58 @@ def health_check():
     except Exception as e:
         logger.error(f"헬스체크 실패: {e}")
         return create_error_response(f"헬스체크 실패: {str(e)}", "HEALTH_CHECK_ERROR")
+    
+# mental_agent/main.py에 추가할 엔드포인트들
+
+@app.get("/conversation/{conversation_id}/phq9/status")
+def get_phq9_status_endpoint(conversation_id: int):
+    """PHQ-9 설문 상태 조회"""
+    try:
+        result = mental_health_manager.get_phq9_status(conversation_id)
+        return create_success_response(result)
+    except Exception as e:
+        logger.error(f"PHQ-9 상태 조회 실패: {e}")
+        return create_error_response(str(e), "PHQ9_STATUS_ERROR")
+
+@app.post("/conversation/{conversation_id}/phq9/response")
+def submit_phq9_button_response_endpoint(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 버튼 응답 제출"""
+    try:
+        user_id = data.get("user_id")
+        response_value = data.get("response_value")
+        
+        if user_id is None:
+            return create_error_response("사용자 ID가 필요합니다", "MISSING_USER_ID")
+        
+        if response_value is None:
+            return create_error_response("응답값이 필요합니다", "MISSING_RESPONSE")
+        
+        result = mental_health_manager.submit_phq9_button_response(
+            conversation_id, user_id, response_value
+        )
+        
+        return create_success_response(result)
+            
+    except Exception as e:
+        logger.error(f"PHQ-9 버튼 응답 제출 실패: {e}")
+        return create_error_response(str(e), "PHQ9_SUBMIT_ERROR")
+
+@app.post("/conversation/{conversation_id}/phq9/start")
+def start_phq9_survey_endpoint(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 설문 시작"""
+    try:
+        user_id = data.get("user_id")
+        
+        if user_id is None:
+            return create_error_response("사용자 ID가 필요합니다", "MISSING_USER_ID")
+        
+        result = mental_health_manager.start_phq9_survey(conversation_id, user_id)
+        
+        return create_success_response(result)
+            
+    except Exception as e:
+        logger.error(f"PHQ-9 시작 실패: {e}")
+        return create_error_response(str(e), "PHQ9_START_ERROR")
 
 # 메인 실행
 if __name__ == "__main__":
