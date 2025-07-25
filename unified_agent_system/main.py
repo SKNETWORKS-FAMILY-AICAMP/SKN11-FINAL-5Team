@@ -1085,6 +1085,47 @@ async def handle_emergency(req: EmergencyRequest):
     except Exception as e:
         logger.error(f"긴급상황 처리 오류: {e}")
         return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
+    
+# 통합 main.py에 추가할 프록시 엔드포인트들
+
+@app.get("/conversation/{conversation_id}/phq9/status")
+async def get_phq9_status_proxy(conversation_id: int):
+    """PHQ-9 상태 조회 프록시"""
+    try:
+        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
+        response = requests.get(f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/status")
+        return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 상태 조회 프록시 실패: {e}")
+        return create_error_response("PHQ-9 상태 조회 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/conversation/{conversation_id}/phq9/response")
+async def submit_phq9_response_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 응답 제출 프록시"""
+    try:
+        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
+        response = requests.post(
+            f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/response",
+            json=data
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 응답 제출 프록시 실패: {e}")
+        return create_error_response("PHQ-9 응답 제출 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/conversation/{conversation_id}/phq9/start")
+async def start_phq9_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 시작 프록시"""
+    try:
+        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
+        response = requests.post(
+            f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/start",
+            json=data
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 시작 프록시 실패: {e}")
+        return create_error_response("PHQ-9 시작 실패", "PHQ9_PROXY_ERROR")
 
 # ===== 업무지원 전용 API (예시) =====
 # 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다
@@ -1285,6 +1326,7 @@ def map_frontend_agent_to_backend(frontend_agent: str) -> Optional[AgentType]:
 
 @app.post("/query")
 async def process_query(request: UnifiedRequest):
+    logger.info(f"[DEBUG] /query 호출: {request.user_id} {request.message[:30]}")
     """통합 질의 처리"""
     try:
         logger.info(f"사용자 {request.user_id}: {request.message[:50]}...")
@@ -1829,6 +1871,35 @@ def increase_faq_view(faq_id: int, db: Session = Depends(get_db_dependency)):
     except Exception as e:
         logger.error(f"FAQ 조회수 증가 오류: {e}")
         return create_error_response("FAQ 조회수 업데이트 실패", "FAQ_VIEW_ERROR")
+from shared_modules.queries import create_feedback
+
+class FeedbackRequest(BaseModel):
+    user_id: int
+    conversation_id: Optional[int] = None
+    rating: int  # 1: 👎, 5: 👍
+    comment: Optional[str] = None
+
+@app.post("/feedback")
+async def submit_feedback(req: FeedbackRequest):
+    """피드백 저장"""
+    try:
+        with get_session_context() as db:
+            feedback = create_feedback(
+                db=db,
+                user_id=req.user_id,
+                conversation_id=req.conversation_id,
+                rating=req.rating,
+                comment=req.comment
+            )
+            if not feedback:
+                return create_error_response("피드백 저장 실패", "FEEDBACK_SAVE_ERROR")
+            return create_success_response({"feedback_id": feedback.feedback_id})
+    except Exception as e:
+        logger.error(f"피드백 전송 오류: {e}")
+        return create_error_response("피드백 전송 실패", 
+        "FEEDBACK_ERROR")
+    
+
 
 if __name__ == "__main__":
     uvicorn.run(

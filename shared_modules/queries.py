@@ -322,14 +322,26 @@ def end_conversation(db: Session, conversation_id: int) -> bool:
 # Message 관련 함수 (DDL sender_type 제약조건 적용)
 # -------------------
 def create_message(db: Session, conversation_id: int, sender_type: str, agent_type: str, content: str):
-    """메시지 생성 (DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
+    """메시지 생성 (중복 방지 + DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
     try:
         # sender_type을 DDL 제약조건에 맞게 변환
         if sender_type.lower() == 'user':
             sender_type = 'USER'
         elif sender_type.lower() == 'agent':
             sender_type = 'AGENT'
-        
+
+        # **중복 메시지 방지 로직**
+        last_msg = (
+            db.query(db_models.Message)
+            .filter(db_models.Message.conversation_id == conversation_id)
+            .order_by(db_models.Message.created_at.desc())
+            .first()
+        )
+        if last_msg and last_msg.content == content and last_msg.sender_type == sender_type:
+            logger.info(f"[create_message] 중복 메시지 감지: {content[:30]}...")
+            return last_msg
+
+        # 새로운 메시지 생성
         msg = db_models.Message(
             conversation_id=conversation_id,
             sender_type=sender_type,
@@ -344,6 +356,7 @@ def create_message(db: Session, conversation_id: int, sender_type: str, agent_ty
         logger.error(f"[create_message 오류] {e}", exc_info=True)
         db.rollback()
         return None
+
 
 def get_conversation_messages(db: Session, conversation_id: int, limit: int = 100, offset: int = 0):
     try:

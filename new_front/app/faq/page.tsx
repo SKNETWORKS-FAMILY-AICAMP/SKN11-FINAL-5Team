@@ -41,6 +41,7 @@ export default function FAQPage() {
   const [faqs, setFaqs] = useState<FAQ[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [user, setUser] = useState<any>(null)
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
 
   // 로그인 유저 처리
   useEffect(() => {
@@ -73,6 +74,12 @@ export default function FAQPage() {
     }
   }, [searchParams, router])
 
+  // 로그아웃 처리
+  const handleLogout = () => {
+    localStorage.clear()
+    window.location.href = "/login"
+  }
+
   // FAQ 불러오기
   useEffect(() => {
     fetchFaqs("")
@@ -95,52 +102,67 @@ export default function FAQPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
       {/* Header */}
-      <nav className="px-6 py-4 bg-white/90 backdrop-blur-sm border-b border-gray-200">
+      <nav className="px-6 py-4 sticky top-0 bg-white/90 backdrop-blur-sm border-b border-gray-200 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <Link href="/" className="flex items-center space-x-3">
             <Image
-              src="/3D_고양이.png?height=32&width=32"
+              src="/3D_고양이.png?height=40&width=40"
               alt="TinkerBell Logo"
-              width={32}
-              height={32}
+              width={40}
+              height={40}
               className="rounded-full"
             />
-            <span className="text-xl font-bold text-gray-900">TinkerBell</span>
+            <span className="text-2xl font-bold text-gray-900">TinkerBell</span>
+            <span className="text-sm text-gray-500 font-medium">Business</span>
           </Link>
 
-          {/* 사용자 정보 or 로그인 버튼 */}
-          <div className="flex items-center space-x-4">
-            {user ? (
-              <div className="flex items-center space-x-3">
-                <div
-                  className="flex items-center space-x-2 cursor-pointer"
-                  onClick={() => router.push("/mypage")}
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/#service" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              서비스 소개
+            </Link>
+            <Link href="/chat" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              상담하기
+            </Link>
+            <Link href="/faq" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              FAQ
+            </Link>
+            {User ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
                 >
-                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                    <User className="w-4 h-4 text-green-600" />
+                  <User className="h-4 w-4 text-green-600" />
+                </button>
+
+                {showProfileMenu && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                    <Link
+                      href="/chat"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      상담으로 돌아가기
+                    </Link>
+                    <Link
+                      href="/workspace"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      워크스페이스
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      로그아웃
+                    </button>
                   </div>
-                  <span className="text-sm font-medium text-gray-700 hover:underline">
-                    {user.username || user.email || "사용자"}
-                  </span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    localStorage.removeItem("user")
-                    setUser(null)
-                    router.push("/login")
-                  }}
-                  className="text-sm"
-                >
-                  로그아웃
-                </Button>
+                )}
               </div>
             ) : (
-              <Link href="/login">
-                <Button variant="outline" size="sm" className="text-sm">
-                  로그인
-                </Button>
+              <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">
+                로그인
               </Link>
             )}
           </div>
