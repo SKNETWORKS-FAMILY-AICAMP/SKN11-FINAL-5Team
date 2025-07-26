@@ -1,3 +1,0 @@
-"""
-Business Planning Utilities Module
-"""

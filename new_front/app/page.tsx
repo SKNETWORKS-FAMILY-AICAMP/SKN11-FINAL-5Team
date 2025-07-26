@@ -63,6 +63,7 @@ export default function HomePage() {
               className="rounded-full"
             />
             <span className="text-2xl font-bold text-gray-900">TinkerBell</span>
+            <span className="text-sm text-gray-500 font-medium">Business</span>
           </div>
 
           <div className="hidden md:flex items-center space-x-8">
@@ -76,37 +77,34 @@ export default function HomePage() {
               FAQ
             </Link>
             {user ? (
-              <div className="relative">
-                <button
-                  onClick={() => setShowProfileMenu(!showProfileMenu)}
-                  className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
-                >
-                  <User className="h-4 w-4 text-green-600" />
-                </button>
+              <div className="relative flex items-center space-x-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowProfileMenu(!showProfileMenu)}
+                    className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
+                  >
+                    <User className="h-4 w-4 text-green-600" />
+                  </button>
 
-                {showProfileMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                    <Link
-                      href="/mypage"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setShowProfileMenu(false)}
-                    >
-                      마이페이지
-                    </Link>
-                    <Link
-                      href="/workspace"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setShowProfileMenu(false)}
-                    >
-                      워크스페이스
-                    </Link>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      로그아웃
-                    </button>
-                  </div>
+                  {showProfileMenu && (
+                    <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                      <Link href="/chat" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
+                        상담으로 돌아가기
+                      </Link>
+                      <Link href="/workspace" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
+                        워크스페이스
+                      </Link>
+                      <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                        로그아웃
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {user?.username && (
+                  <span className="text-base text-gray-600">
+                    {user.username} 님
+                  </span>
                 )}
               </div>
             ) : (
@@ -187,7 +185,7 @@ export default function HomePage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               {
-                icon: "/icons/3D_사업기획.png",
+                icon: "/icons/3D_사업기획.png", 
                 title: "사업 가능성 찾기",
                 desc: "시장 분석과 사업 계획을\n함께 다듬어요.",
                 color: "text-red-600",
@@ -549,6 +547,7 @@ export default function HomePage() {
                   />
                 </div>
                 <span className="text-2xl font-bold">TinkerBell</span>
+                <span className="text-sm text-gray-400">Business</span>
               </div>
               <p className="text-gray-400 mb-4">
                 1인 창업자를 위한 AI 어시스턴트

@@ -142,6 +142,7 @@ export default function ChatMainPage() {
               className="rounded-full"
             />
             <span className="text-2xl font-bold text-gray-900">TinkerBell</span>
+            <span className="text-sm text-gray-500 font-medium">Business</span>
           </Link>
 
           <div className="hidden md:flex items-center space-x-8">
@@ -155,37 +156,47 @@ export default function ChatMainPage() {
               FAQ
             </Link>
             {user ? (
-              <div className="relative">
-                <button
-                  onClick={() => setShowProfileMenu(!showProfileMenu)}
-                  className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
-                >
-                  <User className="h-4 w-4 text-green-600" />
-                </button>
+              <div className="relative flex items-center space-x-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowProfileMenu(!showProfileMenu)}
+                    className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
+                  >
+                    <User className="h-4 w-4 text-green-600" />
+                  </button>
 
-                {showProfileMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                    <Link
-                      href="/mypage"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setShowProfileMenu(false)}
-                    >
-                      마이페이지
-                    </Link>
-                    <Link
-                      href="/workspace"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setShowProfileMenu(false)}
-                    >
-                      워크스페이스
-                    </Link>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      로그아웃
-                    </button>
-                  </div>
+                  {/* 드롭다운: 이건 button 기준으로 absolute 배치 */}
+                  {showProfileMenu && (
+                    <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                      <Link
+                        href="/mypage"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowProfileMenu(false)}
+                      >
+                        마이페이지
+                      </Link>
+                      <Link
+                        href="/workspace"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowProfileMenu(false)}
+                      >
+                        워크스페이스
+                      </Link>
+                      <button
+                        onClick={handleLogout}
+                        className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      >
+                        로그아웃
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 닉네임은 버튼 바깥에 그냥 출력 */}
+                {user?.username && (
+                  <span className="text-base font-normal text-gray-600">
+                    {user.username} 님
+                  </span>
                 )}
               </div>
             ) : (

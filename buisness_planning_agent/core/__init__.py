@@ -1,3 +1,0 @@
-"""
-Business Planning Core Module
-"""
