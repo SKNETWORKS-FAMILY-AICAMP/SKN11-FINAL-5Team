@@ -853,3 +853,37 @@ class CustomerServiceAgentManager:
         except Exception as e:
             logger.error(f"전문 지식 검색 실패: {e}")
             return []
+    
+    def generate_analysis_transition_response(self, state: ConversationState, user_input: str) -> str:
+        """분석 단계로 전환 시 자연스러운 응답 생성"""
+        try:
+            transition_prompt = f"""고객 상담에서 정보 수집이 완료되어 분석 단계로 넘어가는 상황입니다.
+    
+            수집된 정보:
+            {json.dumps({k: v for k, v in state.collected_info.items() if v}, ensure_ascii=False, indent=2)}
+    
+            고객의 마지막 답변: "{user_input}"
+    
+            다음 요구사항에 맞는 자연스러운 전환 응답을 생성해주세요:
+            1. 고객의 마지막 답변에 대한 감사 표현
+            2. 수집된 정보를 간략히 요약 (핵심만)
+            3. 분석 진행 예고를 자연스럽게 표현
+            4. 고객이 기다리는 동안의 안내
+            5. 전문적이면서도 친근한 톤
+    
+            응답:"""
+            
+            messages = [
+                SystemMessage(content="당신은 전문적인 고객 서비스 컨설턴트로서 대화의 흐름을 자연스럽게 관리합니다."),
+                HumanMessage(content=transition_prompt)
+            ]
+            
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.5)
+            raw_response = llm.invoke(messages)
+            response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"분석 전환 응답 생성 실패: {e}")
+            return "네, 충분한 정보를 주셔서 감사합니다. 이제 상황을 종합적으로 분석해보겠습니다."

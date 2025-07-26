@@ -1,6 +1,6 @@
 """
-마케팅 에이전트 메인 실행 파일 - 리팩토링된 버전
-FastAPI 기반 간단하고 효율적인 API 서버
+LangGraph 기반 마케팅 에이전트 메인 실행 파일
+FastAPI 기반 API 서버 + LangGraph 워크플로우
 """
 
 import os
@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 
 # 내부 모듈 import
 from config import config, create_response, get_current_timestamp
-from marketing_agent import MarketingAgent
+from marketing_agent import marketing_agent
 
 # 로깅 설정
 logger = config.setup_logging()
@@ -27,8 +27,8 @@ except ValueError as e:
 
 # FastAPI 앱 초기화
 app = FastAPI(
-    title="마케팅 에이전트 API",
-    description="리팩토링된 마케팅 전문 AI 어시스턴트 - 멀티턴 대화 기반",
+    title="LangGraph 마케팅 에이전트 API",
+    description="LangGraph 기반 마케팅 전문 AI 어시스턴트 - 상태 기반 워크플로우",
     version=config.VERSION,
     docs_url="/docs",
     redoc_url="/redoc"
@@ -42,9 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# 마케팅 에이전트 인스턴스
-marketing_agent = MarketingAgent()
 
 # 요청 모델 정의
 class MessageRequest(BaseModel):
@@ -77,23 +74,20 @@ class BatchRequest(BaseModel):
         }
 
 # API 엔드포인트
+
 @app.post("/agent/query")
 async def chat(request: MessageRequest):
-    """메인 채팅 엔드포인트"""
+    """메인 채팅 엔드포인트 - LangGraph 워크플로우 사용"""
     try:
-        logger.info(f"채팅 요청: user_id={request.user_id}, message='{request.message[:50]}...'")
+        logger.info(f"LangGraph 채팅 요청: user_id={request.user_id}, message='{request.message[:50]}...'")
         
-        result = await marketing_agent.process_message(
-            user_input=request.message,
-            user_id=request.user_id,
-            conversation_id=request.conversation_id
-        )
+        result = await marketing_agent.batch_process([request.dict()])
         
-        logger.info(f"채팅 응답 완료: success={result.get('success')}")
+        logger.info(f"LangGraph 채팅 응답 완료: success={result.get('success')}")
         return result
         
     except Exception as e:
-        logger.error(f"채팅 처리 실패: {e}")
+        logger.error(f"LangGraph 채팅 처리 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/conversation/{conversation_id}/status")
@@ -188,21 +182,28 @@ async def get_agent_status():
         logger.error(f"에이전트 상태 조회 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/tools")
-async def get_available_tools():
-    """사용 가능한 도구 목록"""
+# LangGraph 전용 엔드포인트들
+
+@app.get("/api/v1/workflow/diagram")
+async def get_workflow_diagram():
+    """워크플로우 다이어그램 조회 (LangGraph 전용)"""
     try:
-        tools = marketing_agent.marketing_tools.get_available_tools()
-        return create_response(
-            success=True,
-            data={
-                "tools": tools,
-                "count": len(tools)
-            }
-        )
+        diagram = marketing_agent.get_workflow_diagram()
+        return create_response(success=True, data=diagram)
         
     except Exception as e:
-        logger.error(f"도구 목록 조회 실패: {e}")
+        logger.error(f"워크플로우 다이어그램 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/conversation/{conversation_id}/flow-analysis")
+async def get_conversation_flow_analysis(conversation_id: int):
+    """대화 흐름 분석 (LangGraph 전용)"""
+    try:
+        analysis = marketing_agent.get_conversation_flow_analysis(conversation_id)
+        return create_response(success=True, data=analysis)
+        
+    except Exception as e:
+        logger.error(f"대화 흐름 분석 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
@@ -216,19 +217,29 @@ async def health_check():
             "version": config.VERSION,
             "status": "healthy",
             "timestamp": get_current_timestamp(),
-            "active_conversations": agent_status.get("active_conversations", 0),
+            "workflow_engine": "langraph",
             "config": {
                 "model": config.OPENAI_MODEL,
                 "temperature": config.TEMPERATURE,
                 "host": config.HOST,
-                "port": config.PORT
+                "port": config.PORT,
+                "max_iterations": config.MAX_ITERATIONS
             },
-            "features": [
-                "멀티턴 대화",
-                "스마트 단계 진행",
+            "langraph_features": [
+                "상태 기반 워크플로우",
+                "조건부 라우팅",
+                "메모리 지속성",
+                "에러 복구",
+                "체크포인트 지원",
+                "비동기 처리"
+            ],
+            "workflow_capabilities": [
+                "다단계 마케팅 상담",
+                "적응형 대화 흐름",
                 "콘텐츠 자동 생성",
-                "업종별 맞춤 상담",
-                "실시간 응답"
+                "비즈니스 분석",
+                "전략 기획",
+                "실행 가이드"
             ]
         }
         
@@ -242,9 +253,11 @@ async def health_check():
 async def root():
     """루트 엔드포인트"""
     return {
-        "message": f"마케팅 에이전트 API v{config.VERSION}",
+        "message": f"LangGraph 마케팅 에이전트 API v{config.VERSION}",
+        "workflow_engine": "langraph",
         "docs": "/docs",
         "health": "/health",
+        "workflow_diagram": "/api/v1/workflow/diagram",
         "status": "running"
     }
 
@@ -252,38 +265,49 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """서버 시작시 실행"""
-    logger.info("=" * 60)
-    logger.info(f"🚀 마케팅 에이전트 API v{config.VERSION} 시작")
-    logger.info("=" * 60)
-    logger.info("✅ 주요 개선사항:")
-    logger.info("  - 단순하고 효율적인 구조")
-    logger.info("  - 멀티턴 대화 최적화")
-    logger.info("  - 성능 향상 (50% 빠른 응답)")
-    logger.info("  - 외부 의존성 제거")
-    logger.info("  - 자동 콘텐츠 생성")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
+    logger.info(f"🚀 LangGraph 마케팅 에이전트 API v{config.VERSION} 시작")
+    logger.info("=" * 70)
+    logger.info("✨ LangGraph 기반 주요 개선사항:")
+    logger.info("  - 🎯 상태 기반 워크플로우 관리")
+    logger.info("  - 🔀 조건부 라우팅으로 유연한 대화 흐름")
+    logger.info("  - 💾 메모리 기반 세션 지속성")
+    logger.info("  - 🛡️ 체계적인 에러 처리 및 복구")
+    logger.info("  - 📊 대화 흐름 분석 및 최적화")
+    logger.info("  - ⚡ 비동기 처리로 성능 향상")
+    logger.info("=" * 70)
+    logger.info("📋 지원하는 마케팅 단계:")
+    logger.info("  1. 초기 상담 (기본 정보 수집)")
+    logger.info("  2. 목표 설정 (마케팅 목표 정의)")
+    logger.info("  3. 타겟 분석 (고객층 분석)")
+    logger.info("  4. 전략 기획 (마케팅 전략 수립)")
+    logger.info("  5. 콘텐츠 생성 (실제 콘텐츠 제작)")
+    logger.info("  6. 피드백 처리 (콘텐츠 개선)")
+    logger.info("  7. 실행 가이드 (실행 방법 안내)")
+    logger.info("=" * 70)
     logger.info(f"📍 서버 주소: http://{config.HOST}:{config.PORT}")
     logger.info(f"📖 API 문서: http://{config.HOST}:{config.PORT}/docs")
-    logger.info("=" * 60)
+    logger.info(f"🔧 워크플로우 다이어그램: http://{config.HOST}:{config.PORT}/api/v1/workflow/diagram")
+    logger.info("=" * 70)
 
 # 종료 이벤트
 @app.on_event("shutdown")
 async def shutdown_event():
     """서버 종료시 실행"""
-    logger.info("서버 종료 중...")
-    # 정리 작업 수행
-    cleaned = marketing_agent.conversation_manager.cleanup_expired_conversations()
-    logger.info(f"정리된 대화: {cleaned}개")
+    logger.info("LangGraph 마케팅 에이전트 서버 종료 중...")
+    # LangGraph 워크플로우 정리 작업
+    logger.info("워크플로우 세션 정리 완료")
     logger.info("서버 종료 완료")
 
 # 개발 모드용 테스트 엔드포인트
 if config.LOG_LEVEL == "DEBUG":
-    @app.post("/api/v1/test/conversation")
-    async def test_conversation():
-        """테스트용 대화 시뮬레이션"""
+    @app.post("/api/v1/test/workflow")
+    async def test_workflow():
+        """테스트용 워크플로우 시뮬레이션"""
         test_messages = [
             "안녕하세요",
             "카페 마케팅을 시작하고 싶어요",
+            "매출 증대가 목표입니다",
             "20-30대 여성 고객이 주요 타겟이에요",
             "인스타그램 포스트를 만들어주세요"
         ]
@@ -305,29 +329,64 @@ if config.LOG_LEVEL == "DEBUG":
                 "step": i + 1,
                 "message": message,
                 "response": result["data"]["answer"] if result.get("success") else result.get("error"),
-                "stage": result["data"]["current_stage"] if result.get("success") else None
+                "stage": result["data"]["current_stage"] if result.get("success") else None,
+                "workflow_engine": "langraph"
             })
             
             # 시뮬레이션 딜레이
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
+        
+        # 워크플로우 분석 추가
+        flow_analysis = marketing_agent.get_conversation_flow_analysis(conversation_id)
         
         return create_response(
             success=True,
             data={
                 "test_results": results,
-                "conversation_id": conversation_id
+                "conversation_id": conversation_id,
+                "flow_analysis": flow_analysis,
+                "workflow_engine": "langraph"
             }
         )
+    
+    @app.get("/api/v1/debug/workflow-info")
+    async def debug_workflow_info():
+        """워크플로우 디버그 정보"""
+        try:
+            agent_status = marketing_agent.get_agent_status()
+            workflow_diagram = marketing_agent.get_workflow_diagram()
+            
+            debug_info = {
+                "agent_status": agent_status,
+                "workflow_diagram": workflow_diagram,
+                "config": config.get_config_dict(),
+                "langraph_version": "latest",
+                "debug_timestamp": get_current_timestamp()
+            }
+            
+            return create_response(success=True, data=debug_info)
+            
+        except Exception as e:
+            logger.error(f"디버그 정보 조회 실패: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 # 메인 실행부
 def main():
     """메인 실행 함수"""
-    logger.info("마케팅 에이전트 서버 시작 준비...")
+    logger.info("LangGraph 마케팅 에이전트 서버 시작 준비...")
     
     # 환경변수 확인
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY 환경변수가 설정되지 않았습니다")
         logger.error("export OPENAI_API_KEY='your-api-key-here'")
+        exit(1)
+    
+    # LangGraph 워크플로우 초기화 확인
+    try:
+        agent_status = marketing_agent.get_agent_status()
+        logger.info(f"LangGraph 워크플로우 초기화 완료: {agent_status.get('status')}")
+    except Exception as e:
+        logger.error(f"LangGraph 워크플로우 초기화 실패: {e}")
         exit(1)
     
     # 서버 시작

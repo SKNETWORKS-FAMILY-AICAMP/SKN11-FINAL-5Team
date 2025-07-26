@@ -1,6 +1,5 @@
 """
-마케팅 에이전트 설정 관리
-리팩토링된 버전 - 단순하고 효율적인 설정
+마케팅 에이전트 설정 관리 - LangGraph 기반으로 수정
 """
 
 import os
@@ -12,8 +11,8 @@ class Config:
     """설정 관리 클래스"""
     
     # 기본 설정
-    VERSION = "2.0.0"
-    SERVICE_NAME = "marketing_agent_refactored"
+    VERSION = "3.0.0-langraph"
+    SERVICE_NAME = "marketing_agent_langraph"
     
     # 서버 설정
     HOST = os.getenv("HOST", "0.0.0.0")
@@ -32,6 +31,10 @@ class Config:
     BASE_DIR = Path(__file__).parent
     PROMPTS_DIR = BASE_DIR / "prompts"
     LOGS_DIR = BASE_DIR / "logs"
+    
+    # LangGraph 설정
+    MAX_ITERATIONS = 10
+    INTERRUPT_ON_HUMAN_INPUT = True
     
     # 대화 관리 설정
     MAX_CONVERSATION_HISTORY = 10
@@ -94,7 +97,8 @@ class Config:
             "temperature": cls.TEMPERATURE,
             "log_level": cls.LOG_LEVEL,
             "prompts_dir": str(cls.PROMPTS_DIR),
-            "max_history": cls.MAX_CONVERSATION_HISTORY
+            "max_history": cls.MAX_CONVERSATION_HISTORY,
+            "max_iterations": cls.MAX_ITERATIONS
         }
 
 # 전역 설정 인스턴스

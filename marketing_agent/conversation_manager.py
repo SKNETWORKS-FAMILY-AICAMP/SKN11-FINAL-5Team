@@ -630,6 +630,32 @@ JSON 형식으로 답변:
             logger.error(f"LLM 호출 실패: {e}")
             return {"error": str(e)}
     
+    
+    def detect_topic_shift(self, primary_intent: str, conversation: ConversationState) -> bool:
+        """
+        멀티턴 대화 중 주제 전환 여부 감지.
+        - 콘텐츠 생성 단계에서 전략/정보 요청 등 새로운 주제 발생 시 True 반환
+        - 다른 Stage에서도 이전 토픽과 전혀 관련 없는 질문이면 Stage 리셋 가능
+        """
+        # 콘텐츠 피드백 루프에서 벗어나야 할 조건
+        if conversation.is_in_content_creation() and primary_intent not in ["콘텐츠_생성", "피드백", "수정"]:
+            logger.info(f"[{conversation.conversation_id}] 콘텐츠 피드백 루프 중 새로운 주제 감지 → Stage STRATEGY로 전환")
+            conversation.end_content_session()
+            conversation.current_stage = MarketingStage.STRATEGY
+            conversation.current_mode = ConversationMode.QUESTIONING
+            return True
+
+        # Stage와 무관하게 대화 주제 변화 감지 (비즈니스 맥락과 무관한 질문 등)
+        unrelated_intents = ["일반_질문", "정보_요청", "전략_기획"]
+        if primary_intent in unrelated_intents and conversation.current_stage == MarketingStage.CONTENT_CREATION:
+            logger.info(f"[{conversation.conversation_id}] 콘텐츠 생성 단계에서 다른 주제 감지 → Stage STRATEGY로 전환")
+            conversation.current_stage = MarketingStage.STRATEGY
+            conversation.current_mode = ConversationMode.QUESTIONING
+            return True
+
+        return False
+
+    
     # 🆕 핵심 개선 메서드: 진행형 대화 생성
     async def generate_progressive_response(self, user_input: str, conversation: ConversationState) -> str:
         """🆕 진행형 대화 응답 생성 - 핵심 개선 메서드"""
@@ -678,13 +704,27 @@ JSON 형식으로 답변:
       
             primary_intent = intent_analysis.get('intent', {}).get('primary', '')
             
+            # 🆕 주제 전환 감지 및 Stage 전환
+            if self.detect_topic_shift(primary_intent, conversation):
+                logger.info(f"[{conversation.conversation_id}] 주제 전환 처리 완료")
+                
+            # 새로운 주제 탐지 로직 추가
+            if conversation.is_in_content_creation() and primary_intent not in ["콘텐츠_생성", "피드백", "수정"]:
+                logger.info(f"[{conversation.conversation_id}] 새로운 주제 감지: 콘텐츠 세션 종료 및 단계 리셋")
+                conversation.end_content_session()
+                conversation.current_stage = MarketingStage.STRATEGY
+                conversation.current_mode = ConversationMode.QUESTIONING
+            
             # 🆕 컨텐츠 생성 요청 감지 (개선된 조건)
             has_basic_info = self._has_sufficient_context_for_content(conversation)
             
             if primary_intent == "콘텐츠_생성" and has_basic_info and extracted_info.get("channels"):
+                # conversation.current_stage = MarketingStage.CONTENT_CREATION
+                # conversation.start_content_session(user_input)
+                # return "TRIGGER_CONTENT_GENERATION"
                 conversation.current_stage = MarketingStage.CONTENT_CREATION
                 conversation.start_content_session(user_input)
-                return "TRIGGER_CONTENT_GENERATION"
+                return await self._handle_content_creation_session(user_input, conversation, is_initial=True)
 
             # 🆕 대화 진행 방식 결정
             progress_info = conversation.get_conversation_progress()
@@ -696,7 +736,8 @@ JSON 형식으로 답변:
                 response = await self.generate_customized_suggestions(conversation)
             elif suggested_action == "create_content":
                 # 컨텐츠 생성 제안
-                response = await self.suggest_content_creation(conversation)
+                if conversation.is_in_content_creation():
+                    return await self._handle_content_creation_session(user_input, conversation)
             else:
                 # 진행형 대화 계속
                 response = await self.generate_stage_aware_response(user_input, conversation)
@@ -855,6 +896,11 @@ JSON 형식으로 답변:
         
         result = await self._call_enhanced_llm(self.intent_analysis_prompt, user_input, context)
         
+        if result.get("intent", {}).get("primary") in ["전략_기획", "정보_요청"] and conversation.current_stage == MarketingStage.CONTENT_CREATION:
+            logger.info(f"[{conversation.conversation_id}] 새로운 전략 질문 감지 → Stage STRATEGY로 복귀")
+            conversation.current_stage = MarketingStage.STRATEGY
+            conversation.current_mode = ConversationMode.QUESTIONING
+
         # 기본값 설정 (개선된 버전)
         if "error" in result:
             return {
@@ -929,9 +975,10 @@ JSON 형식으로 답변:
     async def _handle_content_creation_session(self, user_input: str, conversation: ConversationState, is_initial: bool = False) -> str:
         """컨텐츠 제작 세션 처리 - 개선된 버전"""
         if is_initial:
-            prompt = "컨텐츠 제작을 시작한다는 것을 친근하고 전문적으로 알리는 메시지를 생성해주세요."
-            result = await self._call_enhanced_llm(prompt, "", "")
-            return result.get("raw_response", "컨텐츠 제작을 시작합니다!")
+                prompt = f"'{user_input}'라는 컨텐츠를 작성할 계획입니다. {conversation.business_type} 업종, {conversation.get_info('product')} 제품, {conversation.get_info('target_audience')} 타겟을 고려한 캠페인 기획서 초안을 작성해주세요."
+                result = await self._call_enhanced_llm(prompt, "", "")
+                conversation.update_content_session(result.get("raw_response", "초안 생성 실패"))
+                return result.get("raw_response", "컨텐츠 제작을 시작합니다!")
         else:
             # 개선된 피드백 처리
             feedback_analysis = await self.handle_content_feedback_enhanced(user_input, conversation)
