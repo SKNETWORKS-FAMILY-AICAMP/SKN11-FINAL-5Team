@@ -21,6 +21,7 @@ import sys
 import os
 import shutil
 from typing import Optional
+import httpx
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -940,192 +941,212 @@ def get_user_info(user_id: int):
 
 # ===== 정신건강 전용 API =====
 
-@app.post("/phq9/start")
-async def start_phq9_assessment(req: PHQ9StartRequest):
-    """PHQ-9 평가 시작"""
-    try:
-        logger.info(f"PHQ-9 평가 시작: user_id={req.user_id}, conversation_id={req.conversation_id}")
+# @app.post("/phq9/start")
+# async def start_phq9_assessment(req: PHQ9StartRequest):
+#     """PHQ-9 평가 시작"""
+#     try:
+#         logger.info(f"PHQ-9 평가 시작: user_id={req.user_id}, conversation_id={req.conversation_id}")
         
-        response_data = {
-            "message": "PHQ-9 우울증 선별검사를 시작합니다. 다음 질문들에 솔직하게 답변해주세요.",
-            "assessment_type": "phq9",
-            "status": "started",
-            "questions": [
-                "지난 2주 동안, 일 또는 여가활동을 하는데 흥미나 즐거움을 느끼지 못함",
-                "지난 2주 동안, 기분이 가라앉거나, 우울하거나, 희망이 없다고 느낌",
-                "지난 2주 동안, 잠이 들거나 계속 잠을 자는 것이 어려움, 또는 잠을 너무 많이 잠",
-                "지난 2주 동안, 피곤하다고 느끼거나 기운이 거의 없음",
-                "지난 2주 동안, 입맛이 없거나 과식을 함",
-                "지난 2주 동안, 자신을 부정적으로 봄 — 혹은 자신이 실패자라고 느끼거나 자신 또는 가족을 실망시켰다고 느낌",
-                "지난 2주 동안, 신문을 읽거나 텔레비전 보는 것과 같은 일에 집중하는 것이 어려움",
-                "지난 2주 동안, 다른 사람들이 주목할 정도로 너무 느리게 움직이거나 말을 함. 또는 그 반대로 평상시보다 많이 움직여서 가만히 앉아 있을 수 없었음",
-                "지난 2주 동안, 자신이 죽는 것이 더 낫다고 생각하거나 어떤 식으로든 자신을 해칠 것이라고 생각함"
-            ]
-        }
+#         response_data = {
+#             "message": "PHQ-9 우울증 선별검사를 시작합니다. 다음 질문들에 솔직하게 답변해주세요.",
+#             "assessment_type": "phq9",
+#             "status": "started",
+#             "questions": [
+#                 "지난 2주 동안, 일 또는 여가활동을 하는데 흥미나 즐거움을 느끼지 못함",
+#                 "지난 2주 동안, 기분이 가라앉거나, 우울하거나, 희망이 없다고 느낌",
+#                 "지난 2주 동안, 잠이 들거나 계속 잠을 자는 것이 어려움, 또는 잠을 너무 많이 잠",
+#                 "지난 2주 동안, 피곤하다고 느끼거나 기운이 거의 없음",
+#                 "지난 2주 동안, 입맛이 없거나 과식을 함",
+#                 "지난 2주 동안, 자신을 부정적으로 봄 — 혹은 자신이 실패자라고 느끼거나 자신 또는 가족을 실망시켰다고 느낌",
+#                 "지난 2주 동안, 신문을 읽거나 텔레비전 보는 것과 같은 일에 집중하는 것이 어려움",
+#                 "지난 2주 동안, 다른 사람들이 주목할 정도로 너무 느리게 움직이거나 말을 함. 또는 그 반대로 평상시보다 많이 움직여서 가만히 앉아 있을 수 없었음",
+#                 "지난 2주 동안, 자신이 죽는 것이 더 낫다고 생각하거나 어떤 식으로든 자신을 해칠 것이라고 생각함"
+#             ]
+#         }
         
-        return create_success_response(response_data)
+#         return create_success_response(response_data)
         
-    except Exception as e:
-        logger.error(f"PHQ-9 시작 오류: {e}")
-        return create_error_response("PHQ-9 평가 시작에 실패했습니다", "PHQ9_START_ERROR")
+#     except Exception as e:
+#         logger.error(f"PHQ-9 시작 오류: {e}")
+#         return create_error_response("PHQ-9 평가 시작에 실패했습니다", "PHQ9_START_ERROR")
 
-@app.post("/phq9/submit")
-async def submit_phq9_assessment(req: PHQ9SubmitRequest):
-    """PHQ-9 평가 결과 제출"""
-    try:
-        if len(req.scores) != 9:
-            return create_error_response("9개의 응답이 필요합니다", "INVALID_SCORES")
+# @app.post("/phq9/submit")
+# async def submit_phq9_assessment(req: PHQ9SubmitRequest):
+#     """PHQ-9 평가 결과 제출"""
+#     try:
+#         if len(req.scores) != 9:
+#             return create_error_response("9개의 응답이 필요합니다", "INVALID_SCORES")
         
-        total_score = sum(req.scores)
+#         total_score = sum(req.scores)
         
-        # 우울증 수준 판정
-        if total_score <= 4:
-            level = 1  # 최소
-            level_text = "최소 우울"
-        elif total_score <= 9:
-            level = 2  # 경미
-            level_text = "경미한 우울"
-        elif total_score <= 14:
-            level = 3  # 중등도
-            level_text = "중등도 우울"
-        elif total_score <= 19:
-            level = 4  # 중증
-            level_text = "중증 우울"
-        else:
-            level = 5  # 최중증
-            level_text = "최중증 우울"
+#         # 우울증 수준 판정
+#         if total_score <= 4:
+#             level = 1  # 최소
+#             level_text = "최소 우울"
+#         elif total_score <= 9:
+#             level = 2  # 경미
+#             level_text = "경미한 우울"
+#         elif total_score <= 14:
+#             level = 3  # 중등도
+#             level_text = "중등도 우울"
+#         elif total_score <= 19:
+#             level = 4  # 중증
+#             level_text = "중증 우울"
+#         else:
+#             level = 5  # 최중증
+#             level_text = "최중증 우울"
         
-        # DB에 결과 저장
-        with get_session_context() as db:
-            result = save_or_update_phq9_result(db, req.user_id, total_score, level)
+#         # DB에 결과 저장
+#         with get_session_context() as db:
+#             result = save_or_update_phq9_result(db, req.user_id, total_score, level)
             
-            # 상담 메시지 저장
-            phq9_message = f"PHQ-9 평가 완료: 총점 {total_score}점 ({level_text})"
-            create_message(db, req.conversation_id, "system", "mental_health", phq9_message)
+#             # 상담 메시지 저장
+#             phq9_message = f"PHQ-9 평가 완료: 총점 {total_score}점 ({level_text})"
+#             create_message(db, req.conversation_id, "system", "mental_health", phq9_message)
         
-        # 권장사항 생성
-        if total_score >= 15:
-            recommendation = "전문의 상담을 강력히 권합니다. 정신건강의학과 방문을 고려해보세요."
-        elif total_score >= 10:
-            recommendation = "전문가 상담을 권합니다. 상담센터나 정신건강의학과 방문을 고려해보세요."
-        elif total_score >= 5:
-            recommendation = "경미한 우울 증상이 있습니다. 생활 습관 개선과 함께 지속적인 관찰이 필요합니다."
-        else:
-            recommendation = "현재 우울 증상은 최소 수준입니다. 현재 상태를 잘 유지하세요."
+#         # 권장사항 생성
+#         if total_score >= 15:
+#             recommendation = "전문의 상담을 강력히 권합니다. 정신건강의학과 방문을 고려해보세요."
+#         elif total_score >= 10:
+#             recommendation = "전문가 상담을 권합니다. 상담센터나 정신건강의학과 방문을 고려해보세요."
+#         elif total_score >= 5:
+#             recommendation = "경미한 우울 증상이 있습니다. 생활 습관 개선과 함께 지속적인 관찰이 필요합니다."
+#         else:
+#             recommendation = "현재 우울 증상은 최소 수준입니다. 현재 상태를 잘 유지하세요."
         
-        logger.info(f"PHQ-9 평가 완료: user_id={req.user_id}, score={total_score}, level={level}")
+#         logger.info(f"PHQ-9 평가 완료: user_id={req.user_id}, score={total_score}, level={level}")
         
-        response_data = {
-            "total_score": total_score,
-            "level": level,
-            "level_text": level_text,
-            "recommendation": recommendation,
-            "assessment_date": get_current_timestamp()
-        }
+#         response_data = {
+#             "total_score": total_score,
+#             "level": level,
+#             "level_text": level_text,
+#             "recommendation": recommendation,
+#             "assessment_date": get_current_timestamp()
+#         }
         
-        return create_success_response(response_data)
+#         return create_success_response(response_data)
         
-    except Exception as e:
-        logger.error(f"PHQ-9 제출 오류: {e}")
-        return create_error_response("PHQ-9 평가 제출에 실패했습니다", "PHQ9_SUBMIT_ERROR")
+#     except Exception as e:
+#         logger.error(f"PHQ-9 제출 오류: {e}")
+#         return create_error_response("PHQ-9 평가 제출에 실패했습니다", "PHQ9_SUBMIT_ERROR")
 
-@app.post("/emergency")
-async def handle_emergency(req: EmergencyRequest):
-    """긴급상황 처리"""
-    try:
-        logger.warning(f"긴급상황 감지: user_id={req.user_id}, message={req.message[:100]}")
+# @app.post("/emergency")
+# async def handle_emergency(req: EmergencyRequest):
+#     """긴급상황 처리"""
+#     try:
+#         logger.warning(f"긴급상황 감지: user_id={req.user_id}, message={req.message[:100]}")
         
-        emergency_response = {
-            "type": "emergency",
-            "message": """😢 지금 많이 힘드신 것 같습니다. 당신의 고통이 느껴집니다.
+#         emergency_response = {
+#             "type": "emergency",
+#             "message": """😢 지금 많이 힘드신 것 같습니다. 당신의 고통이 느껴집니다.
 
-하지만 당신은 혼자가 아닙니다. 즉시 전문가의 도움을 받으실 것을 강력히 권합니다.
+# 하지만 당신은 혼자가 아닙니다. 즉시 전문가의 도움을 받으실 것을 강력히 권합니다.
 
-🆘 **긴급 연락처**
-• 생명의전화: 1588-9191 (24시간)
-• 청소년전화: 1388 (24시간)  
-• 정신건강위기상담전화: 1577-0199 (24시간)
-• 응급실: 119
+# 🆘 **긴급 연락처**
+# • 생명의전화: 1588-9191 (24시간)
+# • 청소년전화: 1388 (24시간)  
+# • 정신건강위기상담전화: 1577-0199 (24시간)
+# • 응급실: 119
 
-💝 **기억해주세요**
-- 당신의 생명은 매우 소중합니다
-- 지금의 고통은 영원하지 않습니다  
-- 전문가가 반드시 도움을 줄 수 있습니다
-- 많은 사람들이 당신을 아끼고 있습니다
+# 💝 **기억해주세요**
+# - 당신의 생명은 매우 소중합니다
+# - 지금의 고통은 영원하지 않습니다  
+# - 전문가가 반드시 도움을 줄 수 있습니다
+# - 많은 사람들이 당신을 아끼고 있습니다
 
-지금 당장 위의 번호로 전화해주세요. 24시간 누군가 당신을 기다리고 있습니다.""",
-            "emergency_contacts": [
-                {"name": "생명의전화", "number": "1588-9191"},
-                {"name": "청소년전화", "number": "1388"},
-                {"name": "정신건강위기상담전화", "number": "1577-0199"},
-                {"name": "응급실", "number": "119"}
-            ]
-        }
+# 지금 당장 위의 번호로 전화해주세요. 24시간 누군가 당신을 기다리고 있습니다.""",
+#             "emergency_contacts": [
+#                 {"name": "생명의전화", "number": "1588-9191"},
+#                 {"name": "청소년전화", "number": "1388"},
+#                 {"name": "정신건강위기상담전화", "number": "1577-0199"},
+#                 {"name": "응급실", "number": "119"}
+#             ]
+#         }
         
-        # 긴급 메시지 저장
-        with get_session_context() as db:
-            create_message(
-                db,
-                req.conversation_id,
-                "system",
-                "mental_health",
-                f"긴급상황 감지: {req.message}"
-            )
+#         # 긴급 메시지 저장
+#         with get_session_context() as db:
+#             create_message(
+#                 db,
+#                 req.conversation_id,
+#                 "system",
+#                 "mental_health",
+#                 f"긴급상황 감지: {req.message}"
+#             )
             
-            create_message(
-                db,
-                req.conversation_id,
-                "agent",
-                "mental_health",
-                emergency_response["message"]
-            )
+#             create_message(
+#                 db,
+#                 req.conversation_id,
+#                 "agent",
+#                 "mental_health",
+#                 emergency_response["message"]
+#             )
         
-        return create_success_response(emergency_response)
+#         return create_success_response(emergency_response)
         
-    except Exception as e:
-        logger.error(f"긴급상황 처리 오류: {e}")
-        return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
+#     except Exception as e:
+#         logger.error(f"긴급상황 처리 오류: {e}")
+#         return create_error_response("긴급상황 처리에 실패했습니다", "EMERGENCY_HANDLING_ERROR")
     
 # 통합 main.py에 추가할 프록시 엔드포인트들
 
-@app.get("/conversation/{conversation_id}/phq9/status")
+# Mental Health Agent의 포트 설정
+MENTAL_HEALTH_PORT = getattr(config, 'MENTAL_HEALTH_PORT', 8004)
+
+@app.get("/mental/conversation/{conversation_id}/phq9/status")
 async def get_phq9_status_proxy(conversation_id: int):
-    """PHQ-9 상태 조회 프록시"""
+    """PHQ-9 상태 조회 프록시 - 올바른 경로로 수정"""
     try:
-        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
-        response = requests.get(f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/status")
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/status"
+            )
+            return response.json()
     except Exception as e:
         logger.error(f"PHQ-9 상태 조회 프록시 실패: {e}")
         return create_error_response("PHQ-9 상태 조회 실패", "PHQ9_PROXY_ERROR")
 
-@app.post("/conversation/{conversation_id}/phq9/response")
+@app.post("/mental/conversation/{conversation_id}/phq9/response")
 async def submit_phq9_response_proxy(conversation_id: int, data: dict = Body(...)):
-    """PHQ-9 응답 제출 프록시"""
+    """PHQ-9 응답 제출 프록시 - 올바른 경로로 수정"""
     try:
-        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
-        response = requests.post(
-            f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/response",
-            json=data
-        )
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/response",
+                json=data
+            )
+            return response.json()
     except Exception as e:
         logger.error(f"PHQ-9 응답 제출 프록시 실패: {e}")
         return create_error_response("PHQ-9 응답 제출 실패", "PHQ9_PROXY_ERROR")
 
-@app.post("/conversation/{conversation_id}/phq9/start")
+@app.post("/mental/conversation/{conversation_id}/phq9/start")
 async def start_phq9_proxy(conversation_id: int, data: dict = Body(...)):
-    """PHQ-9 시작 프록시"""
+    """PHQ-9 시작 프록시 - 올바른 경로로 수정"""
     try:
-        mental_health_port = getattr(config, 'MENTAL_HEALTH_PORT', 8003)
-        response = requests.post(
-            f"http://localhost:{mental_health_port}/conversation/{conversation_id}/phq9/start",
-            json=data
-        )
-        return response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/start",
+                json=data
+            )
+            return response.json()
     except Exception as e:
         logger.error(f"PHQ-9 시작 프록시 실패: {e}")
         return create_error_response("PHQ-9 시작 실패", "PHQ9_PROXY_ERROR")
+
+# Mental Health Agent의 일반 쿼리도 프록시
+@app.post("/mental/agent/query")
+async def mental_health_query_proxy(data: dict = Body(...)):
+    """Mental Health Agent 쿼리 프록시"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/agent/query",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
+        return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
 
 # ===== 업무지원 전용 API (예시) =====
 # 주의: 실제 업무지원 에이전트가 없어 목 구현체를 제공합니다

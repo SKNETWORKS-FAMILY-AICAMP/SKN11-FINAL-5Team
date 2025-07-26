@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import { Button } from "@/components/ui/button"
@@ -14,229 +14,9 @@ import { agentApi } from "@/app/api/agent"
 import { AGENT_CONFIG, type AgentType, API_BASE_URL } from "@/config/constants"
 import type { Message, ConversationMessage } from "@/types/messages"
 import { FeedbackModal } from "@/components/ui/FeedbackModal"
+import remarkGfm from 'remark-gfm' // 이 패키지를 설치해야 합니다: npm install remark-gfm
 
-// ===== PHQ-9 상태 관리 유틸리티 =====
-const PHQ9_STORAGE_KEY = 'phq9_session_state';
-
-interface PHQ9SessionState {
-  conversationId: number;
-  userId: number;
-  isActive: boolean;
-  currentQuestionIndex: number;
-  responses: number[];
-  isCompleted: boolean;
-  startTime: number;
-}
-
-const PHQ9_QUESTIONS = [
-  "일 또는 여가활동을 하는데 흥미나 즐거움을 느끼지 못함",
-  "기분이 가라앉거나, 우울하거나, 희망이 없다고 느낌", 
-  "잠이 들거나 계속 잠을 자는 것이 어려움, 또는 잠을 너무 많이 잠",
-  "피곤하다고 느끼거나 기운이 거의 없음",
-  "입맛이 없거나 과식을 함",
-  "자신을 부정적으로 봄 — 혹은 자신이 실패자라고 느끼거나 자신 또는 가족을 실망시켰다고 느낌",
-  "신문을 읽거나 텔레비전 보는 것과 같은 일에 집중하는 것이 어려움",
-  "다른 사람들이 주목할 정도로 너무 느리게 움직이거나 말을 함. 또는 그 반대로 평상시보다 많이 움직여서 가만히 앉아 있을 수 없었음",
-  "자신이 죽는 것이 더 낫다고 생각하거나 어떤 식으로든 자신을 해칠 것이라고 생각함"
-];
-
-const savePHQ9State = (state: PHQ9SessionState) => {
-  try {
-    sessionStorage.setItem(PHQ9_STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.error('PHQ-9 상태 저장 실패:', error);
-  }
-};
-
-const loadPHQ9State = (conversationId: number, userId: number): PHQ9SessionState | null => {
-  try {
-    const saved = sessionStorage.getItem(PHQ9_STORAGE_KEY);
-    if (!saved) return null;
-    
-    const state: PHQ9SessionState = JSON.parse(saved);
-    
-    if (state.conversationId === conversationId && state.userId === userId) {
-      const now = Date.now();
-      if (now - state.startTime < 60 * 60 * 1000) {
-        return state;
-      }
-    }
-    
-    clearPHQ9State();
-    return null;
-  } catch (error) {
-    console.error('PHQ-9 상태 로드 실패:', error);
-    return null;
-  }
-};
-
-const clearPHQ9State = () => {
-  try {
-    sessionStorage.removeItem(PHQ9_STORAGE_KEY);
-  } catch (error) {
-    console.error('PHQ-9 상태 삭제 실패:', error);
-  }
-};
-
-// ===== 메시지 저장용 상수 및 유틸 =====
-const MESSAGES_STORAGE_KEY = 'chat_messages';
-
-const saveMessages = (conversationId: number, messages: ExtendedMessage[]) => {
-  try {
-    sessionStorage.setItem(MESSAGES_STORAGE_KEY + conversationId, JSON.stringify(messages));
-  } catch (error) {
-    console.error('메시지 저장 실패:', error);
-  }
-};
-
-const loadMessages = (conversationId: number): ExtendedMessage[] | null => {
-  try {
-    const saved = sessionStorage.getItem(MESSAGES_STORAGE_KEY + conversationId);
-    return saved ? JSON.parse(saved) : null;
-  } catch (error) {
-    console.error('메시지 로드 실패:', error);
-    return null;
-  }
-};
-
-// ===== PHQ-9 키워드 감지 함수 =====
-const detectPHQ9Keywords = (text: string): boolean => {
-  const phq9Keywords = [
-    "PHQ-9", "우울증 자가진단", "PHQ 테스트", "설문 시작", "자가진단 시작", "설문", "PHQ", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"
-  ];
-  
-  const normalizedText = text.toLowerCase().replace(/\s+/g, '');
-  
-  return phq9Keywords.some(keyword => 
-    normalizedText.includes(keyword.toLowerCase().replace(/\s+/g, ''))
-  );
-};
-
-const detectRejectKeywords = (text: string): boolean => {
-  const rejectKeywords = [
-    "싫어", "싫다", "안해", "안할래", "안하고싶", "안하고 싶",
-    "필요없", "필요 없", "관심없", "관심 없", "그만", "중단",
-    "취소", "멈춰", "스톱", "stop", "아니", "아니야", "거절",
-    "나중에", "다음에", "미뤄", "미룰", "패스", "건너뛰"
-  ];
-  
-  const normalizedText = text.toLowerCase().replace(/\s+/g, '');
-  
-  return rejectKeywords.some(keyword => 
-    normalizedText.includes(keyword.toLowerCase().replace(/\s+/g, ''))
-  );
-};
-
-// ===== 타이핑 애니메이션 컴포넌트 =====
-function TypingAnimation() {
-  return (
-    <div className="flex items-center space-x-1">
-      <div className="flex space-x-1">
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-      </div>
-      <span className="text-sm text-gray-500 ml-2">답변 중입니다...</span>
-    </div>
-  )
-}
-
-// ===== 타이핑 텍스트 컴포넌트 =====
-function TypingText({ text, speed = 30, onComplete }: { text: string, speed?: number, onComplete?: () => void }) {
-  const [displayedText, setDisplayedText] = useState("")
-  const [currentIndex, setCurrentIndex] = useState(0)
-
-  useEffect(() => {
-    if (currentIndex < text.length) {
-      const timer = setTimeout(() => {
-        setDisplayedText(prev => prev + text[currentIndex])
-        setCurrentIndex(prev => prev + 1)
-      }, speed)
-
-      return () => clearTimeout(timer)
-    } else if (onComplete) {
-      onComplete()
-    }
-  }, [currentIndex, text, speed, onComplete])
-
-  useEffect(() => {
-    setDisplayedText("")
-    setCurrentIndex(0)
-  }, [text])
-
-  return (
-    <div className="whitespace-pre-wrap leading-relaxed">
-      <ReactMarkdown>{displayedText}</ReactMarkdown>
-      {currentIndex < text.length && (
-        <span className="inline-block w-0.5 h-4 bg-gray-400 ml-1 animate-pulse"></span>
-      )}
-    </div>
-  )
-}
-
-// ===== PHQ-9 버튼 컴포넌트 =====
-const PHQ9ButtonComponent = React.memo(({ 
-  question, 
-  onResponse 
-}: { 
-  question: any, 
-  onResponse: (value: number) => void 
-}) => {
-  console.log("[DEBUG] PHQ9ButtonComponent 렌더링, question:", question);
-  
-  const responseOptions = [
-    { value: 0, label: "전혀 그렇지 않다" },
-    { value: 1, label: "며칠 정도 그렇다" },
-    { value: 2, label: "일주일 이상 그렇다" },
-    { value: 3, label: "거의 매일 그렇다" }
-  ];
-
-  return (
-    <div className="space-y-4 mt-4">
-      <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-        <div className="flex justify-between items-center mb-3">
-          <span className="text-sm font-medium text-green-600">
-            진행률: {question.progress}
-          </span>
-          <span className="text-sm text-gray-500">PHQ-9 설문</span>
-        </div>
-        
-        <h4 className="text-lg font-semibold text-gray-800 mb-4 leading-relaxed">
-          지난 2주 동안, <span className="text-green-700">{question.text}</span>
-        </h4>
-        
-        <div className="space-y-2">
-          {responseOptions.map((option) => (
-            <Button
-              key={option.value}
-              onClick={() => {
-                console.log("[DEBUG] 버튼 클릭:", option.value);
-                onResponse(option.value);
-              }}
-              className="w-full p-3 text-left justify-start border-2 transition-all duration-200 bg-white hover:bg-green-50 border-green-300 text-gray-800 font-medium hover:border-green-400"
-              variant="outline"
-            >
-              <span className="flex items-center">
-                <span className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center mr-3 text-sm font-bold border border-green-300">
-                  {option.value}
-                </span>
-                {option.label}
-              </span>
-            </Button>
-          ))}
-        </div>
-        
-        <div className="mt-4 p-3 bg-gray-50 rounded-md">
-          <p className="text-xs text-gray-600">
-            💡 지난 2주간 얼마나 자주 이런 문제들로 고민했는지를 기준으로 선택해주세요.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// ===== 인터페이스 정의 =====
+// ===== 타입 정의 =====
 interface Project {
   id: number
   title: string
@@ -259,31 +39,407 @@ interface ExtendedMessage extends Message {
   isComplete?: boolean
 }
 
-// ===== 예시 질문 데이터 =====
-const exampleQuestions = [
-  {
-    category: "사업기획",
-    question: "온라인 쇼핑몰을 운영하려는데 초기 사업계획을 어떻게 세우면 좋을까요?",
-    agent: "planner",
-  },
-  {
-    category: "마케팅",
-    question: "인스타그램에서 제품을 효과적으로 홍보하려면 어떤 팁이 있을까요?",
-    agent: "marketing",
-  },
-  {
-    category: "고객관리",
-    question: "리뷰에 불만 글이 달렸을 때 어떻게 대응해야 좋을까요?",
-    agent: "crm",
-  },
-  {
-    category: "업무지원",
-    question: "매번 반복되는 예약 문자 전송을 자동화할 수 있을까요?",
-    agent: "task",
-  },
-]
+// ===== 상수 =====
+const MESSAGES_STORAGE_KEY = 'chat_messages'
 
-// ===== 프로젝트 생성/수정 모달 컴포넌트 =====
+// const exampleQuestions = [
+//   {
+//     category: "사업기획",
+//     question: "온라인 쇼핑몰을 운영하려는데 초기 사업계획을 어떻게 세우면 좋을까요?",
+//     agent: "planner",
+//   },
+//   {
+//     category: "마케팅",
+//     question: "인스타그램에서 제품을 효과적으로 홍보하려면 어떤 팁이 있을까요?",
+//     agent: "marketing",
+//   },
+//   {
+//     category: "고객관리",
+//     question: "리뷰에 불만 글이 달렸을 때 어떻게 대응해야 좋을까요?",
+//     agent: "crm",
+//   },
+//   {
+//     category: "업무지원",
+//     question: "매번 반복되는 예약 문자 전송을 자동화할 수 있을까요?",
+//     agent: "task",
+//   },
+//   {
+//     category: "멘탈케어",
+//     question: "요즘 자주 우울해서 자가 진단 설문을 해보고 싶어요.",
+//     agent: "mental_health",
+//   },
+// ]
+
+// ===== 에이전트별 예시 질문 맵 =====
+const exampleQuestionsMap: Record<AgentType, { category: string; question: string; agent: string }[]> = {
+  planner: [
+    {
+      category: "사업기획",
+      question: "온라인 쇼핑몰을 시작하려면 어떤 준비가 필요할까요?",
+      agent: "planner"
+    },
+    {
+      category: "시장조사",
+      question: "타겟 고객을 어떻게 설정하나요?",
+      agent: "planner"
+    },
+    {
+      category: "수익모델",
+      question: "지속 가능한 비즈니스 모델을 만드는 법은?",
+      agent: "planner"
+    },
+    {
+      category: "사업계획서",
+      question: "초기 사업계획서는 어떤 식으로 구성해야 하나요?",
+      agent: "planner"
+    },
+    {
+      category: "사업 타당성",
+      question: "내 아이디어가 실제로 가능한지 검토하려면?",
+      agent: "planner"
+    }
+  ],
+  marketing: [
+    {
+      category: "마케팅",
+      question: "인스타그램 마케팅을 효과적으로 하는 법은?",
+      agent: "marketing"
+    },
+    {
+      category: "브랜딩",
+      question: "브랜드 스토리를 어떻게 만들 수 있나요?",
+      agent: "marketing"
+    },
+    {
+      category: "콘텐츠 전략",
+      question: "콘텐츠 기획은 어떤 흐름으로 해야 하나요?",
+      agent: "marketing"
+    },
+    {
+      category: "광고",
+      question: "소규모 예산으로도 광고 효과를 낼 수 있을까요?",
+      agent: "marketing"
+    },
+    {
+      category: "이메일 마케팅",
+      question: "이메일 오픈율을 높이려면 어떻게 해야 하나요?",
+      agent: "marketing"
+    }
+  ],
+  crm: [
+    {
+      category: "고객관리",
+      question: "클레임 고객에게 어떻게 응대하는 게 좋을까요?",
+      agent: "crm"
+    },
+    {
+      category: "리뷰관리",
+      question: "부정적인 리뷰는 어떻게 처리하나요?",
+      agent: "crm"
+    },
+    {
+      category: "재구매 유도",
+      question: "단골 고객을 만드는 방법이 궁금해요.",
+      agent: "crm"
+    },
+    {
+      category: "CS 자동화",
+      question: "고객문의 대응을 자동화할 수 있나요?",
+      agent: "crm"
+    },
+    {
+      category: "고객 세분화",
+      question: "고객을 유형별로 나누고 대응할 수 있을까요?",
+      agent: "crm"
+    }
+  ],
+  task: [
+    {
+      category: "업무지원",
+      question: "매일 반복되는 업무를 자동화할 수 있을까요?",
+      agent: "task"
+    },
+    {
+      category: "일정관리",
+      question: "캘린더 일정 자동 등록 방법이 궁금해요.",
+      agent: "task"
+    },
+    {
+      category: "업무분배",
+      question: "팀원들에게 업무를 효율적으로 분배하고 싶어요.",
+      agent: "task"
+    },
+    {
+      category: "파일 정리",
+      question: "클라우드에 파일 정리를 자동화할 수 있나요?",
+      agent: "task"
+    },
+    {
+      category: "보고서 생성",
+      question: "정기 보고서를 자동으로 작성할 수 있을까요?",
+      agent: "task"
+    }
+  ],
+  mentalcare: [
+    {
+      category: "멘탈케어",
+      question: "요즘 기분이 가라앉는데 어떻게 하면 좋을까요?",
+      agent: "mental_health"
+    },
+    {
+      category: "스트레스",
+      question: "스트레스를 줄이는 실용적인 방법이 궁금해요.",
+      agent: "mental_health"
+    },
+    {
+      category: "자가진단",
+      question: "요즘 자주 우울해서 자가 진단 설문을 해보고 싶어요.",
+      agent: "mental_health"
+    },
+    {
+      category: "자존감",
+      question: "자존감을 높이기 위한 일상 루틴이 있을까요?",
+      agent: "mental_health"
+    },
+    {
+      category: "감정관리",
+      question: "화가 날 때 침착하게 대처하는 방법은?",
+      agent: "mental_health"
+    }
+  ],
+  unified_agent: [
+    {
+      category: "사업기획",
+      question: "온라인 쇼핑몰을 운영하려는데 초기 사업계획을 어떻게 세우면 좋을까요?",
+      agent: "planner"
+    },
+    {
+      category: "마케팅",
+      question: "인스타그램에서 제품을 효과적으로 홍보하려면 어떤 팁이 있을까요?",
+      agent: "marketing"
+    },
+    {
+      category: "고객관리",
+      question: "리뷰에 불만 글이 달렸을 때 어떻게 대응해야 좋을까요?",
+      agent: "crm"
+    },
+    {
+      category: "업무지원",
+      question: "매번 반복되는 예약 문자 전송을 자동화할 수 있을까요?",
+      agent: "task"
+    },
+    {
+      category: "멘탈케어",
+      question: "요즘 자주 우울해서 자가 진단 설문을 해보고 싶어요.",
+      agent: "mental_health"
+    }
+  ]
+}
+
+// ===== 현재 에이전트의 예시 질문 가져오기 함수 =====
+const getCurrentAgentExamples = (currentAgent: AgentType) => {
+  return exampleQuestionsMap[currentAgent] || exampleQuestionsMap.unified_agent
+}
+
+// ===== 유틸리티 함수 =====
+const saveMessages = (conversationId: number, messages: ExtendedMessage[]) => {
+  try {
+    sessionStorage.setItem(MESSAGES_STORAGE_KEY + conversationId, JSON.stringify(messages))
+  } catch (error) {
+    console.error('메시지 저장 실패:', error)
+  }
+}
+
+const loadMessages = (conversationId: number): ExtendedMessage[] | null => {
+  try {
+    const saved = sessionStorage.getItem(MESSAGES_STORAGE_KEY + conversationId)
+    return saved ? JSON.parse(saved) : null
+  } catch (error) {
+    console.error('메시지 로드 실패:', error)
+    return null
+  }
+}
+
+// ===== 서브 컴포넌트들 =====
+function TypingAnimation() {
+  return (
+    <div className="flex items-center space-x-1">
+      <div className="flex space-x-1">
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+      </div>
+      <span className="text-sm text-gray-500 ml-2">답변 중입니다...</span>
+    </div>
+  )
+}
+
+// ===== PHQ-9 버튼 컴포넌트 =====
+const PHQ9ButtonComponent = React.memo(({ 
+  question, 
+  onResponse,
+  isDisabled = false
+}: { 
+  question: any
+  onResponse: (value: number) => void
+  isDisabled?: boolean
+}) => {
+  console.log("[DEBUG] PHQ9ButtonComponent 렌더링, question:", question)
+  
+  const responseOptions = [
+    { value: 0, label: "전혀 그렇지 않다" },
+    { value: 1, label: "며칠 정도 그렇다" },
+    { value: 2, label: "일주일 이상 그렇다" },
+    { value: 3, label: "거의 매일 그렇다" }
+  ]
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+        <div className="flex justify-between items-center mb-3">
+          <span className="text-sm font-medium text-green-600">
+            진행률: {question.progress || "1/9"}
+          </span>
+          <span className="text-sm text-gray-500">PHQ-9 우울증 자가진단</span>
+        </div>
+        
+        <h4 className="text-lg font-semibold text-gray-800 mb-4 leading-relaxed">
+          지난 2주 동안, <span className="text-green-700">{question.text || question.question}</span>
+        </h4>
+        
+        <div className="space-y-2">
+          {responseOptions.map((option) => (
+            <Button
+              key={option.value}
+              onClick={() => {
+                console.log("[DEBUG] PHQ-9 버튼 클릭:", option.value)
+                onResponse(option.value)
+              }}
+              disabled={isDisabled}
+              className="w-full p-3 text-left justify-start border-2 transition-all duration-200 bg-white hover:bg-green-50 border-green-300 text-gray-800 font-medium hover:border-green-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              variant="outline"
+            >
+              <span className="flex items-center">
+                <span className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center mr-3 text-sm font-bold border border-green-300">
+                  {option.value}
+                </span>
+                {option.label}
+              </span>
+            </Button>
+          ))}
+        </div>
+        
+        <div className="mt-4 p-3 bg-gray-50 rounded-md">
+          <p className="text-xs text-gray-600">
+            💡 지난 2주간 얼마나 자주 이런 문제들로 고민했는지를 기준으로 선택해주세요.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: string, speed?: number, onComplete?: () => void, onTextUpdate?: () => void }) {
+  const [displayedText, setDisplayedText] = useState("")
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  useEffect(() => {
+    if (currentIndex < text.length) {
+      const timer = setTimeout(() => {
+        setDisplayedText(prev => prev + text[currentIndex])
+        setCurrentIndex(prev => prev + 1)
+
+        // 텍스트가 업데이트될 때마다 스크롤 트리거
+        if (onTextUpdate) {
+          // 약간의 지연을 주어 DOM 업데이트 후 스크롤
+          setTimeout(onTextUpdate, 10)
+        }
+      }, speed)
+
+      return () => clearTimeout(timer)
+    } else if (onComplete) {
+      onComplete()
+    }
+  }, [currentIndex, text, speed, onComplete, onTextUpdate])
+
+  useEffect(() => {
+    setDisplayedText("")
+    setCurrentIndex(0)
+  }, [text])
+
+  return (
+    <div className="whitespace-pre-wrap !leading-snug">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]} // GitHub Flavored Markdown 지원
+        components={{
+          p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
+          ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
+          ol: ({ children }) => <ol className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ol>,
+          li: ({ children }) => <li className="!m-0 !p-0 !leading-snug">{children}</li>,
+          h1: ({ children }) => <h1 className="!text-xl !font-bold !m-0 !p-0 !leading-snug">{children}</h1>,
+          h2: ({ children }) => <h2 className="!text-lg !font-bold !m-0 !p-0 !leading-snug">{children}</h2>,
+          h3: ({ children }) => <h3 className="!text-base !font-bold !m-0 !p-0 !leading-snug">{children}</h3>,
+          strong: ({ children }) => <strong className="!font-semibold !m-0 !p-0">{children}</strong>,
+          
+          // 테이블 컴포넌트 추가
+          table: ({ children }) => (
+            <div className="overflow-x-auto my-4">
+              <table className="min-w-full border-collapse border border-gray-300 text-sm">
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className="bg-green-50">
+              {children}
+            </thead>
+          ),
+          tbody: ({ children }) => (
+            <tbody className="bg-white divide-y divide-gray-200">
+              {children}
+            </tbody>
+          ),
+          tr: ({ children }) => (
+            <tr className="hover:bg-gray-50">
+              {children}
+            </tr>
+          ),
+          th: ({ children }) => (
+            <th className="px-3 py-2 text-left font-semibold text-gray-900 border border-gray-300 bg-green-100">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="px-3 py-2 text-gray-700 border border-gray-300">
+              {children}
+            </td>
+          ),
+          
+          // 코드 블록 지원
+          code: ({ node, inline, className, children, ...props }: any) => 
+            inline ? (
+              <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                {children}
+              </code>
+            ) : (
+              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
+                <code className="text-sm font-mono" {...props}>
+                  {children}
+                </code>
+              </pre>
+            )
+        }}
+      >
+        {displayedText}
+      </ReactMarkdown>
+      {currentIndex < text.length && (
+        <span className="inline-block w-0.5 h-4 bg-gray-400 ml-1 animate-pulse"></span>
+      )}
+    </div>
+  )
+}
+
+// ===== 프로젝트 모달 컴포넌트 =====
 function ProjectModal({ 
   isOpen, 
   onClose, 
@@ -390,7 +546,15 @@ function ProjectModal({
 }
 
 // ===== 프로젝트 메뉴 컴포넌트 =====
-function ProjectMenu({ project, onEdit, onDelete }: { project: Project, onEdit: (project: Project) => void, onDelete: (projectId: number) => void }) {
+function ProjectMenu({ 
+  project, 
+  onEdit, 
+  onDelete 
+}: { 
+  project: Project
+  onEdit: (project: Project) => void
+  onDelete: (projectId: number) => void 
+}) {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
@@ -400,8 +564,8 @@ function ProjectMenu({ project, onEdit, onDelete }: { project: Project, onEdit: 
         size="icon"
         className="w-4 h-4 p-0 text-gray-400 hover:text-gray-800 ml-1 opacity-0 group-hover:opacity-100"
         onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen((prev) => !prev);
+          e.stopPropagation()
+          setIsOpen((prev) => !prev)
         }}
       >
         <MoreVertical className="w-3 h-3" />
@@ -414,9 +578,9 @@ function ProjectMenu({ project, onEdit, onDelete }: { project: Project, onEdit: 
             <button
               className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
               onClick={(e) => {
-                e.stopPropagation();
-                onEdit(project);
-                setIsOpen(false);
+                e.stopPropagation()
+                onEdit(project)
+                setIsOpen(false)
               }}
             >
               이름 변경
@@ -424,9 +588,9 @@ function ProjectMenu({ project, onEdit, onDelete }: { project: Project, onEdit: 
             <button
               className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-100"
               onClick={(e) => {
-                e.stopPropagation();
-                onDelete(project.id);
-                setIsOpen(false);
+                e.stopPropagation()
+                onDelete(project.id)
+                setIsOpen(false)
               }}
             >
               삭제
@@ -444,8 +608,8 @@ function ChatHistoryMenu({
   onEditTitle, 
   onDelete 
 }: { 
-  chat: ChatHistoryItem, 
-  onEditTitle: (chatId: number, newTitle: string) => void, 
+  chat: ChatHistoryItem
+  onEditTitle: (chatId: number, newTitle: string) => void
   onDelete: (chatId: number) => void 
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -496,7 +660,7 @@ function ChatHistoryMenu({
             className="w-4 h-4 p-0 text-gray-400 hover:text-gray-800 ml-1 opacity-0 group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
-              setIsOpen((prev) => !prev);
+              setIsOpen((prev) => !prev)
             }}
           >
             <MoreVertical className="w-3 h-3" />
@@ -565,9 +729,9 @@ function AccountMenu({ isExpanded }: { isExpanded: boolean }) {
   }
 
   const handleWorkspace = () => {
-    router.push("/workspace");
-    setIsMenuOpen(false);
-  };
+    router.push("/workspace")
+    setIsMenuOpen(false)
+  }
 
   if (!userInfo) return null
 
@@ -746,23 +910,23 @@ function ChatSidebar({
 
         {/* 메뉴 아이콘들 */}
         {isExpanded ? (
-          <div className="space-y-1 mb-4">
+          <div className="space-y-0 mb-1">
             {menuItems.map((item, idx) => (
               <div
                 key={idx}
                 onClick={item.action}
-                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer transition-all duration-200 text-gray-800 hover:bg-green-100`}
+                className="flex items-center gap-2 px-2 py-[6px] text-sm rounded-md cursor-pointer transition-all duration-150 text-gray-800 hover:bg-green-100"
               >
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-sm">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center bg-white shadow-sm">
                   <Image
                     src={item.icon || "/placeholder.svg"}
                     alt={item.label}
-                    width={20}
-                    height={20}
-                    className="w-5 h-5"
+                    width={18}
+                    height={18}
+                    className="w-4.5 h-4.5"
                   />
                 </div>
-                <span className="font-medium truncate">{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </div>
             ))}
           </div>
@@ -790,11 +954,11 @@ function ChatSidebar({
       </div>
 
       {/* 스크롤 가능한 중간 영역 */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         {isExpanded && (
           <>
             {/* 프로젝트 섹션 */}
-            <div className="mb-4">
+            <div className="mt-8">
               <div className="flex items-center justify-between mb-2 px-3">
                 <h3 className="text-sm font-semibold text-gray-800">프로젝트</h3>
                 <button
@@ -813,7 +977,7 @@ function ChatSidebar({
                     onClick={() => onSelectProject(project.id)}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-800 truncate" title={project.title}>
+                      <div className="text-sm font-normal text-gray-800 truncate" title={project.title}>
                         {project.title}
                       </div>
                     </div>
@@ -828,7 +992,7 @@ function ChatSidebar({
             </div>
 
             {/* 채팅 기록 섹션 */}
-            <div className="mb-4">
+            <div className="mt-8">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 px-3">채팅 기록</h3>
               <div className="space-y-1">
                 {chatHistory.map((chat) => (
@@ -842,7 +1006,7 @@ function ChatSidebar({
                     onClick={() => onLoadPreviousChat(chat.id)}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-800 truncate" title={chat.title}>
+                      <div className="text-sm font-normal text-gray-800 truncate" title={chat.title}>
                         {chat.title}
                       </div>
                       <div className="text-xs text-gray-500 truncate mt-1" title={chat.lastMessage}>
@@ -874,6 +1038,8 @@ function ChatSidebar({
 export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  
+  // URL 파라미터 추출
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
   const initialConversationId = searchParams?.get("conversation_id")
@@ -883,25 +1049,11 @@ export default function ChatRoomPage() {
     ? Number.parseInt(searchParams.get("project_id") as string)
     : null
 
+  // Refs
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
-
-  const openFeedbackModal = (type: "up" | "down", idx: number) => {
-    setRating(type === "up" ? 5 : 1);
-    setComment(`message_index_${idx}`);
-    setShowFeedbackModal(true);
-  };
-
-  // 중복 실행 방지를 위한 ref
-  const initializeRef = useRef(false);
-
-  // ===== PHQ-9 설문 상태 관리 =====
-  const [phq9Active, setPhq9Active] = useState(false);
-  const [phq9Question, setPhq9Question] = useState<any>(null);
-  const [phq9Responses, setPhq9Responses] = useState<number[]>([]);
-  const [phq9Completed, setPhq9Completed] = useState(false);
-  const [forceUpdate, setForceUpdate] = useState(0);
+  const initializeRef = useRef(false)
 
   // ===== 상태 관리 =====
   const [userId, setUserId] = useState<number | null>(null)
@@ -932,73 +1084,156 @@ export default function ChatRoomPage() {
   const [comment, setComment] = useState("")
   const [category, setCategory] = useState(agent?.replace("_agent", "") || "general")
 
-  // ===== 로컬 스토리지 관리 =====
-  const saveChatTitleMap = (titleMap: {[key: number]: string}) => {
+  // PHQ-9 설문 관련 상태
+  const [phq9Processing, setPhq9Processing] = useState(false)
+
+  // ===== PHQ-9 관련 함수 =====
+  const handlePHQ9Response = useCallback(async (responseValue: number) => {
+    if (!userId || !conversationId || phq9Processing) return
+
+    console.log("[DEBUG] PHQ-9 응답 처리:", { responseValue, conversationId, userId })
+    
+    setPhq9Processing(true)
+    
+    try {
+
+      const responseLabels = ["전혀 그렇지 않다", "며칠 정도 그렇다", "일주일 이상 그렇다", "거의 매일 그렇다"]
+      const userResponseText = `[PHQ-9 응답] ${responseValue}: ${responseLabels[responseValue]}`
+      
+      // 사용자 메시지를 즉시 화면에 표시
+      setMessages(prev => [...prev, {
+        sender: "user",
+        text: userResponseText,
+        isComplete: true,
+        isTyping: false
+      }])
+
+      const startRes = await fetch(`${API_BASE_URL}/mental/conversation/${conversationId}/phq9/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+      const startResult = await startRes.json();
+      console.log("[DEBUG] PHQ-9 상태 초기화 결과:", startResult);
+
+      const response = await fetch(`${API_BASE_URL}/mental/conversation/${conversationId}/phq9/response`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          response_value: responseValue
+        })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // 🔥 log_message는 이미 위에서 추가했으므로 제거
+        // if (result.data.log_message) {
+        //   setMessages(prev => [...prev, {
+        //     sender: "user",
+        //     text: result.data.log_message,
+        //     isComplete: false,
+        //     isTyping: false
+        //   }])
+        // }
+
+        if (result.data.end_survey) {
+          setMessages(prev => [...prev, {
+            sender: "agent",
+            text: result.data.response,
+            isComplete: false,
+            isTyping: false
+          }]);
+          return;
+        }
+        
+        // PHQ-9 버튼을 비활성화하고 새로운 메시지 추가
+        setMessages(prev => {
+          const updated = [...prev]
+          
+          // 🔥 마지막에서 두 번째 메시지(방금 추가한 사용자 메시지 이전)에서 PHQ-9 버튼 찾기
+          const lastAgentMsgIndex = updated.slice(0, -1).findLastIndex(msg => 
+            msg.sender === "agent" && msg.text.includes("PHQ9_BUTTON")
+          )
+          
+          if (lastAgentMsgIndex !== -1) {
+            // 기존 PHQ-9 버튼 메시지를 비활성화된 상태로 변경
+            updated[lastAgentMsgIndex] = {
+              ...updated[lastAgentMsgIndex],
+              text: updated[lastAgentMsgIndex].text.replace(
+                '"isDisabled": false', 
+                '"isDisabled": true'
+              )
+            }
+          }
+          
+          return updated
+        })
+
+        // 새로운 응답이 있다면 메시지로 추가
+        if (result.data.response) {
+          const newMessage: ExtendedMessage = {
+            sender: "agent",
+            text: result.data.response,
+            isComplete: false,
+            isTyping: false
+          }
+          setMessages(prev => [...prev, newMessage])
+        }
+        
+        console.log("[DEBUG] PHQ-9 응답 처리 성공:", result.data)
+      } else {
+        throw new Error(result.error || "PHQ-9 응답 처리 실패")
+      }
+    } catch (error) {
+      console.error("PHQ-9 응답 처리 오류:", error)
+      alert("설문 응답 처리 중 오류가 발생했습니다. 다시 시도해주세요.")
+      
+      // 🔥 오류 발생 시 방금 추가한 사용자 메시지 제거
+      setMessages(prev => prev.slice(0, -1))
+    } finally {
+      setPhq9Processing(false)
+    }
+  }, [userId, conversationId, phq9Processing])
+
+  // 메시지에서 PHQ-9 컴포넌트 파싱
+  const parsePHQ9Component = useCallback((text: string) => {
+    try {
+      const phq9Match = text.match(/PHQ9_BUTTON:({[\s\S]*?})/)
+      if (phq9Match) {
+        const phq9Data = JSON.parse(phq9Match[1])
+        return {
+          isPHQ9: true,
+          data: phq9Data,
+          textWithoutPHQ9: text.replace(/PHQ9_BUTTON:({[\s\S]*?})/, '').trim()
+        }
+      }
+    } catch (error) {
+      console.error("PHQ-9 컴포넌트 파싱 오류:", error)
+    }
+    return { isPHQ9: false, textWithoutPHQ9: text }
+  }, [])
+
+  // ===== 로컬 스토리지 관리 함수 =====
+  const saveChatTitleMap = useCallback((titleMap: {[key: number]: string}) => {
     if (userId) {
       localStorage.setItem(`chatTitleMap_${userId}`, JSON.stringify(titleMap))
     }
-  }
+  }, [userId])
 
-  const loadChatTitleMap = (): {[key: number]: string} => {
+  const loadChatTitleMap = useCallback((): {[key: number]: string} => {
     if (userId) {
       const saved = localStorage.getItem(`chatTitleMap_${userId}`)
       return saved ? JSON.parse(saved) : {}
     }
     return {}
-  }
-
-  // ===== PHQ-9 상태 복원 함수 =====
-  const restorePHQ9State = (conversationId: number, userId: number) => {
-    const savedState = loadPHQ9State(conversationId, userId);
-    
-    if (savedState && savedState.isActive && !savedState.isCompleted) {
-      console.log("[DEBUG] PHQ-9 상태 복원:", savedState);
-      
-      setPhq9Active(true);
-      setPhq9Responses(savedState.responses);
-      setPhq9Completed(savedState.isCompleted);
-      
-      // 현재 질문 설정
-      if (savedState.currentQuestionIndex < PHQ9_QUESTIONS.length) {
-        setPhq9Question({
-          index: savedState.currentQuestionIndex,
-          text: PHQ9_QUESTIONS[savedState.currentQuestionIndex],
-          progress: `${savedState.currentQuestionIndex + 1}/9`,
-          options: [
-            {"value": 0, "label": "전혀 그렇지 않다"},
-            {"value": 1, "label": "며칠 정도 그렇다"},
-            {"value": 2, "label": "일주일 이상 그렇다"},
-            {"value": 3, "label": "거의 매일 그렇다"}
-          ]
-        });
-        
-        // 현재 질문을 메시지로 추가 (이미 있는지 확인)
-        setTimeout(() => {
-          setMessages(prev => {
-            const currentQuestionText = `**문항 ${savedState.currentQuestionIndex + 1}/9**: 지난 2주 동안, ${PHQ9_QUESTIONS[savedState.currentQuestionIndex]}`;
-            const lastMessage = prev[prev.length - 1];
-            
-            // 마지막 메시지가 현재 질문이 아닌 경우에만 추가
-            if (!lastMessage || !lastMessage.text.includes(currentQuestionText)) {
-              return [...prev, {
-                sender: "agent",
-                text: currentQuestionText,
-                isComplete: true
-              }];
-            }
-            return prev;
-          });
-        }, 100);
-      }
-      
-      return true;
-    }
-    
-    return false;
-  };
+  }, [userId])
 
   // ===== 초기화 및 데이터 가져오기 함수 =====
-  const initializeUser = () => {
+  const initializeUser = useCallback(() => {
     const storedUser = localStorage.getItem("user")
     if (storedUser) {
       try {
@@ -1006,14 +1241,15 @@ export default function ChatRoomPage() {
         setUserId(user.user_id)
       } catch (e) {
         console.error("유저 파싱 오류:", e)
+        router.push("/login")
       }
     } else {
       alert("로그인 정보가 없습니다.")
       router.push("/login")
     }
-  }
+  }, [router])
 
-  const fetchProjects = async (currentUserId: number) => {
+  const fetchProjects = useCallback(async (currentUserId: number) => {
     try {
       const response = await fetch(`${API_BASE_URL}/projects?user_id=${currentUserId}`)
       const result = await response.json()
@@ -1023,9 +1259,9 @@ export default function ChatRoomPage() {
     } catch (error) {
       console.error("프로젝트 목록 불러오기 실패:", error)
     }
-  }
+  }, [])
 
-  const fetchChatHistory = async (currentUserId: number) => {
+  const fetchChatHistory = useCallback(async (currentUserId: number) => {
     try {
       const res = await fetch(`${API_BASE_URL}/conversations/${currentUserId}`)
       const data = await res.json()
@@ -1046,25 +1282,33 @@ export default function ChatRoomPage() {
         
         setChatHistory(formatted)
 
+        // 각 대화의 마지막 메시지 가져오기
         for (let conv of formatted) {
-          const msgRes = await fetch(`${API_BASE_URL}/conversations/${conv.id}/messages?limit=1`)
-          const msgData = await msgRes.json()
-          if (msgData.success && msgData.data.length > 0) {
-            const lastMsg = msgData.data[0]
-            setChatHistory((prev) =>
-              prev.map((c) =>
-                c.id === conv.id ? { ...c, lastMessage: lastMsg.content.slice(0, 30) + (lastMsg.content.length > 30 ? '...' : '') } : c
+          try {
+            const msgRes = await fetch(`${API_BASE_URL}/conversations/${conv.id}/messages?limit=1`)
+            const msgData = await msgRes.json()
+            if (msgData.success && msgData.data.length > 0) {
+              const lastMsg = msgData.data[0]
+              setChatHistory((prev) =>
+                prev.map((c) =>
+                  c.id === conv.id 
+                    ? { ...c, lastMessage: lastMsg.content.slice(0, 30) + (lastMsg.content.length > 30 ? '...' : '') } 
+                    : c
+                )
               )
-            )
+            }
+          } catch (error) {
+            console.error(`대화 ${conv.id}의 마지막 메시지 가져오기 실패:`, error)
           }
         }
       }
     } catch (err) {
       console.error("채팅 기록 불러오기 실패:", err)
     }
-  }
+  }, [loadChatTitleMap])
 
-  const fetchProjectInfo = async (projectId: number) => {
+  const fetchProjectInfo = useCallback(async (projectId: number) => {
+    if (!userId) return
     try {
       const response = await fetch(`${API_BASE_URL}/projects?user_id=${userId}`)
       const result = await response.json()
@@ -1075,17 +1319,17 @@ export default function ChatRoomPage() {
     } catch (error) {
       console.error("프로젝트 정보 불러오기 실패:", error)
     }
-  }
+  }, [userId])
 
   // ===== 대화 관련 핸들러 =====
-  const startNewConversation = async (newAgent: AgentType = "unified_agent") => {
+  const startNewConversation = useCallback(async (newAgent: AgentType = "unified_agent") => {
     if (!userId) return
     try {
       const result = await agentApi.createConversation(userId)
       if (!result.success) throw new Error(result.error)
 
       const newConvId = result.data?.conversationId
-      setConversationId(null)
+      setConversationId(newConvId)
       setMessages([])
       setAgentType(newAgent)
       setCurrentChatId(null)
@@ -1093,13 +1337,14 @@ export default function ChatRoomPage() {
       const newUrl = `/chat/room?conversation_id=${newConvId}&agent=${newAgent}`
       window.history.replaceState({}, '', newUrl)
       
-      //await fetchChatHistory(userId)
+      await fetchChatHistory(userId)
     } catch (err) {
       console.error("대화 세션 생성 실패:", err)
+      alert("새 대화를 시작할 수 없습니다. 다시 시도해주세요.")
     }
-  }
+  }, [userId, fetchChatHistory])
 
-  const loadPreviousChat = async (chatId: number) => {
+  const loadPreviousChat = useCallback(async (chatId: number) => {
     try {
       const result = await agentApi.getConversationMessages(chatId)
       if (!result.success || !result.data?.messages) {
@@ -1110,353 +1355,47 @@ export default function ChatRoomPage() {
         sender: msg.role === "user" ? "user" : "agent",
         text: msg.content,
         isComplete: true
-      }))
+      })) as ExtendedMessage[]
       
       setMessages(loadedMessages)
       setConversationId(chatId)
       setCurrentChatId(chatId)
 
-      const savedMessages = loadMessages(chatId);
+      // 세션 저장된 메시지가 더 많다면 그것을 사용
+      const savedMessages = loadMessages(chatId)
       if (savedMessages && savedMessages.length > loadedMessages.length) {
-        setMessages(savedMessages);
+        setMessages(savedMessages)
       }
 
-      
-      // PHQ-9 상태 복원 시도
-      if (userId) {
-        restorePHQ9State(chatId, userId);
-      }
-      
       const newUrl = `/chat/room?conversation_id=${chatId}&agent=${agentType}`
       window.history.replaceState({}, '', newUrl)
     } catch (error) {
-      console.error("기존 대화 로드 실패:", error)
-      alert("대화를 불러오는데 실패했습니다.")
+      console.error("이전 대화 불러오기 실패:", error)
+      alert("대화를 불러올 수 없습니다.")
     }
-  }
+  }, [agentType])
 
-  // ===== PHQ-9 DB 저장 함수 =====
-  const savePHQ9ToDatabase = async (totalScore: number, responses: number[]) => {
-    try {
-      console.log("[DEBUG] PHQ-9 결과 DB 저장 시작:", totalScore, responses);
-      
-      let level = 1;
-      if (totalScore >= 20) {
-        level = 5;
-      } else if (totalScore >= 15) {
-        level = 4;
-      } else if (totalScore >= 10) {
-        level = 3;
-      } else if (totalScore >= 5) {
-        level = 2;
-      }
-      
-      console.log("[DEBUG] 계산된 level:", level);
-      
-      const response = await fetch(`${API_BASE_URL}/phq9/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          conversation_id: conversationId,
-          scores: responses
-        }),
-      });
-      
-      console.log("[DEBUG] API 응답 상태:", response.status);
-      const data = await response.json();
-      console.log("[DEBUG] API 응답 데이터:", data);
-      
-      if (data.success) {
-        console.log("[DEBUG] PHQ-9 결과 DB 저장 성공");
-      } else {
-        console.log("[DEBUG] PHQ-9 결과 DB 저장 실패:", data.error);
-      }
-    } catch (error) {
-      console.error("[DEBUG] PHQ-9 DB 저장 에러:", error);
-    }
-  };
+  // ===== 메시지 전송 핸들러 =====
+  const handleSend = useCallback(async (e?: React.FormEvent, messageOverride?: string) => {
+    if (e) e.preventDefault()
+    if (isSubmitting) return
 
-  // ===== PHQ-9 설문 핸들러 =====
-  // startPHQ9Survey 함수 수정
-  const startPHQ9Survey = async () => {
-    console.log("[DEBUG] startPHQ9Survey 함수 시작");
-    
-    if (!conversationId || !userId) {
-      console.log("[DEBUG] conversationId 또는 userId가 없음");
-      return;
-    }
-    
-    try {
-      // 먼저 기존 상태 확인
-      if (restorePHQ9State(conversationId, userId)) {
-        console.log("[DEBUG] 기존 PHQ-9 세션 복원됨");
-        return;
-      }
-      
-      console.log("[DEBUG] 새로운 PHQ-9 세션 시작");
-      
-      setAgentType("mentalcare");
-      setPhq9Active(true);
-      setPhq9Responses([]);
-      setPhq9Completed(false);
-      
-      // 설문 시작 안내와 첫 번째 질문을 하나의 메시지로 통합
-      const firstQuestion = {
-        index: 0,
-        text: PHQ9_QUESTIONS[0],
-        progress: "1/9",
-        options: [
-          {"value": 0, "label": "전혀 그렇지 않다"},
-          {"value": 1, "label": "며칠 정도 그렇다"},
-          {"value": 2, "label": "일주일 이상 그렇다"},
-          {"value": 3, "label": "거의 매일 그렇다"}
-        ]
-      };
+    const inputToSend = (messageOverride || userInput).trim()
+    if (!inputToSend || !userId) return
 
-      // phq9Question 상태 설정
-      setPhq9Question(firstQuestion);
-      setForceUpdate(prev => prev + 1);
-      
-      
-      const combinedMessage: ExtendedMessage = {
-        sender: "agent",
-        text: `📋 **PHQ-9 우울증 자가진단 설문을 시작합니다**\n\n총 9개 문항으로 구성되어 있습니다.\n각 문항에 대해 지난 2주간의 경험을 바탕으로 답변해 주세요.\n\n**문항 1/9**: 지난 2주 동안, ${PHQ9_QUESTIONS[0]}`,
-        isComplete: false
-      };
-      setMessages((prev) => [...prev, combinedMessage]);
-      
-      // 세션 상태 저장
-      const sessionState: PHQ9SessionState = {
-        conversationId,
-        userId,
-        isActive: true,
-        currentQuestionIndex: 0,
-        responses: [],
-        isCompleted: false,
-        startTime: Date.now()
-      };
-      
-      savePHQ9State(sessionState);
-      
-    } catch (error) {
-      console.error("[DEBUG] PHQ-9 시작 에러:", error);
-      alert("설문을 시작할 수 없습니다.");
-    }
-  };
-
-  // handlePHQ9Response 함수 수정
-  const handlePHQ9Response = async (value: number) => {
-    console.log("[DEBUG] handlePHQ9Response 시작, value:", value);
-    
-    if (!conversationId || !userId) {
-      console.log("[DEBUG] conversationId 또는 userId 없음");
-      return;
-    }
-    
-    try {
-      // 사용자 응답을 채팅에 표시
-      const responseLabels = ["전혀 그렇지 않다", "며칠 정도 그렇다", "일주일 이상 그렇다", "거의 매일 그렇다"];
-      const responseText = `${value}: ${responseLabels[value]}`;
-      const userResponseMessage: ExtendedMessage = {
-        sender: "user",
-        text: responseText,
-        isComplete: true
-      };
-      setMessages(prev => [...prev, userResponseMessage]);
-      
-      // 응답 저장
-      const newResponses = [...phq9Responses, value];
-      setPhq9Responses(newResponses);
-      
-      // 세션 상태 업데이트
-      const sessionState: PHQ9SessionState = {
-        conversationId,
-        userId,
-        isActive: true,
-        currentQuestionIndex: newResponses.length,
-        responses: newResponses,
-        isCompleted: false,
-        startTime: Date.now()
-      };
-      
-      if (newResponses.length >= 9) {
-        console.log("[DEBUG] 설문 완료!");
-        
-        // 완료 상태로 업데이트
-        sessionState.isCompleted = true;
-        sessionState.isActive = false;
-        
-        setPhq9Active(false);
-        setPhq9Question(null);
-        setPhq9Completed(true);
-        
-        // 결과 계산 및 표시
-        const totalScore = newResponses.reduce((sum, score) => sum + score, 0);
-        let severity, recommendation;
-        
-        if (totalScore <= 4) {
-          severity = "최소 우울";
-          recommendation = "현재 우울 증상은 최소 수준입니다.";
-        } else if (totalScore <= 9) {
-          severity = "경미한 우울";
-          recommendation = "경미한 우울 증상이 있습니다. 생활 습관 개선을 권합니다.";
-        } else if (totalScore <= 14) {
-          severity = "중등도 우울";
-          recommendation = "전문가 상담을 권합니다.";
-        } else if (totalScore <= 19) {
-          severity = "중증 우울";
-          recommendation = "전문의 상담을 강력히 권합니다.";
-        } else {
-          severity = "최중증 우울";
-          recommendation = "즉시 전문의 상담을 받으시기 바랍니다.";
-        }
-        
-        // DB에 결과 저장
-        await savePHQ9ToDatabase(totalScore, newResponses);
-        
-        const completionMessage: ExtendedMessage = {
-          sender: "agent",
-          text: `✅ **PHQ-9 설문 완료**\n\n**총점: ${totalScore}점**\n**평가 결과: ${severity}**\n\n**권장사항**: ${recommendation}`,
-          isComplete: true
-        };
-        setMessages(prev => [...prev, completionMessage]);
-        
-        // 완료 후 세션 상태 삭제
-        setTimeout(() => {
-          clearPHQ9State();
-        }, 1000);
-        
-      } else {
-        // 다음 질문 설정
-        const nextIndex = newResponses.length;
-        
-        const nextQuestion = {
-          index: nextIndex,
-          text: PHQ9_QUESTIONS[nextIndex],
-          progress: `${nextIndex + 1}/9`,
-          options: [
-            {"value": 0, "label": "전혀 그렇지 않다"},
-            {"value": 1, "label": "며칠 정도 그렇다"},
-            {"value": 2, "label": "일주일 이상 그렇다"},
-            {"value": 3, "label": "거의 매일 그렇다"}
-          ]
-        };
-        
-        // 다음 질문을 메시지로 추가
-        const nextQuestionMessage: ExtendedMessage = {
-          sender: "agent",
-          text: `**문항 ${nextIndex + 1}/9**: 지난 2주 동안, ${PHQ9_QUESTIONS[nextIndex]}`,
-          isComplete: true
-        };
-        setMessages(prev => [...prev, nextQuestionMessage]);
-        
-        // 상태 업데이트
-        setPhq9Question(nextQuestion);
-      }
-      
-      // 세션 상태 저장
-      savePHQ9State(sessionState);
-      
-    } catch (error) {
-      console.error("PHQ-9 응답 처리 실패:", error);
-      alert("응답 처리에 실패했습니다.");
-    }
-  };
-
-  // ===== 채팅 관련 핸들러 =====
-  const handleSend = async (e?: React.FormEvent, messageOverride?: string) => {
-    if (e) e.preventDefault();
-    if (isSubmitting) return;
-
-    const inputToSend = (messageOverride || userInput).trim();
-    if (!inputToSend || !userId) return;
-
-    // ===== 사용자 메시지 우선 표시 =====
+    // 사용자 메시지 우선 표시
     const userMessage: ExtendedMessage = {
       sender: "user",
       text: inputToSend,
       isComplete: true,
-    };
-    setMessages((prev) => [...prev, userMessage]);
-
-    // ===== PHQ-9 활성 상태에서 처리 =====
-    if (phq9Active) {
-      // 거절 키워드 감지
-      if (detectRejectKeywords(inputToSend)) {
-        console.log("[DEBUG] PHQ-9 거절 키워드 감지, 설문 중단");
-        
-        setPhq9Active(false);
-        setPhq9Question(null);
-        setPhq9Completed(false);
-        setPhq9Responses([]);
-        clearPHQ9State();
-
-        // 거절 안내 메시지 추가
-        const rejectMessage: ExtendedMessage = {
-          sender: "agent",
-          text: "알겠습니다. PHQ-9 설문을 중단하겠습니다. 언제든지 다시 설문을 원하시면 말씀해 주세요.",
-          isComplete: false
-        };
-        setMessages((prev) => [...prev, rejectMessage]);
-        setUserInput("");
-        return;
-      }
-
-      // 설문 활성 상태에서는 일반 메시지 처리를 차단
-      console.log("[DEBUG] PHQ-9 설문 활성 상태, 일반 메시지 처리 차단");
-      const warningMessage: ExtendedMessage = {
-        sender: "agent",
-        text: "현재 PHQ-9 설문이 진행 중입니다. 설문 응답 버튼을 선택하거나, 설문을 중단하려면 '취소' 또는 '그만'이라고 입력해주세요.",
-        isComplete: false
-      };
-      setMessages((prev) => [...prev, warningMessage]);
-      setUserInput("");
-      return;
     }
+    setMessages((prev) => [...prev, userMessage])
 
-    // ===== PHQ-9 설문 시작 키워드 감지 =====
-    if (!phq9Active && !phq9Completed && detectPHQ9Keywords(inputToSend)) {
-      console.log("[DEBUG] PHQ-9 설문 키워드 감지, 설문 시작 준비");
-      if (!conversationId) {
-        await startNewConversation("mentalcare");
-      }
-      
-      // 확인 메시지 표시
-      const confirmMessage: ExtendedMessage = {
-        sender: "agent",
-        text: "PHQ-9 우울증 자가진단 설문을 시작하시겠습니까?\n\n이 설문은 지난 2주간의 우울 증상을 평가하는 9개 문항으로 구성되어 있습니다.\n\n설문을 진행하려면 '네' 또는 '시작'이라고 말씀해 주세요.\n그만두고 싶으시면 '아니요' 또는 '취소'라고 말씀해 주세요.",
-        isComplete: false
-      };
-      setMessages((prev) => [...prev, confirmMessage]);
-      setUserInput("");
-      return;
-    }
-
-    // ===== PHQ-9 설문 시작 확인 처리 =====
-    if (!phq9Active && !phq9Completed && 
-        (inputToSend.includes("네") || inputToSend.includes("시작") || 
-        inputToSend.includes("좋아") || inputToSend.includes("응") ||
-        inputToSend.includes("그래") || inputToSend.includes("ok") ||
-        inputToSend.includes("OK") || inputToSend.includes("예"))) {
-      
-      console.log("[DEBUG] PHQ-9 시작 확인, 설문 시작");
-      
-      // 즉시 시작하지 않고 약간의 지연 후 시작
-      setTimeout(() => {
-        startPHQ9Survey();
-      }, 300);
-      
-      setUserInput("");
-      return;
-    }
-
-    // ===== 일반 메시지 처리 =====
-    setIsSubmitting(true);
-    setIsLoading(true);
+    setIsSubmitting(true)
+    setIsLoading(true)
 
     if (!messageOverride) {
-      setUserInput("");
+      setUserInput("")
     }
 
     // "답변 중입니다..." 메시지 추가
@@ -1465,19 +1404,21 @@ export default function ChatRoomPage() {
       text: "",
       isTyping: true,
       isComplete: false,
-    };
-    setMessages((prev) => [...prev, loadingMessage]);
+    }
+    setMessages((prev) => [...prev, loadingMessage])
 
     try {
-      let currentConversationId = conversationId || initialConversationId;
+      let currentConversationId = conversationId || initialConversationId
+      
+      // 새 대화 생성이 필요한 경우
       if (!currentConversationId) {
-        const result = await agentApi.createConversation(userId);
-        if (!result.success) throw new Error(result.error);
+        const result = await agentApi.createConversation(userId)
+        if (!result.success) throw new Error(result.error)
 
-        currentConversationId = result.data?.conversationId;
-        setConversationId(currentConversationId);
-        const newUrl = `/chat/room?conversation_id=${currentConversationId}&agent=${agentType}`;
-        window.history.replaceState({}, '', newUrl);
+        currentConversationId = result.data?.conversationId
+        setConversationId(currentConversationId)
+        const newUrl = `/chat/room?conversation_id=${currentConversationId}&agent=${agentType}`
+        window.history.replaceState({}, '', newUrl)
       }
 
       const result = await agentApi.sendQuery(
@@ -1486,59 +1427,64 @@ export default function ChatRoomPage() {
         inputToSend,
         agentType,
         currentProjectId
-      );
+      )
 
       if (!result || !result.success || !result.data) {
-        throw new Error(result?.error || "응답을 받을 수 없습니다");
+        throw new Error(result?.error || "응답을 받을 수 없습니다")
       }
 
       // "답변 중입니다..." 메시지를 실제 응답으로 교체
       setMessages((prev) => {
-        const updated = [...prev];
+        const updated = [...prev]
         const lastIndex = updated.findIndex(
           (msg) => msg.sender === "agent" && msg.isTyping
-        );
+        )
         if (lastIndex !== -1) {
           updated[lastIndex] = {
             sender: "agent",
             text: result.data.answer,
             isTyping: false,
             isComplete: false,
-          };
+          }
         } else {
           updated.push({
             sender: "agent",
             text: result.data.answer,
             isTyping: false,
             isComplete: false,
-          });
+          })
         }
-        return updated;
-      });
+        return updated
+      })
 
-      await fetchChatHistory(userId);
+      // 채팅 히스토리 업데이트
+      await fetchChatHistory(userId)
     } catch (error) {
-      console.error("응답 실패:", error);
-      alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+      console.error("응답 실패:", error)
+      alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+      
+      // 로딩 메시지 제거
       setMessages((prev) =>
         prev.filter((msg) => !(msg.sender === "agent" && msg.isTyping))
-      );
-      if (!messageOverride) setUserInput(inputToSend);
+      )
+      
+      // 입력창 복원
+      if (!messageOverride) setUserInput(inputToSend)
     } finally {
-      setIsSubmitting(false);
-      setIsLoading(false);
+      setIsSubmitting(false)
+      setIsLoading(false)
     }
-  };
+  }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory])
 
-  const handleTypingComplete = (messageIndex: number) => {
+  const handleTypingComplete = useCallback((messageIndex: number) => {
     setMessages(prev => 
       prev.map((msg, idx) => 
         idx === messageIndex ? { ...msg, isComplete: true } : msg
       )
     )
-  }
+  }, [])
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setUserInput(e.target.value)
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
@@ -1546,19 +1492,18 @@ export default function ChatRoomPage() {
       const maxHeight = 120
       textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + "px"
     }
-  }
+  }, [])
 
-  const handleExampleClick = (text: string) => {
+  const handleExampleClick = useCallback((text: string) => {
     if (!userId || isSubmitting) {
       alert("로그인 정보가 없습니다. 다시 로그인해주세요.")
       return
     }
-    
     setUserInput(text)
-  }
+  }, [userId, isSubmitting])
 
   // ===== 채팅 히스토리 관련 핸들러 =====
-  const handleEditChatTitle = (chatId: number, newTitle: string) => {
+  const handleEditChatTitle = useCallback((chatId: number, newTitle: string) => {
     const newTitleMap = { ...chatTitleMap, [chatId]: newTitle }
     setChatTitleMap(newTitleMap)
     saveChatTitleMap(newTitleMap)
@@ -1568,9 +1513,9 @@ export default function ChatRoomPage() {
         chat.id === chatId ? { ...chat, title: newTitle } : chat
       )
     )
-  }
+  }, [chatTitleMap, saveChatTitleMap])
 
-  const handleDeleteChat = async (chatId: number) => {
+  const handleDeleteChat = useCallback(async (chatId: number) => {
     try {
       const response = await fetch(`${API_BASE_URL}/conversations/${chatId}`, {
         method: 'DELETE'
@@ -1583,12 +1528,6 @@ export default function ChatRoomPage() {
           setCurrentChatId(null)
           setConversationId(null)
           setMessages([])
-          // PHQ-9 상태도 초기화
-          setPhq9Active(false)
-          setPhq9Question(null)
-          setPhq9Responses([])
-          setPhq9Completed(false)
-          clearPHQ9State()
           router.push('/chat/room')
         }
         
@@ -1601,10 +1540,10 @@ export default function ChatRoomPage() {
       console.error('대화 삭제 실패:', error)
       alert('대화 삭제에 실패했습니다.')
     }
-  }
+  }, [currentChatId, conversationId, chatTitleMap, saveChatTitleMap, router])
 
   // ===== 프로젝트 관련 핸들러 =====
-  const handleCreateProject = async (projectData: { title: string; description: string; category: string }) => {
+  const handleCreateProject = useCallback(async (projectData: { title: string; description: string; category: string }) => {
     if (!userId) return
 
     try {
@@ -1617,7 +1556,7 @@ export default function ChatRoomPage() {
       const result = await response.json()
       if (result.success) {
         alert("프로젝트가 성공적으로 생성되었습니다.")
-        fetchProjects(userId)
+        await fetchProjects(userId)
         setShowProjectModal(false)
       } else {
         alert(`프로젝트 생성 실패: ${result.error}`)
@@ -1626,9 +1565,9 @@ export default function ChatRoomPage() {
       console.error("프로젝트 생성 오류:", error)
       alert("프로젝트 생성 중 오류가 발생했습니다.")
     }
-  }
+  }, [userId, fetchProjects])
 
-  const handleUpdateProject = async (projectData: { title: string; description: string; category: string }) => {
+  const handleUpdateProject = useCallback(async (projectData: { title: string; description: string; category: string }) => {
     if (!editingProject || !userId) return
 
     try {
@@ -1641,7 +1580,7 @@ export default function ChatRoomPage() {
       const result = await response.json()
       if (result.success) {
         alert("프로젝트가 성공적으로 수정되었습니다.")
-        fetchProjects(userId)
+        await fetchProjects(userId)
         setShowProjectModal(false)
         setEditingProject(null)
       } else {
@@ -1651,9 +1590,9 @@ export default function ChatRoomPage() {
       console.error("프로젝트 수정 오류:", error)
       alert("프로젝트 수정 중 오류가 발생했습니다.")
     }
-  }
+  }, [editingProject, userId, fetchProjects])
 
-  const handleDeleteProject = async (projectId: number) => {
+  const handleDeleteProject = useCallback(async (projectId: number) => {
     const confirmDelete = window.confirm("이 프로젝트를 삭제하시겠습니까?")
     if (!confirmDelete) return
 
@@ -1677,62 +1616,57 @@ export default function ChatRoomPage() {
       console.error("프로젝트 삭제 오류:", error)
       alert("프로젝트 삭제 중 오류가 발생했습니다.")
     }
-  }
+  }, [currentProjectId])
 
-  const handleAddProject = () => {
+  const handleAddProject = useCallback(() => {
     setEditingProject(null)
     setShowProjectModal(true)
-  }
+  }, [])
 
-  const handleEditProject = (project: Project) => {
+  const handleEditProject = useCallback((project: Project) => {
     setEditingProject(project)
     setShowProjectModal(true)
-  }
+  }, [])
 
-  const handleSelectProject = async (projectId: number) => {
+  const handleSelectProject = useCallback(async (projectId: number) => {
     router.push(`/chat/projects/${projectId}`)
-  }
+  }, [router])
 
   // ===== 사이드바 관련 핸들러 =====
-  const handleSidebarSelect = async (type: string) => {
-     try {
-        if (type === "home") {
-          router.push("/chat")
-          return
-        }
-        setAgentType(type as AgentType)
-        setMessages([])
-        setConversationId(null)
-        // PHQ-9 상태 초기화
-        setPhq9Active(false)
-        setPhq9Question(null)
-        setPhq9Responses([])
-        setPhq9Completed(false)
-        clearPHQ9State()
-        window.history.replaceState({}, '', `/chat/room?agent=${type}`)
-      } catch (error) {
-        console.error("에이전트 변경 실패:", error)
-        alert("에이전트 변경에 실패했습니다. 다시 시도해주세요.")
+  const handleSidebarSelect = useCallback(async (type: string) => {
+    try {
+      if (type === "home") {
+        router.push("/chat")
+        return
       }
+      setAgentType(type as AgentType)
+      setMessages([])
+      setConversationId(null)
+      setCurrentChatId(null)
+      window.history.replaceState({}, '', `/chat/room?agent=${type}`)
+    } catch (error) {
+      console.error("에이전트 변경 실패:", error)
+      alert("에이전트 변경에 실패했습니다. 다시 시도해주세요.")
     }
+  }, [router])
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     if (isSubmitting) return
     
     setCurrentChatId(null)
     setConversationId(null)
     setMessages([])
-    setPhq9Active(false)
-    setPhq9Question(null)
-    setPhq9Responses([])
-    setPhq9Completed(false)
-    setForceUpdate(0)
-    clearPHQ9State()
     window.history.replaceState({}, '', `/chat/room?agent=${agentType}`)
-  }
+  }, [isSubmitting, agentType])
 
   // ===== 피드백 관련 핸들러 =====
-  const handleFeedbackSubmit = async () => {
+  const openFeedbackModal = useCallback((type: "up" | "down", idx: number) => {
+    setRating(type === "up" ? 5 : 1)
+    setComment(`message_index_${idx}`)
+    setShowFeedbackModal(true)
+  }, [])
+
+  const handleFeedbackSubmit = useCallback(async () => {
     if (!conversationId || !userId) {
       alert("로그인 정보가 없습니다.")
       return
@@ -1752,9 +1686,48 @@ export default function ChatRoomPage() {
     setShowFeedbackModal(false)
     setRating(0)
     setComment("")
-  }
+  }, [conversationId, userId, rating, comment, category])
+
+    const scrollToBottomInstant = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: "auto", // 즉시 스크롤 (애니메이션 없음)
+        block: "end" 
+      })
+    }
+  }, [])
+
+  // throttle 함수 구현 (성능 최적화)
+  const throttle = useCallback((func: Function, delay: number) => {
+    let timeoutId: NodeJS.Timeout | null = null
+    let lastExecTime = 0
+    
+    return function (...args: any[]) {
+      const currentTime = Date.now()
+      
+      if (currentTime - lastExecTime > delay) {
+        func(...args)
+        lastExecTime = currentTime
+      } else {
+        if (timeoutId) clearTimeout(timeoutId)
+        timeoutId = setTimeout(() => {
+          func(...args)
+          lastExecTime = Date.now()
+        }, delay - (currentTime - lastExecTime))
+      }
+    }
+  }, [])
+
+  // throttled 스크롤 함수
+  const throttledScroll = useCallback(
+    throttle(() => {
+      scrollToBottomInstant()
+    }, 100), // 100ms마다 최대 1번만 스크롤
+    [scrollToBottomInstant]
+  )
 
   // ===== useEffect 훅 =====
+  
   // 스크롤 자동 이동
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -1770,148 +1743,82 @@ export default function ChatRoomPage() {
   // 사용자 초기화
   useEffect(() => {
     initializeUser()
-  }, [])
+  }, [initializeUser])
 
   // 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
   useEffect(() => {
     if (userId && !initializeRef.current) {
-      initializeRef.current = true;
+      initializeRef.current = true
       
-      const titleMap = loadChatTitleMap();
-      setChatTitleMap(titleMap);
+      const titleMap = loadChatTitleMap()
+      setChatTitleMap(titleMap)
       
-      if (initialQuestion && !initialConversationId) {
-        setUserInput(initialQuestion);
-      }
-      setIsInitialized(true);
+      setIsInitialized(true)
       
-      (async () => {
+      const initializeData = async () => {
         try {
-          const promises = [fetchProjects(userId), fetchChatHistory(userId)];
+          const promises = [fetchProjects(userId), fetchChatHistory(userId)]
           
-          if (initialConversationId) {
-            promises.push(loadPreviousChat(initialConversationId));
-          }
-          if (currentProjectId) {
-            promises.push(fetchProjectInfo(currentProjectId));
+          if (initialConversationId && !initialQuestion) {
+            promises.push(loadPreviousChat(initialConversationId))
           }
           
-          await Promise.all(promises);
+          if (initialProjectId) {
+            promises.push(fetchProjectInfo(initialProjectId))
+          }
+          
+          await Promise.all(promises)
         } catch (error) {
-          console.error("초기화 중 오류:", error);
+          console.error("초기화 중 오류:", error)
         } finally {
-          initializeRef.current = false;
+          initializeRef.current = false
         }
-      })();
+      }
+      
+      initializeData()
     }
-  }, [userId]); 
+  }, [userId, loadChatTitleMap, fetchProjects, fetchChatHistory, loadPreviousChat, fetchProjectInfo, initialConversationId, initialQuestion, initialProjectId])
 
-  // ===== 메시지 변경 시 세션 저장 =====
+  // 메시지 변경 시 세션 저장
   useEffect(() => {
     if (conversationId && messages.length > 0) {
-      saveMessages(conversationId, messages);
+      saveMessages(conversationId, messages)
     }
-  }, [messages, conversationId]);
+  }, [messages, conversationId])
 
-  // ===== 초기 질문 자동 전송 =====
+  // 초기 질문 자동 전송
   useEffect(() => {
     const sendInitialQuestion = async () => {
       if (
         initialQuestion && 
         userId && 
         messages.length === 0 && 
-        !isSubmitting
+        !isSubmitting &&
+        isInitialized
       ) {
-        console.log("[DEBUG] 초기 질문 자동 전송:", initialQuestion);
+        console.log("[DEBUG] 초기 질문 자동 전송:", initialQuestion)
 
-        setIsSubmitting(true);  // 추가: 중복 방지 플래그
         const newUrl = initialConversationId
           ? `/chat/room?conversation_id=${initialConversationId}&agent=${agentType}`
-          : `/chat/room?agent=${agentType}`;
-        window.history.replaceState({}, '', newUrl);
+          : `/chat/room?agent=${agentType}`
+        window.history.replaceState({}, '', newUrl)
 
-        await handleSend(undefined, initialQuestion);
-        setUserInput(""); // 초기 질문을 비워서 재전송 방지
-        setIsSubmitting(false); // 전송 끝나면 해제
+        await handleSend(undefined, initialQuestion)
       }
-    };
-    sendInitialQuestion();
-  }, [initialQuestion, userId, messages.length]);
-
-  useEffect(() => {
-    if (userId && initialConversationId && !initialQuestion) {
-      loadPreviousChat(initialConversationId);
     }
-  }, [userId, initialConversationId, initialQuestion]);
+    
+    sendInitialQuestion()
+  }, [initialQuestion, userId, messages.length, isSubmitting, isInitialized, initialConversationId, agentType, handleSend])
 
   // 페이지 로드 시 messages 복원
   useEffect(() => {
-    if (conversationId) {
-      const saved = loadMessages(conversationId);
-      if (saved) {
-        setMessages(saved);
+    if (conversationId && messages.length === 0) {
+      const saved = loadMessages(conversationId)
+      if (saved && saved.length > 0) {
+        setMessages(saved)
       }
     }
-  }, [conversationId]);
-
-  useEffect(() => {
-    if (userId && !initializeRef.current) {
-      initializeRef.current = true;
-      
-      const titleMap = loadChatTitleMap();
-      setChatTitleMap(titleMap);
-      
-      setIsInitialized(true);
-      
-      (async () => {
-        try {
-          const promises = [fetchProjects(userId), fetchChatHistory(userId)];
-          
-          if (currentProjectId) {
-            promises.push(fetchProjectInfo(currentProjectId));
-          }
-          
-          await Promise.all(promises);
-        } catch (error) {
-          console.error("초기화 중 오류:", error);
-        } finally {
-          initializeRef.current = false;
-        }
-      })();
-    }
-  }, [userId]);
-
-  // PHQ-9 상태 변경 감지
-  useEffect(() => {
-    console.log("[DEBUG] phq9Question 변경됨:", phq9Question);
-    console.log("[DEBUG] phq9Active 상태:", phq9Active);
-  }, [phq9Question, phq9Active]);
-
-  // PHQ-9 자동 시작 로직 비활성화
-  useEffect(() => {
-    // 기존의 자동 시작 로직을 비활성화
-    // 이제 키워드 기반으로만 설문이 시작됨
-    console.log("[DEBUG] PHQ-9 자동 시작 로직 비활성화됨");
-  }, [messages, phq9Active, conversationId, userId]);
-
-  // ===== 페이지 새로고침 시 PHQ-9 상태 복원 =====
-  useEffect(() => {
-    if (conversationId && userId && messages.length > 0) {
-      // 메시지가 로드된 후 PHQ-9 상태 복원 시도
-      const restored = restorePHQ9State(conversationId, userId);
-      if (restored) {
-        console.log("[DEBUG] 페이지 로드 시 PHQ-9 상태 복원됨");
-      }
-    }
-  }, [conversationId, userId, messages.length]);
-
-  useEffect(() => {
-    if (userId && !conversationId) {
-      console.log("[DEBUG] conversationId가 없어 새 대화 생성");
-      startNewConversation(agentType);
-    }
-  }, [userId, conversationId]);
-
+  }, [conversationId, messages.length])
 
   // ===== JSX 렌더링 =====
   return (
@@ -1933,7 +1840,7 @@ export default function ChatRoomPage() {
         setIsExpanded={setSidebarExpanded}
       />
 
-      {/* 메인 컨테이너 - 사이드바 크기에 따라 여백 조정 */}
+      {/* 메인 컨테이너 */}
       <div className={`flex-1 min-w-0 flex flex-col relative transition-all duration-300 ${sidebarExpanded ? 'ml-64' : 'ml-14'} bg-white`}>
         {/* 헤더 */}
         <div className="bg-white px-6 py-4 flex items-center justify-between">
@@ -1972,11 +1879,11 @@ export default function ChatRoomPage() {
             {messages.length === 0 && !currentProjectId && (
               <>
                 <h2 className="font-semibold mb-3 text-gray-800">팅커벨 활용하기 &gt;</h2>
-                <div className="flex space-x-3 mb-6 overflow-x-auto">
-                  {exampleQuestions.map((item, idx) => (
+                <div className="flex space-x-3 mb-6 overflow-x-auto scrollbar-hide pb-2">
+                  {getCurrentAgentExamples(agentType).map((item, idx) => (
                     <Card
                       key={idx}
-                      className="min-w-[280px] cursor-pointer hover:shadow-md transition-shadow bg-white"
+                      className="min-w-[280px] cursor-pointer bg-white flex-shrink-0 transition-all duration-200 hover:bg-green-50 hover:shadow-lg hover:border-green-300 border border-gray-200"
                       onClick={() => handleExampleClick(item.question)}
                     >
                       <CardContent className="p-4">
@@ -1990,7 +1897,7 @@ export default function ChatRoomPage() {
             )}
 
             {/* 채팅 메시지 출력 */}
-            <div className="space-y-6">
+            <div className="space-y-3">
               {messages.map((msg, idx) => (
                 <div
                   key={`${idx}-${msg.sender}-${msg.text.slice(0, 20)}`}
@@ -1999,11 +1906,8 @@ export default function ChatRoomPage() {
                   {/* 사용자 메시지 */}
                   {msg.sender === "user" ? (
                     <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2 max-w-[80%]">
-                      <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center shadow shrink-0">
-                        <Image src="/3D_고양이.png" width={36} height={36} alt="사용자" className="rounded-full" />
-                      </div>
                       <div className="inline-block overflow-wrap-break-word p-0.5">
-                        <div className="bg-green-100 text-green-900 px-4 py-3 rounded-2xl shadow-md whitespace-pre-wrap leading-relaxed">
+                        <div className="bg-green-50 px-4 py-2 rounded-2xl whitespace-pre-wrap leading-tight">
                           {msg.text}
                         </div>
                       </div>
@@ -2028,37 +1932,103 @@ export default function ChatRoomPage() {
                               <TypingAnimation />
                             ) : (
                               /* 타이핑 애니메이션 또는 완성된 텍스트 */
-                              msg.isComplete ? (
-                                <ReactMarkdown>{msg.text}</ReactMarkdown>
-                              ) : (
-                                <TypingText 
-                                  text={msg.text} 
-                                  speed={20}
-                                  onComplete={() => handleTypingComplete(idx)}
-                                />
-                              )
+                              (() => {
+                                const phq9Parse = parsePHQ9Component(msg.text)
+                                
+                                return msg.isComplete ? (
+                                  <div className="!leading-snug">
+                                    {/* 일반 텍스트 부분 */}
+                                    {phq9Parse.textWithoutPHQ9 && (
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        components={{
+                                          p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
+                                          ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
+                                          ol: ({ children }) => <ol className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ol>,
+                                          li: ({ children }) => <li className="!m-0 !p-0 !leading-snug">{children}</li>,
+                                          h1: ({ children }) => <h1 className="!text-xl !font-bold !m-0 !p-0 !leading-snug">{children}</h1>,
+                                          h2: ({ children }) => <h2 className="!text-lg !font-bold !m-0 !p-0 !leading-snug">{children}</h2>,
+                                          h3: ({ children }) => <h3 className="!text-base !font-bold !m-0 !p-0 !leading-snug">{children}</h3>,
+                                          strong: ({ children }) => <strong className="!font-semibold !m-0 !p-0">{children}</strong>,
+                                          blockquote: ({ children }) => <blockquote className="!border-l-4 !border-gray-300 !pl-3 !m-0 !italic !leading-snug">{children}</blockquote>,
+
+                                          table: ({ children }) => (
+                                            <div className="overflow-x-auto my-4">
+                                              <table className="min-w-full border-collapse border border-gray-300 text-sm">
+                                                {children}
+                                              </table>
+                                            </div>
+                                          ),
+                                          thead: ({ children }) => (
+                                            <thead className="bg-green-50">
+                                              {children}
+                                            </thead>
+                                          ),
+                                          tbody: ({ children }) => (
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                              {children}
+                                            </tbody>
+                                          ),
+                                          tr: ({ children }) => (
+                                            <tr className="hover:bg-gray-50">
+                                              {children}
+                                            </tr>
+                                          ),
+                                          th: ({ children }) => (
+                                            <th className="px-3 py-2 text-left font-semibold text-gray-900 border border-gray-300 bg-green-100">
+                                              {children}
+                                            </th>
+                                          ),
+                                          td: ({ children }) => (
+                                            <td className="px-3 py-2 text-gray-700 border border-gray-300">
+                                              {children}
+                                            </td>
+                                          ),
+                                          
+                                          // 코드 블록
+                                          code: ({ node, inline, className, children, ...props }: any) => 
+                                            inline ? (
+                                              <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                                                {children}
+                                              </code>
+                                            ) : (
+                                              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
+                                                <code className="text-sm font-mono" {...props}>
+                                                  {children}
+                                                </code>
+                                              </pre>
+                                            )
+                                        }}
+                                      >
+                                        {phq9Parse.textWithoutPHQ9}
+                                      </ReactMarkdown>
+                                    )}
+                                    
+                                    {/* PHQ-9 버튼 컴포넌트 */}
+                                    {phq9Parse.isPHQ9 && (
+                                      <PHQ9ButtonComponent
+                                        question={phq9Parse.data}
+                                        onResponse={handlePHQ9Response}
+                                        isDisabled={phq9Parse.data.isDisabled || phq9Processing}
+                                      />
+                                    )}
+                                  </div>
+                                ) : (
+                                  <TypingText 
+                                    text={phq9Parse.textWithoutPHQ9 || msg.text} 
+                                    speed={20}
+                                    onComplete={() => handleTypingComplete(idx)}
+                                    onTextUpdate={throttledScroll}
+                                  />
+                                )
+                              })()
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* PHQ-9 버튼 UI - 마지막 메시지이고 설문이 활성화되었을 때만 표시 */}
-                      {msg.sender === "agent" && 
-                       phq9Active && 
-                       !phq9Completed &&
-                       phq9Question && 
-                       phq9Question.text &&
-                       idx === messages.length - 1 && (
-                        <div className="mt-4" key={`phq9-${forceUpdate}`}>
-                          <PHQ9ButtonComponent 
-                            question={phq9Question}
-                            onResponse={handlePHQ9Response}
-                          />
-                        </div>
-                      )}
-                      
-                      {/* 피드백 버튼들 - PHQ-9가 비활성화일 때만 표시 */}
-                      {msg.isComplete && !msg.isTyping && !phq9Active && (
+                      {/* 피드백 버튼들 */}
+                      {msg.isComplete && !msg.isTyping && (
                         <div className="flex items-center space-x-2 pl-[52px]">
                           <button
                             className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 transition-colors"
@@ -2087,30 +2057,32 @@ export default function ChatRoomPage() {
           </div>
 
           {/* 하단 입력창 */}
-          <div className="bg-white p-4">
-            <form onSubmit={handleSend} className="flex space-x-2">
-              <Textarea
-                ref={textareaRef}
-                value={userInput}
-                onChange={handleInputChange}
-                placeholder="메시지를 입력하세요..."
-                className="flex-1 resize-none overflow-hidden rounded-xl border-2 border-gray-200 focus:border-green-400 shadow-lg"
-                rows={1}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSend(e)
-                  }
-                }}
-              />
-              <Button
-                type="submit"
-                size="icon"
-                className="h-full aspect-square rounded-xl bg-green-600 hover:bg-green-700 shadow-lg disabled:opacity-50"
-                disabled={!userInput.trim() || isSubmitting || isLoading}
-              >
-                <Send className="h-5 w-5" />
-              </Button>
+          <div className="w-full max-w-3xl mx-auto bg-white p-6">
+            <form onSubmit={handleSend}>
+              <div className="relative">
+                <Textarea
+                  ref={textareaRef}
+                  value={userInput}
+                  onChange={handleInputChange}
+                  placeholder="메시지를 입력하세요..."
+                  className="w-full resize-none overflow-hidden rounded-xl border-2 border-gray-200 focus:border-gray-200 focus:ring-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0 pr-12 min-h-[80px] py-4 shadow-none"
+                  rows={1}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSend(e)
+                    }
+                  }}
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-green-600 hover:bg-green-700 shadow-lg disabled:opacity-50"
+                  disabled={!userInput.trim() || isSubmitting || isLoading}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
             </form>
             
             {/* 하단 안내 문구 */}
