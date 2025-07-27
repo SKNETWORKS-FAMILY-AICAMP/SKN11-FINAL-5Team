@@ -10,3 +10,6 @@ __pycache__
 *.log
 *package*
 node_modules
+
+# Next.js build output
+.next

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
+from pydantic import BaseModel, EmailStr, Field
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
@@ -282,16 +283,69 @@ class ErrorResponse(BaseModel):
             }
         }
 
-# ===== 기존 코드와의 호환성을 위한 별칭들 =====
+class EmailRequest(BaseModel):
+    to_emails: List[EmailStr]
+    subject: str
+    body: str
+    html_body: Optional[str] = None
+    attachments: Optional[List[str]] = None
+    cc_emails: Optional[List[EmailStr]] = None
+    bcc_emails: Optional[List[EmailStr]] = None
+    from_email: Optional[EmailStr] = None
+    from_name: Optional[str] = None
+    service: Optional[str] = None
 
-# # 데이터베이스 모델 별칭 (fully qualified path 사용)
-# DBUser = db_models.User
-# DBConversation = db_models.Conversation
-# DBMessage = db_models.Message
-# DBAutomationTask = db_models.AutomationTask
-# DBPHQ9Result = db_models.PHQ9Result
-# DBReport = db_models.Report
-# DBTemplateMessage = db_models.TemplateMessage
-# DBFAQ = db_models.FAQ
-# DBFeedback = db_models.Feedback
-# DBSubscription = db_models.Subscription
+
+class InstagramPostRequest(BaseModel):
+    instagram_id: str
+    access_token: str
+    image_url: str
+    caption: Optional[str] = None
+    
+# ===== Pydantic 모델들 =====
+
+class EventBase(BaseModel):
+    title: str = Field(..., description="이벤트 제목")
+    description: Optional[str] = Field("", description="이벤트 설명")
+    location: Optional[str] = Field("", description="이벤트 위치")
+    start_time: str = Field(..., description="시작 시간 (ISO 형식)")
+    end_time: Optional[str] = Field(None, description="종료 시간 (ISO 형식)")
+    timezone: Optional[str] = Field("Asia/Seoul", description="시간대")
+    all_day: Optional[bool] = Field(False, description="종일 이벤트 여부")
+
+
+class EventCreate(EventBase):
+    calendar_id: Optional[str] = Field("primary", description="캘린더 ID")
+    reminders: Optional[List[Dict[str, Any]]] = Field(
+        [{"method": "popup", "minutes": 15}], 
+        description="리마인더 설정"
+    )
+    recurrence: Optional[List[str]] = Field(None, description="반복 설정")
+
+
+class EventUpdate(EventBase):
+    title: Optional[str] = None
+    start_time: Optional[str] = None
+
+
+class EventResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str]
+    location: Optional[str]
+    start_time: str
+    end_time: str
+    calendar_id: str
+    html_link: str
+    creator: Optional[Dict[str, Any]]
+    attendees: Optional[List[Dict[str, Any]]]
+
+
+class CalendarListResponse(BaseModel):
+    calendars: List[Dict[str, Any]]
+    count: int
+
+
+class QuickEventCreate(BaseModel):
+    text: str = Field(..., description="빠른 이벤트 텍스트 (예: '내일 오후 2시에 회의')")
+    calendar_id: Optional[str] = Field("primary", description="캘린더 ID")

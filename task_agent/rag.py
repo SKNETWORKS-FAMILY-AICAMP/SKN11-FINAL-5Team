@@ -312,6 +312,3 @@ class TaskAgentRAGManager:
             "collection_stats": self.get_collection_stats()
         }
 
-
-# 기존 코드와의 호환성을 위한 클래스 별칭
-RAGManager = TaskAgentRAGManager

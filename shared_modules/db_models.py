@@ -2,10 +2,11 @@
 데이터베이스 모델 v4 - 실제 DDL과 완전 일치
 """
 
-from sqlalchemy import Column, Integer, String, Text, Boolean, TIMESTAMP, ForeignKey, JSON, DECIMAL, CheckConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, TIMESTAMP, ForeignKey, JSON, DECIMAL,CheckConstraint,DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from shared_modules.database import Base
+from sqlalchemy.ext.declarative import declarative_base
 
 class User(Base):
     """사용자 테이블 - DDL과 완전 일치"""
@@ -20,7 +21,7 @@ class User(Base):
     provider = Column(String(32), nullable=False)
     social_id = Column(String(128), nullable=False)
     admin = Column(Boolean, nullable=False)
-    experience = Column(Boolean, nullable=False)
+    experience = Column(Integer, nullable=False)
     access_token = Column(String(1024), nullable=False)
     refresh_token = Column(String(1024), nullable=True)
     
@@ -43,6 +44,7 @@ class FAQ(Base):
     view_count = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), nullable=False)
+    answer = Column(Text, nullable=False)
 
 class Conversation(Base):
     """대화 세션 테이블"""
@@ -169,6 +171,52 @@ class TemplateMessage(Base):
     # 관계
     user = relationship("User", back_populates="template_messages")
     automation_tasks = relationship("AutomationTask", back_populates="template", cascade="all, delete-orphan")
+    def to_dict(self):
+        return {
+            "template_id": self.template_id,
+            "user_id": self.user_id,
+            "template_type": self.template_type,
+            "channel_type": self.channel_type,
+            "title": self.title,
+            "content": self.content,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "content_type": self.content_type,
+        }
+
+
+class Template(Base):
+    """마이페이지용 템플릿 저장 테이블"""
+    __tablename__ = 'template'
+    __table_args__ = {'extend_existing': True}
+
+    template_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(200), nullable=False)
+    category = Column(String(50), nullable=True)
+    description = Column(Text, nullable=True)
+    difficulty = Column(String(20), nullable=True)
+    estimated_time = Column(String(20), nullable=True)
+    rating = Column(DECIMAL(3, 2), default=0.0)
+    usage_count = Column(Integer, default=0)
+    is_public = Column(Boolean, default=False)
+    tags = Column(JSON, default=[])
+    content = Column(Text, nullable=True)
+    author = Column(String(100), nullable=True)
+    user_id = Column(Integer, ForeignKey('user.user_id'), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+    # 관계
+    user = relationship("User", backref="custom_templates")
+
+class UserFavorite(Base):
+    """템플릿 즐겨찾기 테이블"""
+    __tablename__ = 'user_favorite'
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('user.user_id'), nullable=False)
+    template_id = Column(Integer, ForeignKey('template.template_id'), nullable=False)
+
 
 class AutomationTask(Base):
     """자동화 작업 테이블"""
@@ -207,3 +255,29 @@ class VectorCollection(Base):
     description = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+# 프로젝트 챗
+class Project(Base):
+    __tablename__ = "project"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
+    title = Column(String(100), nullable=False)
+    description = Column(Text)
+    category = Column(String(50))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", backref="projects")
+
+# 프로젝트 문서
+class ProjectDocument(Base):
+    __tablename__ = "project_document"
+
+    document_id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Integer, ForeignKey("conversation.conversation_id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("project.id"), nullable=True)
+    file_name = Column(String(255))
+    file_path = Column(Text)
+    uploaded_at = Column(DateTime, default=func.now())

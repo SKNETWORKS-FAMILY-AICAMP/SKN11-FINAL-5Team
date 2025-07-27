@@ -1,0 +1,430 @@
+# 통합 에이전트 시스템 Smithery 워크플로우 설정
+name: "Unified Agent System Workflow"
+version: "1.0.0"
+description: "5개 전문 에이전트를 통합한 AI 상담 시스템 워크플로우"
+
+# MCP 서버 설정
+servers:
+  business_planning:
+    command: "python"
+    args: ["buisness_planning_agent/mcp_server/server.py"]
+    description: "사업기획 전문 에이전트"
+    
+  marketing:
+    command: "python"
+    args: ["marketing_agent/mcp_server/server.py"]
+    description: "마케팅 전문 에이전트"
+    
+  task_automation:
+    command: "python"
+    args: ["task_agent/mcp_server/server.py"]
+    description: "업무지원 전문 에이전트"
+    
+  unified_system:
+    command: "python"
+    args: ["unified_agent_system/mcp_server/server.py"]
+    description: "통합 시스템 메인 에이전트"
+
+# 워크플로우 정의
+workflows:
+  # 1. 사업기획 워크플로우
+  business_planning_workflow:
+    name: "사업기획 전문 워크플로우"
+    description: "창업 아이디어부터 사업계획서까지 완전 자동화"
+    steps:
+      - step: trend_search
+        server: business_planning
+        tool: trend_search
+        description: "창업 트렌드 및 유망 아이템 검색"
+        input_schema:
+          query: "string"
+          year: "integer"
+          category: "string"
+        
+      - step: market_analysis
+        server: business_planning
+        tool: market_analysis
+        description: "시장 분석 및 경쟁사 분석"
+        input_from: trend_search
+        input_schema:
+          business_idea: "string"
+          target_market: "string"
+          analysis_type: "string"
+        
+      - step: lean_canvas_generation
+        server: business_planning
+        tool: generate_lean_canvas
+        description: "린캔버스 비즈니스 모델 생성"
+        input_from: market_analysis
+        input_schema:
+          business_idea: "string"
+          target_customer: "string"
+          value_proposition: "string"
+          persona: "string"
+        
+      - step: business_plan_creation
+        server: business_planning
+        tool: create_business_plan
+        description: "종합 사업 계획서 생성"
+        input_from: 
+          - market_analysis
+          - lean_canvas_generation
+        input_schema:
+          business_idea: "string"
+          market_analysis: "string"
+          lean_canvas: "string"
+          funding_goal: "string"
+
+  # 2. 마케팅 워크플로우
+  marketing_workflow:
+    name: "마케팅 자동화 워크플로우"
+    description: "콘텐츠 생성부터 소셜미디어 포스팅까지"
+    steps:
+      - step: content_generation
+        server: marketing
+        tool: generate_marketing_content
+        description: "마케팅 콘텐츠 생성"
+        input_schema:
+          product_description: "string"
+          platform: "string"
+          content_type: "string"
+          target_audience: "string"
+          tone: "string"
+        
+      - step: social_media_posting
+        server: marketing
+        tool: create_social_media_post
+        description: "소셜 미디어 포스팅"
+        input_from: content_generation
+        input_schema:
+          content: "string"
+          platform: "string"
+          schedule_time: "string"
+          hashtags: "array"
+        
+      - step: branding_strategy
+        server: marketing
+        tool: develop_branding_strategy
+        description: "브랜딩 전략 개발"
+        input_schema:
+          business_name: "string"
+          industry: "string"
+          target_market: "string"
+          brand_values: "string"
+        
+      - step: targeting_strategy
+        server: marketing
+        tool: create_targeting_strategy
+        description: "타겟팅 전략 생성"
+        input_schema:
+          product_description: "string"
+          current_customers: "string"
+          market_research: "string"
+
+  # 3. 업무지원 워크플로우
+  task_automation_workflow:
+    name: "업무 자동화 워크플로우"
+    description: "프로젝트 관리부터 일정 자동화까지"
+    steps:
+      - step: project_breakdown
+        server: task_automation
+        tool: break_down_project
+        description: "프로젝트를 실행 가능한 태스크로 분해"
+        input_schema:
+          project_description: "string"
+          deadline: "string"
+          priority: "string"
+          team_size: "integer"
+        
+      - step: calendar_scheduling
+        server: task_automation
+        tool: schedule_calendar_event
+        description: "캘린더 일정 등록"
+        input_from: project_breakdown
+        input_schema:
+          title: "string"
+          start_time: "string"
+          end_time: "string"
+          description: "string"
+          attendees: "array"
+        
+      - step: email_automation
+        server: task_automation
+        tool: send_email
+        description: "이메일 발송 자동화"
+        input_schema:
+          to_emails: "array"
+          subject: "string"
+          body: "string"
+          schedule_time: "string"
+          attachments: "array"
+        
+      - step: reminder_setup
+        server: task_automation
+        tool: set_reminder
+        description: "리마인더 설정"
+        input_schema:
+          title: "string"
+          remind_time: "string"
+          description: "string"
+          repeat_pattern: "string"
+
+  # 4. 통합 워크플로우 (블로그 마케팅 A2A)
+  blog_marketing_a2a_workflow:
+    name: "블로그 마케팅 A2A 워크플로우"
+    description: "Task Agent와 Marketing Agent 간 자동 통신"
+    steps:
+      - step: keyword_analysis
+        server: task_automation
+        tool: create_task_automation
+        description: "키워드 분석 자동화 작업 생성"
+        input_schema:
+          task_type: "keyword_analysis"
+          task_data:
+            base_keyword: "string"
+            target_count: "integer"
+          title: "string"
+          user_id: "integer"
+        
+      - step: content_creation
+        server: marketing
+        tool: generate_campaign_ideas
+        description: "블로그 콘텐츠 아이디어 생성"
+        input_from: keyword_analysis
+        input_schema:
+          product_description: "string"
+          budget: "string"
+          campaign_duration: "string"
+          goals: "string"
+        
+      - step: content_optimization
+        server: marketing
+        tool: generate_marketing_content
+        description: "SEO 최적화된 콘텐츠 생성"
+        input_from: content_creation
+        input_schema:
+          product_description: "string"
+          platform: "blog"
+          content_type: "seo_optimized"
+          target_audience: "string"
+          tone: "professional"
+        
+      - step: scheduling_automation
+        server: task_automation
+        tool: create_task_automation
+        description: "콘텐츠 발행 스케줄링"
+        input_from: content_optimization
+        input_schema:
+          task_type: "schedule_blog_post"
+          task_data:
+            content: "string"
+            publish_time: "string"
+            platform: "blog"
+          title: "string"
+          user_id: "integer"
+
+  # 5. 통합 상담 워크플로우
+  unified_consultation_workflow:
+    name: "통합 AI 상담 워크플로우"
+    description: "사용자 질의를 적절한 에이전트로 라우팅"
+    steps:
+      - step: query_routing
+        server: unified_system
+        tool: route_query
+        description: "질의를 적절한 에이전트로 라우팅"
+        input_schema:
+          message: "string"
+          user_id: "integer"
+        
+      - step: unified_processing
+        server: unified_system
+        tool: process_unified_query
+        description: "통합 에이전트 시스템에 질의 처리"
+        input_from: query_routing
+        input_schema:
+          user_id: "integer"
+          message: "string"
+          conversation_id: "integer"
+          preferred_agent: "string"
+          context: "object"
+        
+      - step: multi_agent_consultation
+        server: unified_system
+        tool: multi_agent_query
+        description: "여러 에이전트에 동시 질의"
+        condition: "high_complexity_query"
+        input_schema:
+          query: "string"
+          agents: "array"
+          user_id: "integer"
+          conversation_id: "integer"
+
+# 이벤트 기반 자동화 설정
+automation:
+  triggers:
+    - event: "user_query_received"
+      workflow: "unified_consultation_workflow"
+      condition: "always"
+      
+    - event: "business_planning_request"
+      workflow: "business_planning_workflow" 
+      condition: "business_related_keywords"
+      
+    - event: "marketing_request"
+      workflow: "marketing_workflow"
+      condition: "marketing_related_keywords"
+      
+    - event: "task_automation_request"
+      workflow: "task_automation_workflow"
+      condition: "automation_related_keywords"
+      
+    - event: "blog_marketing_request"
+      workflow: "blog_marketing_a2a_workflow"
+      condition: "blog_marketing_keywords"
+
+# 멀티턴 대화 시나리오 설정
+conversation_flows:
+  business_planning_flow:
+    name: "사업기획 상담 플로우"
+    steps:
+      - user_input: "사업 아이디어가 있어요"
+        agent_response: "trend_search"
+        next_step: "idea_validation"
+        
+      - user_input: "시장 분석이 필요해요" 
+        agent_response: "market_analysis"
+        next_step: "business_model_creation"
+        
+      - user_input: "비즈니스 모델을 만들고 싶어요"
+        agent_response: "lean_canvas_generation"
+        next_step: "business_plan_finalization"
+        
+      - user_input: "사업계획서를 완성하고 싶어요"
+        agent_response: "business_plan_creation"
+        next_step: "completion"
+
+  marketing_flow:
+    name: "마케팅 상담 플로우"
+    steps:
+      - user_input: "마케팅 콘텐츠가 필요해요"
+        agent_response: "content_generation"
+        next_step: "content_optimization"
+        
+      - user_input: "SNS에 올리고 싶어요"
+        agent_response: "social_media_posting"
+        next_step: "performance_tracking"
+        
+      - user_input: "브랜딩 전략이 필요해요"
+        agent_response: "branding_strategy"
+        next_step: "brand_implementation"
+
+  task_automation_flow:
+    name: "업무 자동화 플로우"
+    steps:
+      - user_input: "프로젝트를 관리하고 싶어요"
+        agent_response: "project_breakdown"
+        next_step: "task_scheduling"
+        
+      - user_input: "일정을 자동으로 등록해주세요"
+        agent_response: "calendar_scheduling"
+        next_step: "reminder_setup"
+        
+      - user_input: "이메일을 자동으로 보내고 싶어요"
+        agent_response: "email_automation"
+        next_step: "automation_monitoring"
+
+# 성능 및 모니터링 설정
+monitoring:
+  metrics:
+    - name: "response_time"
+      description: "응답 시간"
+      threshold: 5.0
+      unit: "seconds"
+      
+    - name: "success_rate"
+      description: "성공률"
+      threshold: 0.95
+      unit: "percentage"
+      
+    - name: "routing_accuracy"
+      description: "라우팅 정확도"
+      threshold: 0.85
+      unit: "percentage"
+      
+    - name: "user_satisfaction"
+      description: "사용자 만족도"
+      threshold: 4.0
+      unit: "rating"
+
+  alerts:
+    - condition: "response_time > 10"
+      action: "send_notification"
+      message: "응답 시간이 임계값을 초과했습니다"
+      
+    - condition: "success_rate < 0.9"
+      action: "escalate_to_admin"
+      message: "시스템 성공률이 낮습니다"
+      
+    - condition: "routing_accuracy < 0.8"
+      action: "retrain_router"
+      message: "라우팅 정확도 개선이 필요합니다"
+
+# 보안 및 인증 설정
+security:
+  authentication:
+    required: true
+    methods: ["api_key", "oauth2"]
+    
+  rate_limiting:
+    requests_per_minute: 60
+    requests_per_hour: 1000
+    
+  data_protection:
+    encrypt_conversations: true
+    data_retention_days: 90
+    anonymize_logs: true
+
+# 개발 및 테스트 설정
+development:
+  debug_mode: true
+  log_level: "INFO"
+  test_data_enabled: true
+  
+  test_scenarios:
+    - name: "business_planning_test"
+      workflow: "business_planning_workflow"
+      test_data:
+        query: "카페 창업을 준비하고 있습니다"
+        expected_agent: "business_planning"
+        
+    - name: "marketing_test"
+      workflow: "marketing_workflow"
+      test_data:
+        query: "SNS 마케팅 전략을 수립하고 싶습니다"
+        expected_agent: "marketing"
+        
+    - name: "task_automation_test"
+      workflow: "task_automation_workflow"
+      test_data:
+        query: "프로젝트 일정을 자동으로 관리하고 싶습니다"
+        expected_agent: "task_automation"
+
+# 배포 설정
+deployment:
+  environment: "production"
+  scaling:
+    min_instances: 2
+    max_instances: 10
+    cpu_threshold: 80
+    memory_threshold: 85
+    
+  health_checks:
+    endpoint: "/health"
+    interval: 30
+    timeout: 5
+    retries: 3
+    
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 매일 새벽 2시
+    retention_days: 30

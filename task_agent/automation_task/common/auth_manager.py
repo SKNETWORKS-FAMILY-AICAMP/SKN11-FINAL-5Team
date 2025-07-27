@@ -35,13 +35,22 @@ class AuthManager:
     def validate_state(self, state: str, user_id: str = None, platform: str = None) -> Optional[Dict[str, Any]]:
         """OAuth state 검증"""
         try:
+            logger.debug(f"Validate state called with: {state}, user_id={user_id}, platform={platform}")
+            logger.debug(f"Current tokens_storage items: {self.tokens_storage.items()}") # 경고: 실제 토큰 정보가 노출되지 않도록 주의
+
             for key, data in self.tokens_storage.items():
+                logger.debug(f"Checking key: {key}, data: {data}")
                 if key.startswith("state_") and data.get("state") == state:
+                    logger.debug(f"Matching state found for key: {key}")
                     if user_id and data.get("user_id") != user_id:
+                        logger.debug(f"User ID mismatch for state {state}. Expected: {user_id}, Found: {data.get('user_id')}")
                         continue
                     if platform and data.get("platform") != platform:
+                        logger.debug(f"Platform mismatch for state {state}. Expected: {platform}, Found: {data.get('platform')}")
                         continue
+                    logger.debug(f"State validation successful for {state}")
                     return data
+            logger.warning(f"No matching state found for {state}")
             return None
         except Exception as e:
             logger.error(f"State 검증 실패: {e}")
