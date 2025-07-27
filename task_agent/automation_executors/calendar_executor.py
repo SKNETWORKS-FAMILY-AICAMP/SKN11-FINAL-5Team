@@ -1,26 +1,30 @@
 """
-캘린더 자동화 실행기
-일정 관리 자동화 작업을 실제로 수행
+캘린더 자동화 실행기 v2
+실제 main.py의 Google Calendar API를 호출하는 실행기
 """
 
 import logging
+import asyncio
+import aiohttp
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+import os
 
 logger = logging.getLogger(__name__)
 
 class CalendarExecutor:
-    """캘린더 자동화 실행기"""
+    """캘린더 자동화 실행기 - 실제 API 호출"""
     
     def __init__(self):
         """캘린더 실행기 초기화"""
         self.supported_providers = ["google", "outlook", "apple"]
         self.default_timezone = "Asia/Seoul"
+        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
         
-        logger.info("CalendarExecutor 초기화 완료")
+        logger.info("CalendarExecutor v2 초기화 완료 (실제 API 호출)")
 
     async def execute(self, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
-        """일정 등록 실행"""
+        """일정 등록 실행 - 실제 API 호출"""
         try:
             logger.info(f"일정 등록 실행 시작 - 사용자: {user_id}")
             
@@ -36,8 +40,8 @@ class CalendarExecutor:
             # 일정 데이터 추출 및 정규화
             event_data = await self._normalize_event_data(task_data)
             
-            # 캘린더 연동 시뮬레이션 (실제로는 Google/Outlook API 사용)
-            result = await self._create_calendar_event(event_data, user_id)
+            # 실제 Google Calendar API 호출
+            result = await self._call_calendar_api(event_data, user_id)
             
             if result["success"]:
                 logger.info(f"일정 등록 성공 - 이벤트 ID: {result.get('event_id')}")
@@ -68,6 +72,72 @@ class CalendarExecutor:
                 "message": f"일정 등록 중 오류 발생: {str(e)}",
                 "details": {"error": str(e)}
             }
+
+    async def _call_calendar_api(self, event_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
+        """실제 main.py의 Calendar API 호출"""
+        try:
+            # EventCreate 형태로 데이터 변환
+            api_event_data = {
+                "title": event_data["title"],
+                "description": event_data.get("description", ""),
+                "location": event_data.get("location", ""),
+                "start_time": event_data["start_time"].isoformat() if isinstance(event_data["start_time"], datetime) else event_data["start_time"],
+                "end_time": event_data["end_time"].isoformat() if isinstance(event_data["end_time"], datetime) else event_data["end_time"],
+                "timezone": self.default_timezone,
+                "all_day": event_data.get("all_day", False),
+                "calendar_id": event_data.get("calendar_id", "primary"),
+                "reminders": event_data.get("reminders", [{"method": "popup", "minutes": 15}])
+            }
+            
+            # 참석자 추가
+            if event_data.get("attendees"):
+                attendees_list = []
+                for attendee in event_data["attendees"]:
+                    if isinstance(attendee, str):
+                        attendees_list.append({"email": attendee})
+                    elif isinstance(attendee, dict):
+                        attendees_list.append(attendee)
+                api_event_data["attendees"] = attendees_list
+            
+            # HTTP 클라이언트로 API 호출
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.api_base_url}/events"
+                params = {"user_id": user_id}
+                
+                logger.info(f"Calendar API 호출: {url} with data: {api_event_data}")
+                
+                async with session.post(
+                    url,
+                    json=api_event_data,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    
+                    if response.status == 200:
+                        result = await response.json()
+                        return {
+                            "success": True,
+                            "event_id": result.get("event_id"),
+                            "calendar_link": result.get("event_data", {}).get("htmlLink"),
+                            "api_response": result
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Calendar API 호출 실패: {response.status} - {error_text}")
+                        return {
+                            "success": False,
+                            "error": f"API 호출 실패 (HTTP {response.status}): {error_text}"
+                        }
+                        
+        except asyncio.TimeoutError:
+            logger.error("Calendar API 호출 타임아웃")
+            return {"success": False, "error": "API 호출 시간 초과"}
+        except aiohttp.ClientError as e:
+            logger.error(f"Calendar API 클라이언트 오류: {e}")
+            return {"success": False, "error": f"네트워크 오류: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Calendar API 호출 예외: {e}")
+            return {"success": False, "error": f"API 호출 실패: {str(e)}"}
 
     def _validate_task_data(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """일정 작업 데이터 검증"""
@@ -132,7 +202,8 @@ class CalendarExecutor:
                 "location": task_data.get("location", "").strip(),
                 "attendees": task_data.get("attendees", []),
                 "reminder_minutes": task_data.get("reminder_minutes", 15),
-                "all_day": task_data.get("all_day", False)
+                "all_day": task_data.get("all_day", False),
+                "calendar_id": task_data.get("calendar_id", "primary")
             }
             
             # 시간 정규화
@@ -155,50 +226,47 @@ class CalendarExecutor:
                     # 1시간 후로 설정
                     normalized["end_time"] = normalized["start_time"] + timedelta(hours=1)
             
+            # 리마인더 설정
+            if task_data.get("reminders"):
+                normalized["reminders"] = task_data["reminders"]
+            else:
+                normalized["reminders"] = [{"method": "popup", "minutes": normalized["reminder_minutes"]}]
+            
             return normalized
             
         except Exception as e:
             logger.error(f"이벤트 데이터 정규화 실패: {e}")
             raise
 
-    async def _create_calendar_event(self, event_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
-        """캘린더 이벤트 생성 (시뮬레이션)"""
-        try:
-            # 실제로는 Google Calendar API 또는 Outlook API 호출
-            event_id = f"event_{user_id}_{datetime.now().timestamp()}"
-            
-            logger.info(f"캘린더 이벤트 생성: {event_data['title']} - {event_data['start_time']}")
-            
-            return {
-                "success": True,
-                "event_id": event_id,
-                "calendar_link": f"https://calendar.google.com/calendar/event?eid={event_id}",
-                "provider": "google",
-                "message": "일정이 성공적으로 생성되었습니다"
-            }
-            
-        except Exception as e:
-            logger.error(f"캘린더 이벤트 생성 실패: {e}")
-            return {"success": False, "error": str(e)}
-
     def is_available(self) -> bool:
         """실행기 사용 가능 여부"""
         return True
 
     async def test_connection(self) -> Dict[str, Any]:
-        """캘린더 연결 테스트"""
+        """캘린더 API 연결 테스트"""
         try:
-            return {
-                "success": True,
-                "message": "캘린더 연결이 정상입니다 (시뮬레이션)",
-                "provider": "google"
-            }
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.api_base_url}/health"
+                
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        return {
+                            "success": True,
+                            "message": "캘린더 API 연결이 정상입니다",
+                            "api_url": self.api_base_url
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"API 응답 오류: HTTP {response.status}"
+                        }
+                        
         except Exception as e:
             return {"success": False, "error": f"연결 테스트 실패: {str(e)}"}
 
     async def cleanup(self):
         """실행기 정리"""
         try:
-            logger.info("CalendarExecutor 정리 완료")
+            logger.info("CalendarExecutor v2 정리 완료")
         except Exception as e:
-            logger.error(f"CalendarExecutor 정리 실패: {e}")
+            logger.error(f"CalendarExecutor v2 정리 실패: {e}")

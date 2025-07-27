@@ -69,6 +69,7 @@ from services.llm_service import LLMService
 from services.rag_service import RAGService
 from services.automation_service import AutomationService
 from services.conversation_service import ConversationService
+from services.schedule_extraction_service import ScheduleExtractionService
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,9 @@ class TaskAgent:
         self.rag_service = rag_service
         self.automation_service = automation_service
         self.conversation_service = conversation_service
+        
+        # 일정 추출 서비스 초기화
+        self.schedule_extraction_service = ScheduleExtractionService(llm_service)
         
         logger.info("Task Agent v5 초기화 완료 (의존성 주입)")
 
@@ -177,6 +181,12 @@ class TaskAgent:
             if automation_type == "publish_sns":
                 return self._create_marketing_redirect_response(query, intent_analysis)
             
+            # 일정 기반 자동 등록 요청 처리
+            if await self._is_schedule_based_request(query.message):
+                return await self._handle_schedule_based_automation(
+                    query, automation_intent, intent_analysis, conversation_history
+                )
+            
             # 현재 메시지에서 자동화 정보 추출
             extracted_info = await self.llm_service.extract_automation_info(
                 query.message, automation_type, conversation_history
@@ -254,10 +264,145 @@ class TaskAgent:
             logger.error(f"자동화 작업 등록 실패: {e}")
             return self._create_error_response(query, f"자동화 작업 등록 실패: {str(e)}")
 
+    # ===== 일정 기반 자동화 처리 =====
+    
+    async def _is_schedule_based_request(self, message: str) -> bool:
+        """일정 기반 자동 등록 요청인지 판단"""
+        try:
+            schedule_keywords = [
+                "지금 짜준 일정", "위에서 말한 일정", "방금 짜준 일정",
+                "아까 이야기한 일정", "대화에서 언급한 일정",
+                "기반으로 캘린더", "기반으로 일정", "기반으로 등록",
+                "짜준 일정 캘린더", "짜준 일정 등록",
+                "위 일정을 캘린더", "위 일정을 등록"
+            ]
+            
+            message_lower = message.lower()
+            for keyword in schedule_keywords:
+                if keyword in message_lower:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"일정 기반 요청 판단 실패: {e}")
+            return False
+    
+    async def _handle_schedule_based_automation(self, query: UserQuery, automation_intent: Dict,
+                                              intent_analysis: Dict, conversation_history: List[Dict]) -> UnifiedResponse:
+        """일정 기반 자동화 처리"""
+        try:
+            logger.info(f"일정 기반 자동화 처리 시작 - 사용자: {query.user_id}")
+            
+            # 대화 히스토리에서 일정 추출
+            extracted_schedules = await self.schedule_extraction_service.extract_schedules_from_conversation(
+                conversation_history or []
+            )
+            
+            if not extracted_schedules:
+                return self._create_automation_response(
+                    query, 
+                    "😅 대화에서 등록할 일정을 찾을 수 없습니다.\n\n"
+                    "일정을 먼저 알려주시고, 다시 캘린더 등록을 요청해주세요.",
+                    intent_analysis, None, "calendar_sync", False
+                )
+            
+            # 사용자에게 일정 확인 요청
+            if len(extracted_schedules) == 1:
+                # 일정이 하나면 자동 등록
+                return await self._auto_register_single_schedule(
+                    query, extracted_schedules[0], intent_analysis
+                )
+            else:
+                # 여러 일정이 있으면 선택 요청
+                return self._request_schedule_selection(
+                    query, extracted_schedules, intent_analysis
+                )
+            
+        except Exception as e:
+            logger.error(f"일정 기반 자동화 처리 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    async def _auto_register_single_schedule(self, query: UserQuery, schedule, intent_analysis: Dict) -> UnifiedResponse:
+        """단일 일정 자동 등록"""
+        try:
+            # 자동화 작업 데이터 생성
+            automation_task_data = await self.schedule_extraction_service.create_calendar_automation_task(
+                schedule, int(query.user_id), int(query.conversation_id) if query.conversation_id else 0
+            )
+            
+            if not automation_task_data:
+                return self._create_error_response(query, "일정 자동화 작업 생성에 실패했습니다")
+            
+            # 자동화 요청 생성
+            automation_request = AutomationRequest(**automation_task_data)
+            
+            # 자동화 서비스를 통해 작업 등록 및 실행
+            automation_response = await self.automation_service.create_task(automation_request)
+            
+            # 성공 메시지 생성
+            success_message = self._create_schedule_registration_message(
+                schedule, automation_response
+            )
+            
+            return self._create_automation_response(
+                query, success_message, intent_analysis, 
+                automation_response.task_id, "calendar_sync", True
+            )
+            
+        except Exception as e:
+            logger.error(f"단일 일정 자동 등록 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    def _request_schedule_selection(self, query: UserQuery, schedules: List, intent_analysis: Dict) -> UnifiedResponse:
+        """여러 일정 중 선택 요청"""
+        try:
+            # 일정 목록 표시
+            schedule_summary = self.schedule_extraction_service.format_schedules_summary(schedules)
+            
+            message = f"📅 **여러개의 일정을 찾았습니다!**\n\n{schedule_summary}\n"
+            message += "🔍 **어떤 일정을 캘린더에 등록하시겠습니까?**\n\n"
+            message += "예: '처음 일정을 등록해주세요' 또는 '두 번째 일정을 등록해주세요'"
+            
+            return self._create_automation_response(
+                query, message, intent_analysis, None, "calendar_sync", False
+            )
+            
+        except Exception as e:
+            logger.error(f"일정 선택 요청 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    def _create_schedule_registration_message(self, schedule, automation_response) -> str:
+        """일정 등록 성공 메시지 생성"""
+        try:
+            message = f"✅ **일정이 Google Calendar에 성공적으로 등록되었습니다!**\n\n"
+            message += f"📅 **일정 정보:**\n"
+            message += f"• 제목: {schedule.title}\n"
+            message += f"• 시간: {self.schedule_extraction_service._format_time(schedule.start_time)}"
+            
+            if schedule.end_time:
+                message += f" ~ {self.schedule_extraction_service._format_time(schedule.end_time)}"
+            message += "\n"
+            
+            if schedule.description:
+                message += f"• 설명: {schedule.description[:100]}...\n"
+            
+            if schedule.location:
+                message += f"• 위치: {schedule.location}\n"
+            
+            message += f"\n🎆 **작업 ID:** {automation_response.task_id}\n"
+            message += f"🔔 예약된 시간에 자동으로 등록됩니다!"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"일정 등록 메시지 생성 실패: {e}")
+            return "일정이 성공적으로 등록되었습니다."
+
     def _check_missing_fields(self, extracted_info: Dict[str, Any], automation_type: str) -> List[str]:
         """필수 필드 체크"""
         required_fields = {
-            "schedule_calendar": ["title", "start_time"],
+            "calendar_sync": ["title", "start_time"],
             "send_email": ["to_emails", "subject", "body"],
             "send_reminder": ["message", "remind_time"],
             "send_message": ["platform", "content"]
@@ -275,7 +420,7 @@ class TaskAgent:
     def _generate_automation_title(self, automation_type: str, extracted_info: Dict[str, Any]) -> str:
         """자동화 작업 제목 생성"""
         titles = {
-            "schedule_calendar": lambda info: info.get("title", "일정 등록"),
+            "calendar_sync": lambda info: info.get("title", "일정 등록"),
             "send_email": lambda info: f"이메일: {info.get('subject', '제목 없음')}",
             "send_reminder": lambda info: f"리마인더: {info.get('message', '알림')}",
             "send_message": lambda info: f"{info.get('platform', '메시지')} 발송"
@@ -288,7 +433,7 @@ class TaskAgent:
                                          automation_response, extracted_info: Dict[str, Any]) -> str:
         """자동화 성공 메시지 생성"""
         type_names = {
-            "schedule_calendar": "일정 등록",
+            "calendar_sync": "일정 등록",
             "send_email": "이메일 발송",
             "send_reminder": "리마인더",
             "send_message": "메시지 발송"
@@ -317,7 +462,7 @@ class TaskAgent:
     def _format_extracted_info(self, extracted_info: Dict[str, Any], automation_type: str) -> str:
         """추출된 정보 포맷팅"""
         field_labels = {
-            "schedule_calendar": {
+            "calendar_sync": {
                 "title": "제목", "start_time": "시작시간", "end_time": "종료시간",
                 "description": "설명", "attendees": "참석자"
             },
@@ -352,7 +497,7 @@ class TaskAgent:
                             intent_analysis: Dict) -> UnifiedResponse:
         """부족한 정보 요청"""
         type_names = {
-            "schedule_calendar": "일정 등록",
+            "calendar_sync": "일정 등록",
             "send_email": "이메일 발송", 
             "send_reminder": "리마인더",
             "send_message": "메시지 발송"
@@ -379,7 +524,7 @@ class TaskAgent:
     def _get_missing_fields_template(self, automation_type: str, missing_fields: List[str]) -> str:
         """부족한 필드 템플릿"""
         templates = {
-            "schedule_calendar": {
+            "calendar_sync": {
                 "title": "• 일정 제목을 알려주세요",
                 "start_time": "• 시작 시간을 알려주세요 (예: 내일 오후 2시, 2024-01-15 14:00)"
             },
@@ -536,7 +681,8 @@ class TaskAgent:
                     "llm_service": await self.llm_service.get_status(),
                     "rag_service": await self.rag_service.get_status(),
                     "automation_service": await self.automation_service.get_status(),
-                    "conversation_service": await self.conversation_service.get_status()
+                    "conversation_service": await self.conversation_service.get_status(),
+                    "schedule_extraction_service": await self.schedule_extraction_service.get_status()
                 }
             }
         except Exception as e:
@@ -554,6 +700,7 @@ class TaskAgent:
             await self.automation_service.cleanup()
             await self.rag_service.cleanup()
             await self.llm_service.cleanup()
+            await self.schedule_extraction_service.cleanup()
             logger.info("Task Agent 리소스 정리 완료")
         except Exception as e:
             logger.error(f"리소스 정리 실패: {e}")

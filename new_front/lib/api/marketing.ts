@@ -313,6 +313,19 @@ class MarketingApiClient {
 
     return this.request(`/analytics?${params.toString()}`)
   }
+
+  // Instagram 계정 연동 상태 확인 API
+//   async checkInstagramConnection(userId: number): Promise<{
+//     success: boolean
+//     data: {
+//       is_connected: boolean
+//       username?: string
+//       graph_id?: string
+//       created_at?: string
+//     }
+//   }> {
+//     return this.request(`/instagram/connection/status?user_id=${userId}`)
+//   }
 }
 
 // 싱글톤 인스턴스
@@ -341,6 +354,9 @@ export function useMarketingApi() {
     
     // 통계
     getAnalytics: marketingApi.getAnalytics.bind(marketingApi),
+    
+    // Instagram 관련
+    // checkInstagramConnection: marketingApi.checkInstagramConnection.bind(marketingApi),
   }
 }
 

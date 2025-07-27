@@ -231,7 +231,8 @@ class MarketingAgentWrapper(BaseAgentWrapper):
                     "topics": result.get("topics", []),
                     "conversation_id": result.get("conversation_id"),
                     "templates": result.get("templates", []),
-                    "debug_info": result.get("debug_info", {})
+                    "debug_info": result.get("debug_info", {}),
+                    "show_posting_modal": result.get("metadata", {}).get("show_posting_modal", False)
                 },
                 processing_time=processing_time
             )

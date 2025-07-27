@@ -66,7 +66,7 @@ class LLMService:
     def _map_automation_to_extraction(self, automation_type: str) -> str:
         """자동화 타입을 추출 타입으로 매핑"""
         mapping = {
-            "schedule_calendar": "calendar_info",
+            "calendar_sync": "calendar_info",
             "send_email": "email_info",
             "send_reminder": "reminder_info",
             "send_message": "message_info"

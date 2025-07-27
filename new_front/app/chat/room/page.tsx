@@ -15,7 +15,9 @@ import { AGENT_CONFIG, type AgentType, API_BASE_URL } from "@/config/constants"
 import type { Message, ConversationMessage } from "@/types/messages"
 import { FeedbackModal } from "@/components/ui/FeedbackModal"
 import remarkGfm from 'remark-gfm' // 이 패키지를 설치해야 합니다: npm install remark-gfm
-import rehypeRaw from "rehype-raw"; // npm install rehype-raw --legacy-peer-deps
+import rehypeRaw from "rehype-raw" // npm install rehype-raw --legacy-peer-deps
+import { InstagramPostModal } from "@/components/ui/InstagramPostModal"
+import { useInstagramPosting } from "@/hooks/useMarketing"
 
 
 // ===== 타입 정의 =====
@@ -1187,6 +1189,20 @@ export default function ChatRoomPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
+  // 인스타그램 포스팅 모달 관련 상태 추가
+  const {
+    isModalOpen,
+    generatedContent,
+    hasGeneratedContent,
+    isConnected,
+    instagramUsername,
+    saveGeneratedContent,
+    openPostingModal,
+    closePostingModal,
+    postToInstagram,
+    scheduleInstagramPost
+  } = useInstagramPosting()
+  
   // URL 파라미터 추출
   const agent = (searchParams?.get("agent") || "unified_agent") as AgentType
   const initialQuestion = searchParams?.get("question") || ""
@@ -1535,6 +1551,9 @@ export default function ChatRoomPage() {
 
     // 사업기획서 보기 버튼 숨기기
     setDraftContent(null)
+    
+    // 인스타그램 포스팅 버튼 숨기기
+    closePostingModal()
 
     // 사용자 메시지 먼저 표시
     const userMessage: ExtendedMessage = {
@@ -1582,6 +1601,16 @@ export default function ChatRoomPage() {
 
       if (!result || !result.success || !result.data) {
         throw new Error(result?.error || "응답을 받을 수 없습니다")
+      }
+
+      // 마케팅 에이전트 응답에서 show_posting_modal 플래그 확인
+      if (result.data.metadata?.show_posting_modal && result.data.answer) {
+        // 인스타그램 포스팅 콘텐츠 저장 (즉시 모달 열지 않음)
+        saveGeneratedContent({
+          content: result.data.answer || '',
+          hashtags: ["hashtags1","hashtags2"],
+          platform: 'instagram'  
+        })
       }
 
       // 사업기획서 여부 확인
@@ -1639,7 +1668,7 @@ export default function ChatRoomPage() {
       setIsSubmitting(false)
       setIsLoading(false)
     }
-  }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory])
+  }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory, saveGeneratedContent, closePostingModal])
 
   const handleTypingComplete = useCallback((messageIndex: number) => {
     setMessages(prev => 
@@ -1821,8 +1850,9 @@ export default function ChatRoomPage() {
     setCurrentChatId(null)
     setConversationId(null)
     setMessages([])
+    closePostingModal() // 인스타그램 포스팅 상태도 리셋
     window.history.replaceState({}, '', `/chat/room?agent=${agentType}`)
-  }, [isSubmitting, agentType])
+  }, [isSubmitting, agentType, closePostingModal])
 
   // ===== 피드백 관련 핸들러 =====
   const openFeedbackModal = useCallback((type: "up" | "down", idx: number) => {
@@ -2234,6 +2264,36 @@ export default function ChatRoomPage() {
 
           {/* 하단 입력창 */}
           <div className="w-full max-w-3xl mx-auto bg-white p-6">
+            {/* 인스타그램 포스팅 버튼 */}
+            {hasGeneratedContent && (
+              <div className="mb-4 flex flex-col items-center gap-2">
+                {/* 연동 상태 표시 */}
+                {isConnected === false && (
+                  <div className="text-sm text-red-600 bg-red-50 px-3 py-1 rounded-lg border border-red-200">
+                    ⚠️ Instagram 계정 연동 필요
+                  </div>
+                )}
+                {isConnected === true && instagramUsername && (
+                  <div className="text-sm text-green-600 bg-green-50 px-3 py-1 rounded-lg border border-green-200">
+                    ✓ @{instagramUsername} 연동됨
+                  </div>
+                )}
+                
+                <button
+                  onClick={openPostingModal}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-lg shadow-md hover:from-pink-600 hover:to-purple-600 transition-all duration-200 transform hover:scale-105"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                  </svg>
+                  {isConnected === false 
+                    ? '계정 연동 후 포스팅'
+                    : 'Instagram 포스팅하기'
+                  }
+                </button>
+              </div>
+            )}
+            
             <form onSubmit={handleSend}>
               <div className="relative">
                 <Textarea
@@ -2302,6 +2362,15 @@ export default function ChatRoomPage() {
           onClose={() => setShowDraftPreview(false)}
         />
       )}
+      
+      {/* 인스타그램 포스팅 모달 추가 */}
+      <InstagramPostModal
+        isOpen={isModalOpen}
+        onClose={closePostingModal}
+        generatedContent={generatedContent?.content || ""}
+        onPost={postToInstagram}
+        onSchedule={scheduleInstagramPost}
+      />
     </div>
   )
 }

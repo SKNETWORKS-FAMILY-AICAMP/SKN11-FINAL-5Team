@@ -689,10 +689,10 @@ class MentalHealthAgentManager:
                     response_content = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
                     
                     # 후속 질문 추가
-                    follow_up_questions = get_follow_up_questions(analysis_result.get("emotional_analysis", {}))
-                    if follow_up_questions and analysis_result.get("risk_level") != "critical":
-                        response_content += f"\n\n더 도움이 되도록 몇 가지 질문을 드려도 될까요?\n"
-                        response_content += f"• {follow_up_questions['questions'][0]}"
+                    # follow_up_questions = get_follow_up_questions(analysis_result.get("emotional_analysis", {}))
+                    # if follow_up_questions and analysis_result.get("risk_level") != "critical":
+                    #     response_content += f"\n\n더 도움이 되도록 몇 가지 질문을 드려도 될까요?\n"
+                    #     response_content += f"• {follow_up_questions['questions'][0]}"
                     
                 except Exception as e:
                     logger.error(f"상담 응답 생성 실패: {e}")

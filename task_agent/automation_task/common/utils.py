@@ -146,7 +146,7 @@ class AutomationValidationUtils:
                 elif not AutomationValidationUtils.is_valid_teams_webhook(task_data["webhook_url"]):
                     warnings.append("Teams 웹훅 URL 형식을 확인해주세요")
                     
-        elif task_type == "schedule_calendar":
+        elif task_type == "calendar_sync":
             # 캘린더 일정 데이터 검증
             if not task_data.get("title"):
                 errors.append("일정 제목이 필요합니다")
