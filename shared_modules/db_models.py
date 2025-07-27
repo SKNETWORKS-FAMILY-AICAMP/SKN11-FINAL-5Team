@@ -281,3 +281,15 @@ class ProjectDocument(Base):
     file_name = Column(String(255))
     file_path = Column(Text)
     uploaded_at = Column(DateTime, default=func.now())
+
+class InstagramToken(Base):
+    __tablename__ = "instagram"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
+    graph_id = Column(String(50), nullable=False)
+    username = Column(String(50))
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
