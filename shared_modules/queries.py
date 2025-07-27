@@ -519,6 +519,14 @@ def get_user_reports(db: Session, user_id: int, report_type: str = None, limit: 
         logger.error(f"[get_user_reports 오류] {e}", exc_info=True)
         return []
 
+def get_report_by_id(db: Session, report_id: int):
+    """단일 리포트 조회"""
+    try:
+        return db.query(db_models.Report).filter(db_models.Report.report_id == report_id).first()
+    except Exception as e:
+        logger.error(f"[get_report_by_id 오류] {e}", exc_info=True)
+        return None
+    
 # -------------------
 # Subscription 관련 함수 (새로 추가)
 # -------------------

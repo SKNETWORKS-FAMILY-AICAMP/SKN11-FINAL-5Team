@@ -14,7 +14,7 @@ from shared_modules import (
     get_conversation_by_id,
     get_session_context
 )
-from .db_models import TemplateMessage
+from shared_modules.db_models import TemplateMessage
 
 def get_or_create_conversation_session(user_id: int, conversation_id: int = None) -> Dict[str, Any]:
     """통일된 대화 세션 조회 또는 생성 로직"""

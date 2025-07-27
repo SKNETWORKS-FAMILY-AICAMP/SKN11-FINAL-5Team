@@ -83,7 +83,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-from task_agent.automation_task.google_drive_service import google_drive_router
+
+from google_drive_service import google_drive_router
 from draft import draft_router
 
 app.include_router(google_drive_router)
@@ -374,6 +375,7 @@ class BusinessPlanningService:
             progress_info = await self.multi_turn.check_overall_progress(conversation_id, history)
             progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
+            logger.info(f"progress: {progress}, missing: {missing}")
 
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)

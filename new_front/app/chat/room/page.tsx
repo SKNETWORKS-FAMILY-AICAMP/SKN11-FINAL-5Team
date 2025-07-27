@@ -15,6 +15,8 @@ import { AGENT_CONFIG, type AgentType, API_BASE_URL } from "@/config/constants"
 import type { Message, ConversationMessage } from "@/types/messages"
 import { FeedbackModal } from "@/components/ui/FeedbackModal"
 import remarkGfm from 'remark-gfm' // 이 패키지를 설치해야 합니다: npm install remark-gfm
+import rehypeRaw from "rehype-raw"; // npm install rehype-raw --legacy-peer-deps
+
 
 // ===== 타입 정의 =====
 interface Project {
@@ -269,7 +271,7 @@ function TypingAnimation() {
         <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
         <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
       </div>
-      <span className="text-sm text-gray-500 ml-2">답변 중입니다...</span>
+      {/* <span className="text-sm text-gray-500 ml-2">답변 중입니다...</span> */}
     </div>
   )
 }
@@ -438,6 +440,152 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
     </div>
   )
 }
+
+
+function DraftPreviewModal({
+  userId,
+  content,
+  onClose,
+  onDownload,
+}: {
+  userId: number | string;
+  content: string;
+  onClose: () => void;
+  onDownload?: () => void;
+}) {
+  const previewRef = useRef(null);
+  const [driveUploading, setDriveUploading] = useState(false);
+  const [driveStatus, setDriveStatus] = useState<string | null>(null);
+  const [driveUrl, setDriveUrl] = useState<string | null>(null);
+
+  const getPdfBlob = async (element: HTMLElement) => {
+    // Check if we're on the client side
+    if (typeof window === 'undefined') {
+      throw new Error('PDF generation is only available on the client side');
+    }
+    
+    // Dynamic import only when needed
+    const html2pdf = (await import('html2pdf.js')).default;
+    return await html2pdf()
+      .set({
+        margin: [10, 10],
+        filename: "사업기획서.pdf",
+        html2canvas: { scale: 2, backgroundColor: "#fff" },
+        jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
+      })
+      .from(element)
+      .outputPdf('blob');
+  };
+
+  const handleDriveUpload = async () => {
+    setDriveUploading(true);
+    setDriveStatus(null);
+    setDriveUrl(null);
+    try {
+      setDriveStatus("구글 드라이브 업로드 요청 중...");
+      if (!previewRef.current) throw new Error("미리보기 영역이 없어요!");
+      const pdfBlob = await getPdfBlob(previewRef.current);
+      const pdfFile = new File([pdfBlob], "사업기획서.pdf", { type: "application/pdf" });
+
+      const formData = new FormData();
+      formData.append("user_id", userId.toString());
+      formData.append("file", pdfFile);
+
+      const tempResp = await fetch("http://localhost:8001/drive/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const tempData = await tempResp.json();
+
+      if (tempData?.success && tempData.filename) {
+        const uploadResp = await fetch("http://localhost:8001/drive/upload/gdrive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: userId,
+            filename: tempData.filename,
+            mime_type: pdfFile.type,
+          }),
+        });
+        const uploadData = await uploadResp.json();
+        if (uploadData.success) {
+          setDriveStatus("구글 드라이브 업로드가 완료됐습니다");
+          if (uploadData.webViewLink) setDriveUrl(uploadData.webViewLink);
+        } else {
+          setDriveStatus("업로드 실패: " + (uploadData.message || uploadData.error));
+        }
+      } else {
+        setDriveStatus("서버 파일 업로드 실패: " + (tempData?.message || ""));
+      }
+    } catch (err: any) {
+      setDriveStatus("에러: " + (err?.message || err));
+    } finally {
+      setDriveUploading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!previewRef.current) return;
+    try {
+      // Check if we're on the client side
+      if (typeof window === 'undefined') {
+        console.error('PDF download is only available on the client side');
+        return;
+      }
+      
+      // Dynamic import only when needed
+      const html2pdf = (await import('html2pdf.js')).default;
+      await html2pdf()
+        .set({
+          margin: [10, 10],
+          filename: "사업기획서.pdf",
+          html2canvas: { scale: 2, backgroundColor: "#fff" },
+          jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
+        })
+        .from(previewRef.current)
+        .save();
+    } catch (error) {
+      console.error("PDF 다운로드 실패:", error);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg w-[90%] h-[90%] flex flex-col">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-xl font-bold">사업기획서 미리보기</h2>
+          <div className="flex gap-2">
+            <Button onClick={handleDownloadPdf} variant="outline">PDF 다운로드</Button>
+            <Button onClick={handleDriveUpload} disabled={driveUploading} variant="outline">
+              {driveUploading ? "업로드 중..." : "구글 드라이브 업로드"}
+            </Button>
+            <Button onClick={onClose} variant="outline">닫기</Button>
+          </div>
+        </div>
+        {driveStatus && (
+          <div className="p-4 bg-blue-50 border-b">
+            <p className="text-sm text-blue-700">{driveStatus}</p>
+            {driveUrl && (
+              <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-sm">
+                구글 드라이브에서 보기
+              </a>
+            )}
+          </div>
+        )}
+        <div className="flex-1 overflow-auto p-6">
+          <div ref={previewRef} className="max-w-4xl mx-auto bg-white">
+            <div className="prose prose-lg max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ===== 프로젝트 모달 컴포넌트 =====
 function ProjectModal({ 
@@ -1067,6 +1215,8 @@ export default function ChatRoomPage() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [showDraftPreview, setShowDraftPreview] = useState(false)
+  const [draftContent, setDraftContent] = useState<string | null>(null)
 
   // 프로젝트 관련 상태
   const [projects, setProjects] = useState<Project[]>([])
@@ -1383,7 +1533,10 @@ export default function ChatRoomPage() {
     const inputToSend = (messageOverride || userInput).trim()
     if (!inputToSend || !userId) return
 
-    // 사용자 메시지 우선 표시
+    // 사업기획서 보기 버튼 숨기기
+    setDraftContent(null)
+
+    // 사용자 메시지 먼저 표시
     const userMessage: ExtendedMessage = {
       sender: "user",
       text: inputToSend,
@@ -1394,9 +1547,7 @@ export default function ChatRoomPage() {
     setIsSubmitting(true)
     setIsLoading(true)
 
-    if (!messageOverride) {
-      setUserInput("")
-    }
+    if (!messageOverride) setUserInput("")
 
     // "답변 중입니다..." 메시지 추가
     const loadingMessage: ExtendedMessage = {
@@ -1409,8 +1560,8 @@ export default function ChatRoomPage() {
 
     try {
       let currentConversationId = conversationId || initialConversationId
-      
-      // 새 대화 생성이 필요한 경우
+
+      // 대화 세션 없으면 생성
       if (!currentConversationId) {
         const result = await agentApi.createConversation(userId)
         if (!result.success) throw new Error(result.error)
@@ -1433,42 +1584,56 @@ export default function ChatRoomPage() {
         throw new Error(result?.error || "응답을 받을 수 없습니다")
       }
 
-      // "답변 중입니다..." 메시지를 실제 응답으로 교체
-      setMessages((prev) => {
-        const updated = [...prev]
-        const lastIndex = updated.findIndex(
-          (msg) => msg.sender === "agent" && msg.isTyping
-        )
-        if (lastIndex !== -1) {
-          updated[lastIndex] = {
-            sender: "agent",
-            text: result.data.answer,
-            isTyping: false,
-            isComplete: false,
-          }
-        } else {
-          updated.push({
-            sender: "agent",
-            text: result.data.answer,
-            isTyping: false,
-            isComplete: false,
-          })
-        }
-        return updated
-      })
+      // 사업기획서 여부 확인
+      const isFinalBusinessPlan =
+        result.data.metadata?.type === "final_business_plan" ||
+        (result.data.answer.includes("## 1. 창업 아이디어 요약") &&
+          result.data.answer.includes("## 2. 시장 조사 요약") &&
+          result.data.answer.includes("## 3. 비즈니스 모델"))
 
-      // 채팅 히스토리 업데이트
+      if (isFinalBusinessPlan) {
+        setDraftContent(result.data.answer)
+        localStorage.setItem("idea_validation_content", result.data.answer)
+        localStorage.setItem("user_id", String(userId))
+        localStorage.setItem("conversation_id", String(currentConversationId))
+
+        // "답변 중입니다..." 메시지를 사업기획서 알림으로 교체
+        setMessages((prev) => {
+          const updated = [...prev]
+          const idx = updated.findIndex((m) => m.isTyping)
+          if (idx !== -1) {
+            updated[idx] = { sender: "agent", text: "📄 사업기획서가 도착했습니다. '사업 기획서 보기' 버튼을 눌러 확인하세요.", isTyping: false, isComplete: true }
+          } else {
+            updated.push({ sender: "agent", text: "📄 사업기획서가 도착했습니다. '사업 기획서 보기' 버튼을 눌러 확인하세요.", isTyping: false, isComplete: true })
+          }
+          return updated
+        })
+      } else {
+        // "답변 중입니다..." 메시지를 실제 응답으로 교체
+        setMessages((prev) => {
+          const updated = [...prev]
+          const idx = updated.findIndex((m) => m.isTyping)
+          if (idx !== -1) {
+            updated[idx] = { sender: "agent", text: result.data.answer, isTyping: false, isComplete: false }
+          } else {
+            updated.push({ sender: "agent", text: result.data.answer, isTyping: false, isComplete: false })
+          }
+          return updated
+        })
+      }
+
+      // 채팅 히스토리 갱신
       await fetchChatHistory(userId)
     } catch (error) {
       console.error("응답 실패:", error)
       alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
-      
+
       // 로딩 메시지 제거
       setMessages((prev) =>
         prev.filter((msg) => !(msg.sender === "agent" && msg.isTyping))
       )
-      
-      // 입력창 복원
+
+      // 입력 복원
       if (!messageOverride) setUserInput(inputToSend)
     } finally {
       setIsSubmitting(false)
@@ -2056,6 +2221,17 @@ export default function ChatRoomPage() {
             </div>
           </div>
 
+          {draftContent && (
+            <div className="mt-4 flex justify-center">
+              <Button
+                onClick={() => setShowDraftPreview(true)}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                사업 기획서 보기
+              </Button>
+            </div>
+          )}
+
           {/* 하단 입력창 */}
           <div className="w-full max-w-3xl mx-auto bg-white p-6">
             <form onSubmit={handleSend}>
@@ -2117,6 +2293,13 @@ export default function ChatRoomPage() {
           setCategory={setCategory}
           onClose={() => setShowFeedbackModal(false)}
           onSubmit={handleFeedbackSubmit}
+        />
+      )}
+    {showDraftPreview && (
+        <DraftPreviewModal
+          userId={userId || ""}
+          content={draftContent || ""}
+          onClose={() => setShowDraftPreview(false)}
         />
       )}
     </div>
