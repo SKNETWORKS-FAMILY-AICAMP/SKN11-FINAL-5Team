@@ -329,7 +329,7 @@ const PHQ9ButtonComponent = React.memo(({
               </span>
             </Button>
           ))}
-        </div>
+        </div> 
         
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-xs text-gray-600">

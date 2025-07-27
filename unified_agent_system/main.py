@@ -21,6 +21,7 @@ import sys
 import os
 import shutil
 from typing import Optional
+import httpx
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -1528,6 +1529,65 @@ async def submit_feedback(req: FeedbackRequest):
         logger.error(f"피드백 전송 오류: {e}")
         return create_error_response("피드백 전송 실패", 
         "FEEDBACK_ERROR")
+    
+# Mental Health Agent의 포트 설정
+MENTAL_HEALTH_PORT = getattr(config, 'MENTAL_HEALTH_PORT', 8004)
+
+@app.get("/mental/conversation/{conversation_id}/phq9/status")
+async def get_phq9_status_proxy(conversation_id: int):
+    """PHQ-9 상태 조회 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/status"
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 상태 조회 프록시 실패: {e}")
+        return create_error_response("PHQ-9 상태 조회 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/mental/conversation/{conversation_id}/phq9/response")
+async def submit_phq9_response_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 응답 제출 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/response",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 응답 제출 프록시 실패: {e}")
+        return create_error_response("PHQ-9 응답 제출 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/mental/conversation/{conversation_id}/phq9/start")
+async def start_phq9_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 시작 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/start",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 시작 프록시 실패: {e}")
+        return create_error_response("PHQ-9 시작 실패", "PHQ9_PROXY_ERROR")
+
+# Mental Health Agent의 일반 쿼리도 프록시
+@app.post("/mental/agent/query")
+async def mental_health_query_proxy(data: dict = Body(...)):
+    """Mental Health Agent 쿼리 프록시"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/agent/query",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
+        return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
     
 
 
