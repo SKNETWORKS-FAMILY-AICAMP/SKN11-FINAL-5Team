@@ -155,46 +155,65 @@ class TaskAgentLLMHandler:
 
 
     async def extract_information(self, message: str, extraction_type: str, 
-                            conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
+                        conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
         """정보 추출 (일정, 이메일, SNS 등) - 단일/다중 지원"""
         try:
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
-            messages = [
-                {"role": "system", "content": prompt_manager.get_information_extraction_prompt(extraction_type)},
-                {"role": "user", "content": f"""
-                대화 히스토리: {history_context}
-                현재 메시지: {message}
-                현재 시간: {self._get_current_time()}
-                
-                주의: 메시지에 여러 일정이 포함된 경우, 모든 일정을 배열 형태로 반환하세요.
-                단일 일정인 경우: {{"schedules": [{{"title": "...", "start_time": "..."}}]}}
-                다중 일정인 경우: {{"schedules": [{{"title": "일정1", "start_time": "..."}}, {{"title": "일정2", "start_time": "..."}}]}}
-                """}
-            ]
-
-            result = await self.llm_manager.generate_response(
-                messages=messages,
-                provider=self.default_provider,
-                output_format="json"
+            # 시스템 프롬프트 가져오기
+            system_prompt = prompt_manager.get_information_extraction_prompt(extraction_type)
+            
+            # 사용자 메시지 구성
+            user_content = f"""
+            대화 히스토리: {history_context}
+            현재 메시지: {message}
+            현재 시간: {self._get_current_time()}
+            
+            주의: 메시지에 여러 일정이 포함된 경우, 모든 일정을 배열 형태로 반환하세요.
+            단일 일정인 경우: {{"schedules": [{{"title": "...", "start_time": "..."}}]}}
+            다중 일정인 경우: {{"schedules": [{{"title": "일정1", "start_time": "..."}}, {{"title": "일정2", "start_time": "..."}}]}}
+            """
+            
+            # OpenAI API 직접 호출
+            import openai
+            from shared_modules.env_config import get_config
+            
+            config = get_config()
+            client = openai.AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=0.1,
+                max_tokens=1000
             )
-
-            # 결과 검증 및 처리
-            if isinstance(result, dict):
-                if self._validate_multiple_extraction(result, extraction_type):
-                    return result
+            
+            result_content = response.choices[0].message.content
             
             # JSON 파싱 시도
             try:
-                parsed_result = json.loads(str(result))
+                import json
+                parsed_result = json.loads(result_content)
                 if self._validate_multiple_extraction(parsed_result, extraction_type):
                     return parsed_result
             except json.JSONDecodeError:
-                pass
+                # JSON이 아닌 경우 문자열에서 JSON 추출 시도
+                import re
+                json_match = re.search(r'\{.*\}', result_content, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed_result = json.loads(json_match.group())
+                        if self._validate_multiple_extraction(parsed_result, extraction_type):
+                            return parsed_result
+                    except json.JSONDecodeError:
+                        pass
             
             return None
-
+    
         except Exception as e:
             logger.error(f"정보 추출 실패 ({extraction_type}): {e}")
             return None

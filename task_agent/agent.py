@@ -177,15 +177,12 @@ class TaskAgent:
         try:
             automation_type = automation_intent["automation_type"]
             
-            # publish_sns 타입은 마케팅 페이지로 리다이렉션
-            if automation_type == "publish_sns":
-                return self._create_marketing_redirect_response(query, intent_analysis)
-            
             # 일정 기반 자동 등록 요청 처리
-            if await self._is_schedule_based_request(query.message):
-                return await self._handle_schedule_based_automation(
-                    query, automation_intent, intent_analysis, conversation_history
-                )
+            if(automation_type == "calendar_sync"):
+                if await self._is_schedule_based_request(query.message):
+                    return await self._handle_schedule_based_automation(
+                        query, automation_intent, intent_analysis, conversation_history
+                    )
             
             # 현재 메시지에서 자동화 정보 추출
             extracted_info = await self.llm_service.extract_automation_info(
@@ -407,6 +404,16 @@ class TaskAgent:
             "send_reminder": ["message", "remind_time"],
             "send_message": ["platform", "content"]
         }
+        
+        # calendar_sync의 경우 schedules 배열에서 필드 확인
+        if automation_type == "calendar_sync":
+            schedules = extracted_info.get('schedules', [])
+            if schedules and len(schedules) > 0:
+                # 첫 번째 스케줄의 필드를 extracted_info에 복사
+                first_schedule = schedules[0]
+                for key, value in first_schedule.items():
+                    if key not in extracted_info:
+                        extracted_info[key] = value
         
         required = required_fields.get(automation_type, [])
         missing = []

@@ -929,6 +929,9 @@ class PromptManager:
   
 - send_message: 메시지를 자동 전송
   예: "팀원들에게 슬랙으로 이 내용 전송해줘", "엄마한테 카톡 보내줘"
+  
+- todo_list: Google Tasks에 할 일 등록
+  예: "내일 오후 2시 팀미팅 캘린더에 등록해줘", "매주 월요일 9시 회의 일정 추가해줘"
 
 자동화와 관련이 없으면 "none"을 반환하세요.
 유형명만 반환하세요 (예: "calendar_sync" 또는 "none")
@@ -938,7 +941,7 @@ class PromptManager:
         """정보 추출용 프롬프트"""
         prompts = {
             "schedule": """
-일정 정보를 추출하여 JSON 형태로 반환하세요:
+일정 정보를 추출하여 JSON 형태로 반환하세요 (create_event API 호출용):
 
 필수 정보:
 - title: 일정 제목 (간단명료하게)
@@ -948,94 +951,49 @@ class PromptManager:
 - end_time: 종료시간 (없으면 start_time + 1시간으로 설정)
 - description: 상세 설명 (추가 정보, 준비사항 등)
 - location: 장소 (주소, 건물명, 온라인 링크 등)
-- reminders: 알림 설정 (분 단위, 예: [15, 30, 60])
-- attendees: 참석자 (이메일 주소 배열)
-- recurring: 반복 설정 (daily, weekly, monthly, yearly)
+- timezone: 시간대 (기본값: "Asia/Seoul")
+- all_day: 종일 이벤트 여부 (true/false, 기본값: false)
+- calendar_id: 캘린더 ID (기본값: "primary")
+- reminders: 알림 설정 (배열 형태, 예: [{"method": "popup", "minutes": 15}])
+- recurrence: 반복 설정 (배열 형태, 예: ["RRULE:FREQ=WEEKLY;BYDAY=MO"])
 
 정보가 부족하거나 애매하면 null을 반환하세요.
-예시: {"title": "팀 미팅", "start_time": "2024-03-15T14:00:00", "end_time": "2024-03-15T15:00:00", "location": "회의실 A", "reminders": [15]}
+예시: {"title": "팀 미팅", "start_time": "2024-03-15T14:00:00", "end_time": "2024-03-15T15:00:00", "location": "회의실 A", "reminders": [{"method": "popup", "minutes": 15}]}
 """,
             
             "email": """
-이메일 정보를 추출하여 JSON 형태로 반환하세요:
+이메일 정보를 추출하여 JSON 형태로 반환하세요 (send_email API 호출용):
 
 필수 정보:
 - to_emails: 받는사람 이메일 주소 (배열 형태)
 - subject: 제목 (명확하고 간결하게)
-- body: 본문 (HTML 또는 텍스트)
+- body: 본문 (텍스트 형태)
 
 선택 정보:
-- scheduled_time: 예약 발송 시간 (YYYY-MM-DDTHH:MM:SS)
+- html_body: HTML 형태의 본문
+- attachments: 첨부파일 경로 (배열 형태)
 - cc_emails: 참조 이메일 주소 (배열 형태)
 - bcc_emails: 숨은참조 이메일 주소 (배열 형태)
-- attachments: 첨부파일 경로 (배열 형태)
-- priority: 우선순위 (high, normal, low)
-- reply_to: 답장 받을 이메일 주소
+- from_email: 발신자 이메일 주소
+- from_name: 발신자 이름
+- service: 이메일 서비스 (예: "gmail", "outlook")
 
 정보가 부족하면 null을 반환하세요.
 예시: {"to_emails": ["user@example.com"], "subject": "안녕하세요", "body": "메일 내용입니다."}
 """,
-            
-            "sns": """
-SNS 발행 정보를 추출하여 JSON 형태로 반환하세요:
+            "task": """
+작업 정보를 추출하여 JSON 형태로 반환하세요 (create_task API 호출용):
 
 필수 정보:
-- platform: SNS 플랫폼 (instagram, facebook, twitter, linkedin, youtube 등)
-- content: 게시물 내용 (텍스트, 캡션)
+- title: 작업 제목
+- tasklist_id: 작업 목록 ID (기본값: "@default")
 
 선택 정보:
-- scheduled_time: 예약 발행 시간 (YYYY-MM-DDTHH:MM:SS)
-- hashtags: 해시태그 (# 없이 배열로, 예: ["마케팅", "소셜미디어"])
-- image_urls: 이미지 URL (배열 형태)
-- video_url: 동영상 URL
-- link_url: 링크 URL
-- target_audience: 타겟 오디언스 설정
-- location: 위치 태그
+- notes: 작업 상세 설명
+- due: 마감일 (ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ)
 
 정보가 부족하면 null을 반환하세요.
-예시: {"platform": "instagram", "content": "새로운 제품 출시!", "hashtags": ["신제품", "런칭"], "scheduled_time": "2024-03-15T10:00:00"}
-""",
-            
-            "reminder": """
-리마인더 정보를 추출하여 JSON 형태로 반환하세요:
-
-필수 정보:
-- title: 리마인더 제목
-- remind_time: 알림 시간 (YYYY-MM-DDTHH:MM:SS)
-
-선택 정보:
-- description: 상세 설명
-- repeat: 반복 설정 (once, daily, weekly, monthly, yearly)
-- priority: 우선순위 (high, medium, low)
-- category: 카테고리 (work, personal, health, finance 등)
-- action_required: 필요한 조치사항
-- contact_info: 관련 연락처
-
-정보가 부족하면 null을 반환하세요.
-예시: {"title": "의사 예약", "remind_time": "2024-03-15T09:00:00", "description": "정기 검진 예약", "category": "health"}
-""",
-            
-            "message": """
-메시지 발송 정보를 추출하여 JSON 형태로 반환하세요:
-
-필수 정보:
-- platform: 메시지 플랫폼 (sms, kakao, slack, telegram, whatsapp 등)
-- recipients: 받는사람 (전화번호, ID, 이메일 등)
-- message: 메시지 내용
-
-선택 정보:
-- scheduled_time: 예약 발송 시간 (YYYY-MM-DDTHH:MM:SS)
-- message_type: 메시지 유형 (text, image, file, location)
-- attachments: 첨부파일 (이미지, 파일 등)
-- group_name: 그룹 대화명 (그룹 메시지인 경우)
-- urgent: 긴급 여부 (true/false)
-
-정보가 부족하면 null을 반환하세요.
-예시: {"platform": "sms", "recipients": ["010-1234-5678"], "message": "안녕하세요! 확인 부탁드립니다."}
-"""
-        }
-        
-        return prompts.get(extraction_type, "정보를 추출하여 JSON 형태로 반환하세요.")
-
+예시: {"title": "보고서 작성", "tasklist_id": "@default", "notes": "주간 진행 상황 정리", "due": "2024-03-20T17:00:00Z"}
+"""}
 # 전역 인스턴스
 prompt_manager = PromptManager()

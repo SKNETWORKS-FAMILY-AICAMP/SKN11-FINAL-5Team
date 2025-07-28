@@ -69,7 +69,8 @@ class LLMService:
             "calendar_sync": "calendar_info",
             "send_email": "email_info",
             "send_reminder": "reminder_info",
-            "send_message": "message_info"
+            "send_message": "message_info",
+            "todo_list": "todo_info"
         }
         return mapping.get(automation_type, "general_info")
 

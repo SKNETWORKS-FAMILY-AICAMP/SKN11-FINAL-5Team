@@ -41,6 +41,7 @@ class AutomationTaskType(str, Enum):
     SEND_EMAIL = "send_email"
     SEND_REMINDER = "send_reminder"
     SEND_MESSAGE = "send_message"
+    TODO_LIST = "todo_list"
 
 class AutomationStatus(str, Enum):
     PENDING = "pending"

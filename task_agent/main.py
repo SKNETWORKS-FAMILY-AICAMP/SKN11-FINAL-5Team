@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
 from contextlib import asynccontextmanager
+import httpx
 
 # 텔레메트리 비활성화
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
@@ -321,116 +322,6 @@ async def send_email(req: EmailRequest):
     return result
 
 
-# ===== Instagram OAuth 인증 API =====
-instagram_service = InstagramPostingService()  
-from shared_modules import get_session_context
-from shared_modules.db_models import InstagramToken
-
-INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID", "YOUR_APP_ID")
-INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "YOUR_APP_SECRET")
-REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "https://localhost:8005/auth/instagram/callback")
-
-@app.get("/auth/instagram")
-def instagram_login(user_id: int):
-    auth_url = (
-        f"https://www.instagram.com/oauth/authorize"
-        f"?client_id={INSTAGRAM_APP_ID}"
-        f"&redirect_uri={REDIRECT_URI}"
-        f"&scope=business_basic,business_content_publish"
-        f"&response_type=code"
-        f"&state={user_id}"  # user_id를 state로 넘김
-    )
-    return auth_url
-
-# ======== OAuth Callback ========
-@app.get("/auth/instagram/callback")
-async def instagram_callback(code: str, state: str):
-    user_id = int(state)  # state 파라미터로 user_id를 복원
-
-    # Access Token 교환
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            "https://api.instagram.com/oauth/access_token",
-            data={
-                "client_id": INSTAGRAM_APP_ID,
-                "client_secret": INSTAGRAM_APP_SECRET,
-                "grant_type": "authorization_code",
-                "redirect_uri": REDIRECT_URI,
-                "code": code,
-            },
-        )
-    token_data = res.json()
-    access_token = token_data.get("access_token")
-
-    if not access_token:
-        return JSONResponse({"error": "토큰 발급 실패", "details": token_data}, status_code=400)
-
-    # 계정 정보 가져오기 (graph_id, username)
-    async with httpx.AsyncClient() as client:
-        me_res = await client.get(
-            "https://graph.instagram.com/me",
-            params={"fields": "id,username", "access_token": access_token},
-        )
-    me_data = me_res.json()
-
-    if "id" not in me_data:
-        return JSONResponse({"error": "계정 정보 조회 실패", "details": me_data}, status_code=400)
-
-    # DB 저장 (faq.py 스타일)
-    with get_session_context() as db:
-        account = InstagramToken(
-            user_id=user_id,
-            access_token=access_token,
-            graph_id=me_data["id"],
-            username=me_data.get("username"),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
-        db.add(account)
-        db.commit()
-        db.refresh(account)
-
-    return JSONResponse({"message": "Instagram 계정 연동 성공", "data": me_data})
-
-# ======== 포스팅 API ========
-@app.post("/instagram/post")
-async def instagram_post(request: Request):
-    body = await request.json()
-    caption = body.get("caption")
-    image_url = body.get("image_url")
-
-    with get_session_context() as db:
-        account = db.query(InstagramToken).first()
-        if not account:
-            return JSONResponse({"error": "Instagram 계정이 등록되지 않았습니다. 계정을 등록해주세요."}, status_code=400)
-
-        # 1. 미디어 생성
-        async with httpx.AsyncClient() as client:
-            create_res = await client.post(
-                f"https://graph.instagram.com/{account.graph_id}/media",
-                params={
-                    "image_url": image_url,
-                    "caption": caption,
-                    "access_token": account.access_token,
-                },
-            )
-        create_data = create_res.json()
-        creation_id = create_data.get("id")
-
-        if not creation_id:
-            return JSONResponse({"error": "미디어 생성 실패", "details": create_data}, status_code=400)
-
-        # 2. 게시 요청
-        async with httpx.AsyncClient() as client:
-            publish_res = await client.post(
-                f"https://graph.instagram.com/{account.graph_id}/media_publish",
-                params={
-                    "creation_id": creation_id,
-                    "access_token": account.access_token,
-                },
-            )
-    return publish_res.json()
-
 # ===== 간단한 Google API 클라이언트 구현 =====
 
 # 리팩토링된 서비스 클래스들 import
@@ -666,6 +557,44 @@ async def get_upcoming_events(
         logger.error(f"다가오는 이벤트 조회 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ===== google task =====
+@app.get("/google/tasks")
+async def list_tasks():
+    """Google Tasks 목록 조회"""
+    if "access_token" not in user_tokens:
+        return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+
+    url = f"{GOOGLE_TASKS_BASE}/users/@me/lists"
+    headers = {"Authorization": f"Bearer {user_tokens['access_token']}"}
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=headers)
+    return res.json()
+
+@app.post("/google/tasks")
+async def create_task(
+    tasklist_id: str,
+    title: str,
+    notes: str = None,
+    due: str = None  # ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ
+):
+    """Google Tasks에 작업(Task) 등록 (시간 설정 지원)"""
+    if "access_token" not in user_tokens:
+        return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+
+    url = f"{GOOGLE_TASKS_BASE}/lists/{tasklist_id}/tasks"
+    headers = {"Authorization": f"Bearer {user_tokens['access_token']}"}
+
+    payload = {"title": title}
+    if notes:
+        payload["notes"] = notes
+    if due:
+        payload["due"] = due  # e.g., "2025-07-28T09:00:00Z" (UTC 시간)
+
+    async with httpx.AsyncClient() as client:
+        res = await client.post(url, headers=headers, json=payload)
+    return res.json()
+
+
 # ===== 에러 핸들러 =====
 
 @app.exception_handler(HTTPException)
@@ -703,6 +632,9 @@ async def general_exception_handler(request, exc):
         status_code=500,
         content=create_error_response("내부 서버 오류가 발생했습니다.", "INTERNAL_ERROR")
     )
+
+from services.instagram import router as insta_router
+app.include_router(insta_router, tags=["Instagram"])
 
 if __name__ == "__main__":
     import uvicorn

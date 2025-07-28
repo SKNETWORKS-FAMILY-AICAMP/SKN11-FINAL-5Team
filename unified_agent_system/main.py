@@ -233,9 +233,12 @@ async def get_auth_url(provider: str, request: Request, intent: str = "login"):
                 f"client_id={os.getenv('GOOGLE_CLIENT_ID')}&"
                 f"redirect_uri={os.getenv('GOOGLE_REDIRECT_URI')}&"
                 "response_type=code&"
-                "scope=openid email profile&"
+                "scope=openid email profile https://www.googleapis.com/auth/calendar.events&"
+                "access_type=offline&"
+                "prompt=consent&"
                 f"state={state}"
             )
+
         elif provider == "kakao":
             auth_url = (
                 "https://kauth.kakao.com/oauth/authorize?"
@@ -280,7 +283,9 @@ async def get_signup_auth_url(provider: str, request: Request, body: dict = Body
                 f"client_id={os.getenv('GOOGLE_CLIENT_ID')}&"
                 f"redirect_uri={os.getenv('GOOGLE_REDIRECT_URI')}&"
                 "response_type=code&"
-                "scope=openid email profile&"
+                "scope=openid email profile https://www.googleapis.com/auth/calendar.events&"
+                "access_type=offline&"
+                "prompt=consent&"
                 f"state={state}"
             )
         elif provider == "kakao":
