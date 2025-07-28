@@ -64,6 +64,7 @@ class MarketingAgentState(TypedDict):
     user_engagement_level: NotRequired[Literal["high", "medium", "low"]]
     negative_response_count: NotRequired[int]
     iteration_count: NotRequired[int]
+    feedback_count: NotRequired[int]
     
     # 메타데이터
     created_at: NotRequired[datetime]
@@ -94,6 +95,7 @@ class StateManager:
             user_engagement_level="high",
             negative_response_count=0,
             iteration_count=0,
+            feedback_count=0,
             created_at=datetime.now(),
             last_activity=datetime.now(),
             completion_rate=0.0,

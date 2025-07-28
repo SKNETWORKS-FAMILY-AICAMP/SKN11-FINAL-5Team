@@ -36,7 +36,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 class AutomationTaskType(str, Enum):
-    SCHEDULE_CALENDAR = "schedule_calendar"
+    SCHEDULE_CALENDAR = "calendar_sync"
     PUBLISH_SNS = "publish_sns"
     SEND_EMAIL = "send_email"
     SEND_REMINDER = "send_reminder"
@@ -140,7 +140,7 @@ class AutomationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "user_id": 123,
-                "task_type": "schedule_calendar",
+                "task_type": "calendar_sync",
                 "title": "팀 회의 예약",
                 "task_data": {
                     "title": "개발팀 주간 회의",

@@ -643,21 +643,19 @@ class CustomerServiceAgentManager:
                         analysis_result = self.perform_comprehensive_analysis(state)
                         
                         collected_summary = self._create_collected_info_summary(state)
-                        response_content = f"""✅ **질문을 분석했습니다!**
+                        response_content = f"""
 
 {analysis_result}"""
                     else:
                         # 추가 정보 필요
                         state.update_stage(ConversationStage.INFORMATION_GATHERING)
-                        response_content = f"""안녕하세요! 고객 서비스 전문 컨설턴트입니다. 🎯
+                        response_content = f"""안녕하세요! 고객 서비스 컨설턴트입니다. 😊  
 
-질문을 확인했습니다: "{user_input}"
+보다 정확하고 상황에 맞는 해결책을 드리기 위해 몇 가지 정보가 더 필요해요.
+  
+**{self._get_next_question(state)}**
 
-더 구체적이고 맞춤형 해결책을 위해 몇 가지 추가 정보가 필요합니다.
-
-**첫 번째 질문**: {self._get_next_question(state)}
-
-정확한 분석과 해결책 제시를 위해 차근차근 진행해보겠습니다!"""
+너무 어렵게 생각하지 마시고, 편하게 답해주시면 돼요. 함께 차근차근 풀어나가 볼게요!"""
                 
                 elif state.stage == ConversationStage.INFORMATION_GATHERING:
                     # 정보 수집 단계
@@ -751,7 +749,7 @@ class CustomerServiceAgentManager:
                 
                 collected_summary = self._create_collected_info_summary(state)
                 
-                return f"""✅ **충분한 정보가 수집되었습니다!**
+                return f"""
 
 
 {analysis_result}"""
@@ -763,7 +761,7 @@ class CustomerServiceAgentManager:
                 
                 return f"""
 
-💡 **다음 질문**: {next_question}
+{next_question}
 
 더 정확한 해결책을 위해 위 정보를 알려주세요!"""
                 

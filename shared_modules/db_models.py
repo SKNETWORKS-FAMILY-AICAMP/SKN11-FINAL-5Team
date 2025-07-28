@@ -282,19 +282,15 @@ class ProjectDocument(Base):
     file_path = Column(Text)
     uploaded_at = Column(DateTime, default=func.now())
 
-class Instagram(Base):
-    """인스타그램 연동 정보 테이블"""
-    __tablename__ = 'instagram'
-    __table_args__ = {'extend_existing': True}
+class InstagramToken(Base):
+    __tablename__ = "instagram"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('user.user_id'), nullable=False)
-    access_token = Column(Text, nullable=True)
-    refresh_token = Column(Text, nullable=True)
-    graph_id = Column(String(50), nullable=True)
-    username = Column(String(50), nullable=True)  # 👉 우리가 받을 부분
-    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), nullable=False)
-    updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=False)
-
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
+    graph_id = Column(String(50), nullable=False)
+    username = Column(String(50))
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     user = relationship("User", backref="instagram_accounts")
-

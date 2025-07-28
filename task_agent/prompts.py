@@ -915,7 +915,7 @@ class PromptManager:
 - 상담/조언 요청 ("어떤 앱이 좋아?", "추천해줘")
 
 ✅ 자동화 유형 (구체적인 실행 요청만):
-- schedule_calendar: 특정 일정을 캘린더에 자동 등록
+- calendar_sync: 특정 일정을 캘린더에 자동 등록
   예: "내일 오후 2시 팀미팅 캘린더에 등록해줘", "매주 월요일 9시 회의 일정 추가해줘"
   
 - publish_sns: SNS에 게시물을 자동 발행
@@ -931,7 +931,7 @@ class PromptManager:
   예: "팀원들에게 슬랙으로 이 내용 전송해줘", "엄마한테 카톡 보내줘"
 
 자동화와 관련이 없으면 "none"을 반환하세요.
-유형명만 반환하세요 (예: "schedule_calendar" 또는 "none")
+유형명만 반환하세요 (예: "calendar_sync" 또는 "none")
 """
 
     def get_information_extraction_prompt(self, extraction_type: str) -> str:

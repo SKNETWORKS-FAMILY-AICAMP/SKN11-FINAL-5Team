@@ -69,7 +69,7 @@ from shared_modules.database import  get_db_dependency
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from pydantic import BaseModel
-from shared_modules.db_models import Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ, Instagram
+from shared_modules.db_models import InstagramToken, Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -145,16 +145,26 @@ async def get_user_conversations(user_id: int):
     try:
         with get_session_context() as db:
             from shared_modules.queries import get_user_conversations
+            from shared_modules.db_models import Message
+            
             conversations = get_user_conversations(db, user_id, visible_only=True)
             
             conversation_list = []
             for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None,
-                    "title": "대화"
-                })
+                # 🔧 해당 대화에 메시지가 있는지 확인
+                message_count = db.query(Message).filter(
+                    Message.conversation_id == conv.conversation_id
+                ).count()
+                
+                # 메시지가 있는 대화만 포함
+                if message_count > 0:
+                    conversation_list.append({
+                        "conversation_id": conv.conversation_id,
+                        "started_at": conv.started_at.isoformat() if conv.started_at else None,
+                        "ended_at": conv.ended_at.isoformat() if conv.ended_at else None,
+                        "title": "대화",
+                        "message_count": message_count
+                    })
             
             return create_success_response(conversation_list)
             
@@ -418,7 +428,7 @@ async def google_login(request: Request, code: str, state: str = None):
                         logger.info(f"📥 구글 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
                         
                         try:
-                            insta = Instagram(
+                            insta = InstagramToken(
                                 user_id=new_user.user_id,
                                 username=username,
                                 access_token=access_token,  # 실제 구글/카카오 토큰 사용
@@ -612,7 +622,7 @@ def kakao_login(code: str, state: str = None):
                         logger.info(f"📥 카카오 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
                         
                         try:
-                            insta = Instagram(
+                            insta = InstagramToken(
                                 user_id=new_user.user_id,
                                 username=username,
                                 access_token=access_token,  # 실제 구글/카카오 토큰 사용
@@ -727,7 +737,7 @@ async def social_login(req: SocialLoginRequest):
                         username = username[1:]
 
                     logger.info(f"📥 저장 시도: {username}")
-                    insta = Instagram(
+                    insta = InstagramToken(
                         user_id=user.user_id,
                         username=username,
                         access_token="",  # 실제 구글/카카오 토큰 사용

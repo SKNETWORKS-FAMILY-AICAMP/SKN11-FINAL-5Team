@@ -155,8 +155,8 @@ class TaskAgentLLMHandler:
 
 
     async def extract_information(self, message: str, extraction_type: str, 
-                                conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
-        """정보 추출 (일정, 이메일, SNS 등)"""
+                            conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
+        """정보 추출 (일정, 이메일, SNS 등) - 단일/다중 지원"""
         try:
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
@@ -167,6 +167,10 @@ class TaskAgentLLMHandler:
                 대화 히스토리: {history_context}
                 현재 메시지: {message}
                 현재 시간: {self._get_current_time()}
+                
+                주의: 메시지에 여러 일정이 포함된 경우, 모든 일정을 배열 형태로 반환하세요.
+                단일 일정인 경우: {{"schedules": [{{"title": "...", "start_time": "..."}}]}}
+                다중 일정인 경우: {{"schedules": [{{"title": "일정1", "start_time": "..."}}, {{"title": "일정2", "start_time": "..."}}]}}
                 """}
             ]
 
@@ -176,15 +180,15 @@ class TaskAgentLLMHandler:
                 output_format="json"
             )
 
-            # 결과 검증
+            # 결과 검증 및 처리
             if isinstance(result, dict):
-                if self._validate_extraction(result, extraction_type):
+                if self._validate_multiple_extraction(result, extraction_type):
                     return result
             
             # JSON 파싱 시도
             try:
                 parsed_result = json.loads(str(result))
-                if self._validate_extraction(parsed_result, extraction_type):
+                if self._validate_multiple_extraction(parsed_result, extraction_type):
                     return parsed_result
             except json.JSONDecodeError:
                 pass
@@ -194,6 +198,26 @@ class TaskAgentLLMHandler:
         except Exception as e:
             logger.error(f"정보 추출 실패 ({extraction_type}): {e}")
             return None
+
+    def _validate_multiple_extraction(self, data: Dict[str, Any], extraction_type: str) -> bool:
+        """다중 추출된 정보 검증"""
+        if extraction_type == "schedule":
+            schedules = data.get("schedules", [])
+            if not isinstance(schedules, list) or not schedules:
+                return False
+            # 각 일정이 필수 필드를 가지고 있는지 확인
+            return all(schedule.get("title") and schedule.get("start_time") for schedule in schedules)
+        elif extraction_type == "email":
+            emails = data.get("emails", [])
+            if not isinstance(emails, list) or not emails:
+                return False
+            return all(email.get("to_emails") and email.get("subject") and email.get("body") for email in emails)
+        elif extraction_type == "sns":
+            posts = data.get("posts", [])
+            if not isinstance(posts, list) or not posts:
+                return False
+            return all(post.get("platform") and post.get("content") for post in posts)
+        return True
 
     def _format_history(self, conversation_history: List[Dict]) -> str:
         """대화 히스토리 포맷팅"""

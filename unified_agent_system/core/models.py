@@ -127,6 +127,8 @@ class TemplateUpdateRequest(BaseModel):
 class ConversationCreate(BaseModel):
     user_id: int
     title: Optional[str] = None
+    agent_type: Optional[str] = None  # ✅ 프론트에서 넘겨줌
+    
 
 class SocialLoginRequest(BaseModel):
     provider: str

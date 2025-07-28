@@ -1,59 +1,107 @@
 """
-TinkerBell 업무지원 에이전트 v4 - 메인 애플리케이션
-공통 모듈을 활용한 FastAPI 애플리케이션
+TinkerBell 업무지원 에이전트 v5 - 메인 애플리케이션
+리팩토링된 FastAPI 애플리케이션
 """
 
 import sys
 import os
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+import logging
+from contextlib import asynccontextmanager
+import httpx
 
-# 텔레메트리 비활성화 (ChromaDB 오류 방지)
+# 텔레메트리 비활성화
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 os.environ['CHROMA_TELEMETRY'] = 'False' 
 os.environ['DO_NOT_TRACK'] = '1'
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
-import logging
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from models import (UserQuery, AutomationRequest, EmailRequest, 
-                    InstagramPostRequest, EventCreate, EventResponse, 
-                    CalendarListResponse, QuickEventCreate)
-from utils import TaskAgentLogger, TaskAgentResponseFormatter
-from agent import TaskAgent
-from config import config
 
-from automation_task.email_service import get_email_service
-from automation_task.instagram_service import InstagramPostingService
-
-# 공통 모듈 경로 추가
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# 로컬 모델 import
+from models import (
+    UserQuery, AutomationRequest, EmailRequest, 
+    InstagramPostRequest, EventCreate, EventResponse, 
+    CalendarListResponse, QuickEventCreate
+)
 
 # 공통 모듈 import
-from shared_modules import (
-    create_success_response, 
-    create_error_response,
-    create_conversation, 
-    create_message, 
-    get_conversation_by_id, 
-    get_recent_messages,
-    get_session_context,
-    insert_message_raw,
-    get_current_timestamp,
-    create_task_response  # 표준 응답 생성 함수 추가
-)
-from shared_modules.utils import get_or_create_conversation_session
-from shared_modules.logging_utils import setup_logging
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from shared_modules import (
+        create_success_response, 
+        create_error_response,
+        create_task_response
+    )
+    from shared_modules.logging_utils import setup_logging
+except ImportError:
+    # 공통 모듈이 없는 경우 기본 함수들 정의
+    def create_success_response(data, message="Success"):
+        return {"success": True, "data": data, "message": message}
+    
+    def create_error_response(message, error_code="ERROR"):
+        return {"success": False, "error": message, "error_code": error_code}
+        
+    def create_task_response(**kwargs):
+        return kwargs
+    
+    def setup_logging(name, log_file=None):
+        return logging.getLogger(name)
+
+# 서비스 레이어 import
+from services.task_agent_service import TaskAgentService
+from services.automation_service import AutomationService  
+from automation_task.email_service import EmailService
+from automation_task.instagram_service import InstagramPostingService
+from automation_task.google_calendar_service import GoogleCalendarService
+
+# 설정 및 의존성
+from config import config
+from dependencies import get_services
 
 # 로깅 설정
 logger = setup_logging("task", log_file="logs/task.log")
 
+# 글로벌 서비스 컨테이너
+services = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """애플리케이션 생명주기 관리"""
+    global services
+    
+    # 시작
+    logger.info("TinkerBell 업무지원 에이전트 v5 시작")
+    
+    # 환경 설정 검증
+    validation = config.validate()
+    if not validation["is_valid"]:
+        logger.error(f"환경 설정 오류: {validation['issues']}")
+        raise RuntimeError("환경 설정이 올바르지 않습니다.")
+    
+    # 서비스 컨테이너 초기화
+    try:
+        services = await get_services()
+        logger.info("서비스 컨테이너 초기화 완료")
+    except Exception as e:
+        logger.error(f"서비스 초기화 실패: {e}")
+        raise RuntimeError("서비스 초기화 실패")
+    
+    yield
+    
+    # 종료
+    logger.info("TinkerBell 업무지원 에이전트 v5 종료")
+    if services:
+        await services.cleanup()
+
 # FastAPI 앱 생성
 app = FastAPI(
-    title="TinkerBell 업무지원 에이전트 v4",
-    description="공통 모듈을 활용한 AI 기반 업무지원 시스템",
-    version="4.0.0"
+    title="TinkerBell 업무지원 에이전트 v5",
+    description="리팩토링된 AI 기반 업무지원 시스템",
+    version="5.0.0",
+    lifespan=lifespan
 )
 
 # CORS 설정
@@ -65,190 +113,141 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 글로벌 에이전트 인스턴스
-agent = None
+# ===== 의존성 주입 =====
 
-# ===== 대화 관리 함수 =====
+def get_task_agent_service() -> TaskAgentService:
+    """TaskAgentService 의존성"""
+    if not services:
+        raise HTTPException(status_code=503, detail="서비스가 초기화되지 않았습니다.")
+    return services.task_agent_service
 
-async def get_conversation_history(conversation_id: int, limit: int = 10) -> List[Dict]:
-    """대화 히스토리 조회"""
-    try:
-        with get_session_context() as db:
-            messages = get_recent_messages(db, conversation_id, limit)
-            
-            history = []
-            for msg in reversed(messages):  # 시간순 정렬
-                # Handle both dict and object types
-                if isinstance(msg, dict):
-                    # If msg is a dictionary
-                    history.append({
-                        "role": "user" if msg.get("sender_type") == "user" else "assistant",
-                        "content": msg.get("content", ""),
-                        "timestamp": msg.get("created_at").isoformat() if msg.get("created_at") else None,
-                        "agent_type": msg.get("agent_type")
-                    })
-                else:
-                    # If msg is an object (ORM model)
-                    history.append({
-                        "role": "user" if getattr(msg, "sender_type", None) == "user" else "assistant",
-                        "content": getattr(msg, "content", ""),
-                        "timestamp": getattr(msg, "created_at", None).isoformat() if getattr(msg, "created_at", None) else None,
-                        "agent_type": getattr(msg, "agent_type", None)
-                    })
-            
-            return history
-    except Exception as e:
-        logger.error(f"대화 히스토리 조회 실패: {e}")
-        return []
+def get_automation_service() -> AutomationService:
+    """AutomationService 의존성"""
+    if not services:
+        raise HTTPException(status_code=503, detail="서비스가 초기화되지 않았습니다.")
+    return services.automation_service
 
-async def save_message(conversation_id: int, content: str, sender_type: str, 
-                      agent_type: str = None) -> Dict[str, Any]:
-    """메시지 저장"""
-    try:
-        with get_session_context() as db:
-            message = create_message(db, conversation_id, sender_type, agent_type, content)
-            
-            if not message:
-                logger.error(f"메시지 저장 실패 - conversation_id: {conversation_id}")
-                raise Exception("메시지 저장에 실패했습니다")
-            
-            TaskAgentLogger.log_user_interaction(
-                user_id=str(conversation_id), 
-                action="message_saved",
-                details=f"sender: {sender_type}, agent: {agent_type}"
-            )
-            
-            return {
-                "message_id": message.message_id,
-                "created_at": message.created_at.isoformat() if message.created_at else None
-            }
-    except Exception as e:
-        logger.error(f"메시지 저장 실패: {e}")
-        raise
+def get_email_service() -> EmailService:
+    """EmailService 의존성"""
+    if not services:
+        raise HTTPException(status_code=503, detail="서비스가 초기화되지 않았습니다.")
+    return services.email_service
 
-# ===== 애플리케이션 이벤트 =====
+def get_calendar_service() -> GoogleCalendarService:
+    """CalendarService 의존성"""
+    if not services:
+        raise HTTPException(status_code=503, detail="서비스가 초기화되지 않았습니다.")
+    return services.calendar_service
 
-@app.on_event("startup")
-async def startup_event():
-    """애플리케이션 시작"""
-    global agent
-    
-    logger.info("TinkerBell 업무지원 에이전트 v4 시작")
-    
-    # 환경 설정 검증
-    validation = config.validate()
-    if not validation["is_valid"]:
-        logger.error(f"환경 설정 오류: {validation['issues']}")
-        raise RuntimeError("환경 설정이 올바르지 않습니다.")
-    
-    for warning in validation["warnings"]:
-        logger.warning(warning)
-    
-    # 에이전트 초기화
-    try:
-        agent = TaskAgent()
-        logger.info("Task Agent 초기화 완료")
-    except Exception as e:
-        logger.error(f"에이전트 초기화 실패: {e}")
-        raise RuntimeError("에이전트 초기화 실패")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """애플리케이션 종료"""
-    logger.info("TinkerBell 업무지원 에이전트 v4 종료")
-    if agent:
-        try:
-            await agent.cleanup_resources()
-        except Exception as e:
-            logger.error(f"에이전트 정리 실패: {e}")
+def get_instagram_service() -> InstagramPostingService:
+    """InstagramService 의존성"""
+    if not services:
+        raise HTTPException(status_code=503, detail="서비스가 초기화되지 않았습니다.")
+    return services.instagram_service
 
 # ===== 핵심 API 엔드포인트 =====
 
 @app.post("/agent/query")
-async def process_user_query(query: UserQuery):
-    """사용자 쿼리 처리"""
+async def process_user_query(
+    query: UserQuery,
+    task_service: TaskAgentService = Depends(get_task_agent_service)
+):
+    """사용자 쿼리 처리 - 자동화 업무 등록 포함"""
     try:
-        TaskAgentLogger.log_user_interaction(
-            user_id=query.user_id, 
-            action="query_received",
-            details=f"persona: {query.persona}, message_length: {len(query.message)}"
-        )
+        # 쿼리 처리 및 자동화 작업 등록
+        response = await task_service.process_query(query)
         
-        # 1. 대화 세션 처리 - 통일된 로직 사용
-        user_id_int = int(query.user_id)
-        try:
-            session_info = get_or_create_conversation_session(user_id_int, query.conversation_id)
-            conversation_id = session_info["conversation_id"]
-        except Exception as e:
-            logger.error(f"대화 세션 처리 실패: {e}")
-            return create_error_response("대화 세션 생성에 실패했습니다", "SESSION_CREATE_ERROR")
-        
-        # 2. 대화 히스토리 조회
-        history = await get_conversation_history(conversation_id)
-        
-        # 3. 사용자 메시지 저장
-        await save_message(conversation_id, query.message, "user")
-        
-        # 4. 쿼리 업데이트
-        query.conversation_id = conversation_id
-        
-        # 5. 에이전트 처리
-        response = await agent.process_query(query, history)
-        
-        # 6. 에이전트 응답 저장
-        try:
-            insert_message_raw(
-                conversation_id=conversation_id,
-                sender_type="agent",
-                agent_type="task_agent",
-                content=response.response
-            )
-        except Exception as e:
-            logger.warning(f"에이전트 메시지 저장 실패: {e}")
-        
-        TaskAgentLogger.log_user_interaction(
-            user_id=query.user_id,
-            action="query_completed",
-            details=f"conversation_id: {conversation_id}, intent: {response.metadata.get('intent', 'unknown')}"
-        )
-        
-        # 7. 표준 응답 생성
-        # First, get all attributes we want to exclude
-        excluded_keys = {
-            'response', 'conversation_id', 'topics', 'sources', 
-            'intent', 'urgency', 'actions', 'automation_created', 'response_type'
-        }
-        
-        # Get additional attributes from response, excluding the ones we handle explicitly
-        additional_attrs = {}
-        if hasattr(response, 'dict') and callable(response.dict):
-            additional_attrs = {
-                k: v for k, v in response.dict().items() 
-                if k not in excluded_keys
-            }
-        
+        # 표준 응답 형식으로 변환
         response_data = create_task_response(
-            conversation_id=conversation_id,
-            answer=response.response or "",
+            conversation_id=response.conversation_id,
+            answer=response.response,
             topics=[response.metadata.get('intent', 'general_inquiry')],
-            sources=getattr(response, 'sources', "") or "",
-            intent=response.metadata.get('intent', 'general_inquiry') or 'general_inquiry',
-            urgency=getattr(response, 'urgency', 'medium') or 'medium',
-            actions=getattr(response, 'actions', []) or [],
-            automation_created=getattr(response, 'automation_created', False) or False,
-            **additional_attrs
+            sources=response.sources or "",
+            intent=response.metadata.get('intent', 'general_inquiry'),
+            urgency=getattr(response, 'urgency', 'medium'),
+            actions=response.metadata.get('actions', []),
+            automation_created=response.metadata.get('automation_created', False)
         )
         
         return create_success_response(response_data)
         
     except Exception as e:
         logger.error(f"쿼리 처리 실패: {e}")
-        error_response = TaskAgentResponseFormatter.error_response(
-            error_message=str(e),
-            error_code="QUERY_PROCESSING_ERROR",
-            conversation_id=query.conversation_id
-        )
-        raise HTTPException(status_code=500, detail=error_response)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/automation/task")
+async def create_automation_task(
+    request: AutomationRequest,
+    automation_service: AutomationService = Depends(get_automation_service)
+):
+    """자동화 작업 직접 생성"""
+    try:
+        response = await automation_service.create_task(request)
+        return create_success_response(response.dict())
+    except Exception as e:
+        logger.error(f"자동화 작업 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/automation/task/{task_id}")
+async def get_automation_task_status(
+    task_id: int,
+    automation_service: AutomationService = Depends(get_automation_service)
+):
+    """자동화 작업 상태 조회"""
+    try:
+        status = await automation_service.get_task_status(task_id)
+        return create_success_response(status)
+    except Exception as e:
+        logger.error(f"자동화 작업 상태 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/automation/task/{task_id}")
+async def cancel_automation_task(
+    task_id: int,
+    automation_service: AutomationService = Depends(get_automation_service)
+):
+    """자동화 작업 취소"""
+    try:
+        result = await automation_service.cancel_task(task_id)
+        if result:
+            return create_success_response({"message": "작업이 취소되었습니다."})
+        else:
+            raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    except Exception as e:
+        logger.error(f"자동화 작업 취소 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/automation/tasks")
+async def get_user_automation_tasks(
+    user_id: int = Query(..., description="사용자 ID"),
+    status: Optional[str] = Query(None, description="작업 상태 필터"),
+    limit: int = Query(50, ge=1, le=100, description="최대 조회 수"),
+    automation_service: AutomationService = Depends(get_automation_service)
+):
+    """사용자 자동화 작업 목록 조회"""
+    try:
+        tasks = await automation_service.get_user_tasks(user_id, status, limit)
+        return create_success_response({"tasks": tasks, "count": len(tasks)})
+    except Exception as e:
+        logger.error(f"사용자 자동화 작업 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ===== 이메일 API =====
+
+@app.post("/email/send")
+async def send_email(
+    req: EmailRequest,
+    email_service: EmailService = Depends(get_email_service)
+):
+    """이메일 발송"""
+    try:
+        result = await email_service.send_email(req.dict())
+        if not result.get("success", False):
+            raise HTTPException(status_code=400, detail=result.get("error", "이메일 발송 실패"))
+        return create_success_response(result)
+    except Exception as e:
+        logger.error(f"이메일 발송 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ===== 시스템 API =====
 
@@ -256,12 +255,11 @@ async def process_user_query(query: UserQuery):
 async def health_check():
     """헬스 체크"""
     try:
-        if agent:
-            status = await agent.get_status()
-            return create_success_response(data=status, message="시스템 상태 정상")
+        if services:
+            status = await services.get_health_status()
+            return create_success_response(status, "시스템 상태 정상")
         else:
-            return create_error_response("에이전트가 초기화되지 않았습니다.", "AGENT_NOT_INITIALIZED")
-        
+            return create_error_response("서비스가 초기화되지 않았습니다.", "SERVICE_NOT_INITIALIZED")
     except Exception as e:
         logger.error(f"헬스 체크 실패: {e}")
         return create_error_response(str(e), "HEALTH_CHECK_ERROR")
@@ -271,8 +269,8 @@ async def get_system_status():
     """시스템 상태 조회"""
     try:
         base_status = {
-            "service": "TinkerBell Task Agent v4",
-            "version": "4.0.0",
+            "service": "TinkerBell Task Agent v5",
+            "version": "5.0.0",
             "timestamp": datetime.now().isoformat(),
             "environment": {
                 "openai_configured": bool(config.OPENAI_API_KEY),
@@ -283,20 +281,20 @@ async def get_system_status():
             "config_validation": config.validate()
         }
         
-        if agent:
-            agent_status = await agent.get_status()
-            base_status.update(agent_status)
+        if services:
+            service_status = await services.get_detailed_status()
+            base_status.update(service_status)
             base_status["status"] = "healthy"
         else:
             base_status["status"] = "error"
-            base_status["message"] = "에이전트가 초기화되지 않았습니다."
+            base_status["message"] = "서비스가 초기화되지 않았습니다."
         
         return base_status
         
     except Exception as e:
         logger.error(f"시스템 상태 조회 실패: {e}")
         return {
-            "service": "TinkerBell Task Agent v4",
+            "service": "TinkerBell Task Agent v5",
             "status": "error",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
@@ -325,217 +323,114 @@ async def send_email(req: EmailRequest):
 
 
 # ===== Instagram OAuth 인증 API =====
-agent = None
 instagram_service = InstagramPostingService()  
+from shared_modules import get_session_context
+from shared_modules.db_models import InstagramToken
 
-@app.get("/instagram/auth")
-async def get_instagram_auth_url():
-    """Instagram OAuth 인증 URL 생성"""
-    try:
-        auth_url = instagram_service.get_instagram_auth_url()
-        return create_success_response({
-            "auth_url": auth_url,
-            "message": "이 URL로 이동하여 Instagram 계정을 연결하세요."
-        })
-    except Exception as e:
-        logger.error(f"Instagram 인증 URL 생성 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 인증 URL 생성에 실패했습니다: {str(e)}",
-            "INSTAGRAM_AUTH_URL_ERROR"
-        )
+INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID", "YOUR_APP_ID")
+INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "YOUR_APP_SECRET")
+REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "https://localhost:8005/auth/instagram/callback")
 
-@app.get("/instagram/auth/callback")
-async def instagram_callback(
-    code: str = Query(..., description="Instagram에서 받은 인증 코드"),
-    state: Optional[str] = Query(None, description="CSRF 보호용 state 파라미터")
-):
-    """Instagram OAuth 콜백 처리 및 토큰 발급"""
-    try:
-        # 인증 코드로 토큰 발급
-        token_data = await instagram_service.get_access_token(code, state)
-        
-        logger.info(f"Instagram 토큰 발급 성공: 사용자 {token_data['user_id']}")
-        
-        return create_success_response({
-            "access_token": token_data["access_token"],
-            "user_id": token_data["user_id"],
-            "token_type": token_data["token_type"],
-            "expires_in": token_data["expires_in"],
-            "message": "Instagram 계정이 성공적으로 연결되었습니다."
-        })
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Instagram 콜백 처리 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 인증 처리 중 오류가 발생했습니다: {str(e)}",
-            "INSTAGRAM_CALLBACK_ERROR"
-        )
+@app.get("/auth/instagram")
+def instagram_login(user_id: int):
+    auth_url = (
+        f"https://www.instagram.com/oauth/authorize"
+        f"?client_id={INSTAGRAM_APP_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&scope=business_basic,business_content_publish"
+        f"&response_type=code"
+        f"&state={user_id}"  # user_id를 state로 넘김
+    )
+    return auth_url
 
-@app.post("/instagram/tokens/refresh")
-async def refresh_instagram_token(
-    user_id: str = Query(..., description="사용자 ID")
-):
-    """Instagram 토큰 갱신"""
-    try:
-        # 현재 토큰 로드
-        token_data = await instagram_service.load_tokens(user_id)
-        if not token_data:
-            return create_error_response(
-                "저장된 토큰을 찾을 수 없습니다.",
-                "TOKEN_NOT_FOUND"
-            )
-        
-        # 토큰 갱신
-        refreshed_data = await instagram_service.refresh_long_lived_token(
-            token_data["access_token"]
-        )
-        
-        # 갱신된 토큰 저장
-        await instagram_service.save_tokens(user_id, refreshed_data)
-        
-        return create_success_response({
-            "message": "Instagram 토큰이 성공적으로 갱신되었습니다.",
-            "expires_in": refreshed_data["expires_in"],
-            "user_id": user_id
-        })
-        
-    except Exception as e:
-        logger.error(f"Instagram 토큰 갱신 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 토큰 갱신 중 오류가 발생했습니다: {str(e)}",
-            "TOKEN_REFRESH_ERROR"
-        )
+# ======== OAuth Callback ========
+@app.get("/auth/instagram/callback")
+async def instagram_callback(code: str, state: str):
+    user_id = int(state)  # state 파라미터로 user_id를 복원
 
-@app.get("/instagram/tokens/status/{user_id}")
-async def get_instagram_token_status(user_id: str):
-    """Instagram 토큰 상태 확인"""
-    try:
-        token_data = await instagram_service.load_tokens(user_id)
-        if not token_data:
-            return create_success_response({
-                "user_id": user_id,
-                "has_token": False,
-                "message": "저장된 토큰이 없습니다."
-            })
-        
-        from datetime import datetime
-        expires_at = datetime.fromisoformat(token_data["expires_at"])
-        now = datetime.now()
-        days_until_expiry = (expires_at - now).days
-        
-        return create_success_response({
-            "user_id": user_id,
-            "has_token": True,
-            "expires_at": token_data["expires_at"],
-            "days_until_expiry": days_until_expiry,
-            "needs_refresh": days_until_expiry < 7,
-            "message": f"토큰이 {days_until_expiry}일 후 만료됩니다."
-        })
-        
-    except Exception as e:
-        logger.error(f"Instagram 토큰 상태 확인 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 토큰 상태 확인 중 오류가 발생했습니다: {str(e)}",
-            "TOKEN_STATUS_ERROR"
+    # Access Token 교환
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.instagram.com/oauth/access_token",
+            data={
+                "client_id": INSTAGRAM_APP_ID,
+                "client_secret": INSTAGRAM_APP_SECRET,
+                "grant_type": "authorization_code",
+                "redirect_uri": REDIRECT_URI,
+                "code": code,
+            },
         )
+    token_data = res.json()
+    access_token = token_data.get("access_token")
 
+    if not access_token:
+        return JSONResponse({"error": "토큰 발급 실패", "details": token_data}, status_code=400)
+
+    # 계정 정보 가져오기 (graph_id, username)
+    async with httpx.AsyncClient() as client:
+        me_res = await client.get(
+            "https://graph.instagram.com/me",
+            params={"fields": "id,username", "access_token": access_token},
+        )
+    me_data = me_res.json()
+
+    if "id" not in me_data:
+        return JSONResponse({"error": "계정 정보 조회 실패", "details": me_data}, status_code=400)
+
+    # DB 저장 (faq.py 스타일)
+    with get_session_context() as db:
+        account = InstagramToken(
+            user_id=user_id,
+            access_token=access_token,
+            graph_id=me_data["id"],
+            username=me_data.get("username"),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+
+    return JSONResponse({"message": "Instagram 계정 연동 성공", "data": me_data})
+
+# ======== 포스팅 API ========
 @app.post("/instagram/post")
-async def post_to_instagram_enhanced(req: InstagramPostRequest):
-    """Instagram 게시글 업로드 (자동 토큰 관리 포함)"""
-    try:
-        if req.access_token:
-            access_token = req.access_token
-        else:
-        # 유효한 토큰 가져오기 (자동 갱신 포함)
-            access_token = await instagram_service.get_valid_access_token(req.instagram_id)
-            if not access_token:
-                return create_error_response(
-                    "유효한 Instagram 토큰이 없습니다. 먼저 Instagram 계정을 연결하세요.",
-                    "INVALID_TOKEN"
-                )
-        
-        # Instagram에 게시글 업로드
-        result = await instagram_service.post_to_instagram(
-            instagram_id=req.instagram_id,
-            access_token=access_token,
-            image_url=req.image_url,
-            caption=req.caption or ""
-        )
-        
-        return create_success_response({
-            "success": True,
-            "post_id": result.get("id"),
-            "post_url": result.get("permalink"),
-            "message": "Instagram에 게시글이 성공적으로 업로드되었습니다."
-        })
-        
-    except Exception as e:
-        logger.error(f"Instagram 게시글 업로드 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 게시글 업로드 중 오류가 발생했습니다: {str(e)}",
-            "INSTAGRAM_POST_ERROR"
-        )
+async def instagram_post(request: Request):
+    body = await request.json()
+    caption = body.get("caption")
+    image_url = body.get("image_url")
 
-@app.delete("/instagram/tokens/{user_id}")
-async def revoke_instagram_token(user_id: str):
-    """Instagram 토큰 취소 및 삭제"""
-    try:
-        success = await instagram_service.revoke_access_token(user_id)
-        if success:
-            return create_success_response({
-                "message": f"사용자 {user_id}의 Instagram 토큰이 성공적으로 삭제되었습니다.",
-                "user_id": user_id
-            })
-        else:
-            return create_error_response(
-                "삭제할 Instagram 토큰을 찾을 수 없습니다.",
-                "TOKEN_NOT_FOUND"
+    with get_session_context() as db:
+        account = db.query(InstagramToken).first()
+        if not account:
+            return JSONResponse({"error": "Instagram 계정이 등록되지 않았습니다. 계정을 등록해주세요."}, status_code=400)
+
+        # 1. 미디어 생성
+        async with httpx.AsyncClient() as client:
+            create_res = await client.post(
+                f"https://graph.instagram.com/{account.graph_id}/media",
+                params={
+                    "image_url": image_url,
+                    "caption": caption,
+                    "access_token": account.access_token,
+                },
             )
-            
-    except Exception as e:
-        logger.error(f"Instagram 토큰 삭제 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 토큰 삭제 중 오류가 발생했습니다: {str(e)}",
-            "TOKEN_DELETE_ERROR"
-        )
+        create_data = create_res.json()
+        creation_id = create_data.get("id")
 
-@app.get("/instagram/posts/{user_id}")
-async def get_instagram_user_posts(
-    user_id: str,
-    limit: int = Query(10, ge=1, le=50, description="가져올 게시글 수")
-):
-    """사용자의 Instagram 게시글 목록 조회"""
-    try:
-        # 유효한 토큰 가져오기
-        access_token = await instagram_service.get_valid_access_token(user_id)
-        if not access_token:
-            return create_error_response(
-                "유효한 Instagram 토큰이 없습니다.",
-                "INVALID_TOKEN"
+        if not creation_id:
+            return JSONResponse({"error": "미디어 생성 실패", "details": create_data}, status_code=400)
+
+        # 2. 게시 요청
+        async with httpx.AsyncClient() as client:
+            publish_res = await client.post(
+                f"https://graph.instagram.com/{account.graph_id}/media_publish",
+                params={
+                    "creation_id": creation_id,
+                    "access_token": account.access_token,
+                },
             )
-        
-        # 게시글 목록 조회
-        posts = await instagram_service.get_user_instagram_posts(
-            access_token=access_token,
-            instagram_id=user_id,
-            limit=limit
-        )
-        
-        return create_success_response({
-            "user_id": user_id,
-            "posts": posts,
-            "message": f"{len(posts.get('data', []))}개의 게시글을 조회했습니다."
-        })
-        
-    except Exception as e:
-        logger.error(f"Instagram 게시글 조회 실패: {str(e)}")
-        return create_error_response(
-            f"Instagram 게시글 조회 중 오류가 발생했습니다: {str(e)}",
-            "INSTAGRAM_POSTS_ERROR"
-        )
-
+    return publish_res.json()
 
 # ===== 간단한 Google API 클라이언트 구현 =====
 

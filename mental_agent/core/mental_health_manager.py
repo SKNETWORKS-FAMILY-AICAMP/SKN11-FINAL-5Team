@@ -667,7 +667,7 @@ class MentalHealthAgentManager:
             if user_input.strip() in ["네", "시작"] and not state.phq9_state["is_active"]:
                 return self.start_phq9_survey(conversation_id, user_id)
             
-            if user_input.strip() in ["그만", "그만할래요", "그만하고 싶어요", "설문 종료"]:
+            if user_input.strip() in ["그만", "그만할래요", "그만하고 싶어요", "설문 종료","멈춤"]:
                 state.cancel_phq9()  # 상태 종료 메서드
                 return {
                     "response": "PHQ-9 설문이 중단되었습니다. 언제든 다시 시작하실 수 있어요.",
@@ -681,7 +681,7 @@ class MentalHealthAgentManager:
                 
             elif state.stage == ConversationStage.INITIAL:
                 # 초기 접촉
-                if any(word in user_input for word in ["PHQ", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"]):
+                if any(word in user_input for word in ["PHQ","우울증","우울증 테스트", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"]):
                     response_content = (
                         "PHQ-9 우울증 자가진단 설문을 시작하시겠습니까?\n\n"
                         "이 설문은 지난 2주간의 우울 증상을 평가하는 9개 문항으로 구성되어 있습니다.\n\n"

@@ -1,6 +1,17 @@
 """
-마케팅 분석 도구 API 서버
-FastAPI 기반 마케팅 워크플로우 API
+통합 마케팅 API 서버 - Enhanced v2.0
+트렌드 분석 + 개선된 대화형 마케팅 에이전트 통합 API
+
+✅ 기존 기능:
+- 네이버 트렌드 분석
+- 인스타그램 해시태그 분석
+- 블로그/인스타그램 콘텐츠 생성
+
+✅ 새로운 기능 (Enhanced v2.0):
+- 개선된 대화형 마케팅 상담
+- 맥락 인식 대화 관리
+- 스마트한 정보 수집
+- 사용자 의도 우선 처리
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -20,11 +31,26 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 🔥 Enhanced Marketing Agent 로드 시도
+try:
+    from enhanced_marketing_agent import enhanced_marketing_agent
+    ENHANCED_AGENT_AVAILABLE = True
+    logger.info("✅ Enhanced Marketing Agent v2.0 로드됨")
+except ImportError:
+    try:
+        from marketing_agent import marketing_agent as enhanced_marketing_agent
+        ENHANCED_AGENT_AVAILABLE = False
+        logger.info("⚠️ 기존 Marketing Agent 사용")
+    except ImportError:
+        enhanced_marketing_agent = None
+        ENHANCED_AGENT_AVAILABLE = False
+        logger.warning("❌ Marketing Agent 로드 실패")
+
 # FastAPI 앱 초기화
 app = FastAPI(
-    title="마케팅 분석 도구 API",
-    description="네이버 트렌드 분석과 인스타그램 해시태그 분석을 통한 마케팅 콘텐츠 생성 API",
-    version="1.0.0"
+    title="통합 마케팅 API v2.0" if ENHANCED_AGENT_AVAILABLE else "마케팅 분석 도구 API",
+    description="트렌드 분석 + 개선된 대화형 마케팅 에이전트 통합 API" if ENHANCED_AGENT_AVAILABLE else "네이버 트렌드 분석과 인스타그램 해시태그 분석을 통한 마케팅 콘텐츠 생성 API",
+    version="2.0.0-enhanced" if ENHANCED_AGENT_AVAILABLE else "1.0.0"
 )
 
 # CORS 설정
@@ -36,7 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 요청/응답 모델 정의
+# 기존 요청/응답 모델들
 class KeywordRequest(BaseModel):
     keyword: str = Field(..., description="분석할 기본 키워드", example="스킨케어")
     description: Optional[str] = Field(None, description="키워드에 대한 추가 설명", example="여성 타겟 스킨케어 제품")
@@ -84,6 +110,21 @@ class HashtagResponse(BaseModel):
     total_posts: Optional[int] = None
     error: Optional[str] = None
 
+# 🔥 Enhanced Agent 요청/응답 모델들
+class EnhancedChatRequest(BaseModel):
+    message: str = Field(..., description="사용자 메시지", example="카페를 운영하고 있어요")
+    user_id: int = Field(..., description="사용자 ID", example=123)
+    conversation_id: Optional[int] = Field(None, description="대화 ID (생략시 자동 생성)")
+
+class EnhancedChatResponse(BaseModel):
+    success: bool
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+class ConversationStatusResponse(BaseModel):
+    conversation_id: int
+    status: Dict[str, Any]
+
 # 헬스체크 엔드포인트
 @app.get("/health")
 async def health_check():
@@ -91,8 +132,122 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "마케팅 분석 도구 API"
+        "service": "통합 마케팅 API v2.0" if ENHANCED_AGENT_AVAILABLE else "마케팅 분석 도구 API",
+        "enhanced_agent": ENHANCED_AGENT_AVAILABLE,
+        "features": [
+            "trend_analysis",
+            "hashtag_analysis", 
+            "content_generation"
+        ] + (["enhanced_chat", "context_memory", "smart_progression"] if ENHANCED_AGENT_AVAILABLE else [])
     }
+
+# 🔥 Enhanced Marketing Agent 엔드포인트들
+if enhanced_marketing_agent:
+    
+    @app.post("/api/v2/chat", response_model=EnhancedChatResponse)
+    async def enhanced_chat(request: EnhancedChatRequest):
+        """
+        🔥 개선된 대화형 마케팅 상담 (Enhanced v2.0)
+        
+        ✅ 해결된 문제점들:
+        - 대화 맥락 관리 실패 → 수집된 정보 기억 및 활용
+        - 단계 진행 조건 불명확 → 체크리스트 기반 명확한 진행
+        - LLM 응답 일관성 부족 → 컨텍스트 인식 프롬프트
+        - 정보 수집 비효율 → 필수 정보 우선 수집
+        - 사용자 의도 파악 부족 → 요구사항 우선 처리
+        """
+        try:
+            logger.info(f"[Enhanced Chat] 요청: user_id={request.user_id}, message={request.message[:50]}...")
+            
+            result = await enhanced_marketing_agent.process_message(
+                user_input=request.message,
+                user_id=request.user_id,
+                conversation_id=request.conversation_id
+            )
+            
+            # Enhanced 정보 추가
+            if result.get("success") and ENHANCED_AGENT_AVAILABLE:
+                result["data"]["api_version"] = "enhanced_v2.0"
+                result["data"]["improvements_active"] = True
+                result["data"]["api_integration"] = "unified_marketing_api"
+            
+            logger.info(f"[Enhanced Chat] 응답 완료: success={result.get('success')}")
+            return EnhancedChatResponse(**result)
+            
+        except Exception as e:
+            logger.error(f"[Enhanced Chat] 오류: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/v2/status/{conversation_id}", response_model=ConversationStatusResponse)
+    async def get_enhanced_conversation_status(conversation_id: int):
+        """개선된 대화 상태 조회"""
+        try:
+            status = enhanced_marketing_agent.get_conversation_status(conversation_id)
+            
+            if ENHANCED_AGENT_AVAILABLE:
+                status["api_integration"] = "unified_marketing_api"
+                status["enhanced_features"] = {
+                    "context_memory": "활성화",
+                    "smart_progression": "적용됨",
+                    "performance_optimization": "적용됨"
+                }
+            
+            return ConversationStatusResponse(conversation_id=conversation_id, status=status)
+            
+        except Exception as e:
+            logger.error(f"Enhanced 상태 조회 오류: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/v2/reset/{conversation_id}")
+    async def reset_enhanced_conversation(conversation_id: int):
+        """개선된 대화 초기화"""
+        try:
+            if hasattr(enhanced_marketing_agent, 'reset_conversation'):
+                success = enhanced_marketing_agent.reset_conversation(conversation_id)
+            else:
+                success = await enhanced_marketing_agent.reset_conversation(conversation_id)
+            
+            return {
+                "success": success, 
+                "conversation_id": conversation_id,
+                "api_version": "enhanced_v2.0"
+            }
+            
+        except Exception as e:
+            logger.error(f"Enhanced 대화 초기화 오류: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/v2/agent/status")
+    async def get_enhanced_agent_status():
+        """개선된 에이전트 상태 조회"""
+        try:
+            status = enhanced_marketing_agent.get_agent_status()
+            status["api_integration"] = "unified_marketing_api"
+            status["combined_features"] = {
+                "trend_analysis": "네이버 트렌드 분석",
+                "hashtag_analysis": "인스타그램 해시태그 분석", 
+                "content_generation": "자동 콘텐츠 생성",
+                "enhanced_chat": "개선된 대화형 상담",
+                "context_memory": "맥락 인식 대화",
+                "smart_progression": "스마트 단계 진행"
+            }
+            return status
+            
+        except Exception as e:
+            logger.error(f"Enhanced 에이전트 상태 조회 오류: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    if ENHANCED_AGENT_AVAILABLE:
+        @app.get("/api/v2/improvements")
+        async def get_enhanced_improvements():
+            """개선사항 보고서 조회"""
+            try:
+                return enhanced_marketing_agent.get_improvement_summary()
+            except Exception as e:
+                logger.error(f"개선사항 조회 오류: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+# 기존 트렌드 분석 엔드포인트들 (v1)
 
 # 블로그 콘텐츠 생성 워크플로우
 @app.post("/api/v1/content/blog", response_model=BlogContentResponse)
@@ -282,6 +437,68 @@ async def get_instagram_templates():
             "error": f"인스타그램 템플릿 가져오기 중 오류가 발생했습니다: {str(e)}"
         }
 
+# 🔥 통합 기능 엔드포인트들
+
+@app.post("/api/v2/integrated/consultation-and-content")
+async def integrated_consultation_and_content(request: EnhancedChatRequest):
+    """
+    🔥 통합 기능: 대화형 상담 + 트렌드 분석 + 콘텐츠 생성
+    
+    사용자와 대화를 통해 정보를 수집하고, 필요시 트렌드 분석과 콘텐츠 생성을 자동으로 수행
+    """
+    if not enhanced_marketing_agent:
+        raise HTTPException(status_code=503, detail="Enhanced Marketing Agent가 로드되지 않았습니다.")
+    
+    try:
+        # 1. 대화형 상담 먼저 수행
+        chat_result = await enhanced_marketing_agent.process_message(
+            user_input=request.message,
+            user_id=request.user_id,
+            conversation_id=request.conversation_id
+        )
+        
+        # 2. 대화 상태 확인
+        conversation_id = chat_result["data"]["conversation_id"]
+        status = enhanced_marketing_agent.get_conversation_status(conversation_id)
+        
+        # 3. 충분한 정보가 수집되었고 콘텐츠 생성이 요청된 경우
+        collected_info = status.get("collected_info", {})
+        
+        additional_content = {}
+        
+        # 키워드가 있고 콘텐츠 생성이 요청된 경우 트렌드 분석 수행
+        if ("product" in collected_info or "business_type" in collected_info) and \
+           any(keyword in request.message.lower() for keyword in ["포스트", "콘텐츠", "블로그", "인스타"]):
+            
+            try:
+                from utils.analysis_tools import get_marketing_analysis_tools
+                tools = get_marketing_analysis_tools()
+                
+                # 키워드 결정
+                keyword = collected_info.get("product", collected_info.get("business_type", "마케팅"))
+                
+                # 인스타그램 콘텐츠 생성 (해시태그 분석 포함)
+                instagram_result = await tools.create_instagram_content_workflow(keyword)
+                additional_content["instagram_analysis"] = instagram_result
+                
+                logger.info(f"통합 기능: 트렌드 분석 및 콘텐츠 생성 완료 - {keyword}")
+                
+            except Exception as e:
+                logger.warning(f"통합 기능 중 트렌드 분석 실패: {e}")
+                additional_content["analysis_error"] = str(e)
+        
+        # 4. 결과 통합
+        result = chat_result
+        if additional_content:
+            result["data"]["additional_content"] = additional_content
+            result["data"]["integrated_features"] = True
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"통합 기능 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # API 문서용 예시 엔드포인트들
 @app.get("/api/v1/examples/blog-request")
 async def get_blog_request_example():
@@ -301,6 +518,37 @@ async def get_instagram_request_example():
             "keyword": "홈트레이닝",
             "description": "집에서 할 수 있는 운동 프로그램"
         }
+    }
+
+@app.get("/api/v2/examples/enhanced-chat-request")
+async def get_enhanced_chat_request_example():
+    """🔥 개선된 대화형 상담 요청 예시"""
+    return {
+        "examples": [
+            {
+                "message": "안녕하세요! 카페를 운영하고 있어요",
+                "user_id": 123,
+                "description": "기본 정보 제공 - 업종 정보"
+            },
+            {
+                "message": "매출을 늘리고 싶어요",
+                "user_id": 123,
+                "conversation_id": 123456789,
+                "description": "목표 설정 - 마케팅 목표"
+            },
+            {
+                "message": "인스타그램 포스트 만들어주세요",
+                "user_id": 123,
+                "conversation_id": 123456789,
+                "description": "콘텐츠 생성 요청"
+            }
+        ],
+        "features": [
+            "맥락 인식 대화 (이전 정보 기억)",
+            "스마트한 단계 진행",
+            "사용자 의도 우선 처리",
+            "자동 콘텐츠 생성"
+        ]
     }
 
 # 배치 처리 엔드포인트
@@ -360,9 +608,66 @@ async def process_batch_content(keywords: List[str], task_id: str):
     except Exception as e:
         logger.error(f"배치 처리 오류: {task_id}, 오류: {e}")
 
+# 루트 엔드포인트
+@app.get("/")
+async def root():
+    """API 정보"""
+    base_info = {
+        "title": "통합 마케팅 API v2.0" if ENHANCED_AGENT_AVAILABLE else "마케팅 분석 도구 API",
+        "version": "2.0.0-enhanced" if ENHANCED_AGENT_AVAILABLE else "1.0.0",
+        "enhanced_agent": ENHANCED_AGENT_AVAILABLE
+    }
+    
+    if ENHANCED_AGENT_AVAILABLE:
+        base_info.update({
+            "message": "🚀 통합 마케팅 API v2.0 - 트렌드 분석 + 개선된 대화형 상담",
+            "improvements": [
+                "✅ 대화 맥락 관리 개선",
+                "✅ 스마트한 단계 진행",
+                "✅ LLM 응답 일관성 향상", 
+                "✅ 효율적인 정보 수집",
+                "✅ 사용자 의도 우선 처리",
+                "✅ 성능 최적화"
+            ],
+            "combined_features": {
+                "v1_features": ["네이버 트렌드 분석", "인스타그램 해시태그 분석", "자동 콘텐츠 생성"],
+                "v2_features": ["개선된 대화형 상담", "맥락 인식 대화", "스마트 진행", "통합 워크플로우"]
+            }
+        })
+    else:
+        base_info.update({
+            "message": "마케팅 분석 도구 API",
+            "features": ["네이버 트렌드 분석", "인스타그램 해시태그 분석", "자동 콘텐츠 생성"]
+        })
+    
+    base_info["endpoints"] = {
+        "v1_endpoints": {
+            "POST /api/v1/content/blog": "블로그 콘텐츠 생성",
+            "POST /api/v1/content/instagram": "인스타그램 콘텐츠 생성",
+            "POST /api/v1/analysis/naver-trends": "네이버 트렌드 분석",
+            "POST /api/v1/analysis/instagram-hashtags": "인스타그램 해시태그 분석"
+        }
+    }
+    
+    if ENHANCED_AGENT_AVAILABLE:
+        base_info["endpoints"]["v2_endpoints"] = {
+            "POST /api/v2/chat": "개선된 대화형 마케팅 상담",
+            "GET /api/v2/status/{conversation_id}": "대화 상태 조회",
+            "POST /api/v2/reset/{conversation_id}": "대화 초기화",
+            "POST /api/v2/integrated/consultation-and-content": "통합 상담+분석+생성"
+        }
+    
+    return base_info
+
 # 메인 실행
 if __name__ == "__main__":
     import uvicorn
+    
+    print("🚀 통합 마케팅 API 시작")
+    if ENHANCED_AGENT_AVAILABLE:
+        print("✅ Enhanced v2.0 모드 - 트렌드 분석 + 개선된 대화형 상담")
+    else:
+        print("⚠️ 기본 모드 - 트렌드 분석만 사용 가능")
     
     # 개발 환경 설정
     uvicorn.run(
