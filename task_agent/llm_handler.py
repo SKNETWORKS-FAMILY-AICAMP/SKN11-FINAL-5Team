@@ -164,15 +164,19 @@ class TaskAgentLLMHandler:
             # 시스템 프롬프트 가져오기
             system_prompt = prompt_manager.get_information_extraction_prompt(extraction_type)
             
-            # 사용자 메시지 구성
+            # 명확한 JSON 응답 지시 추가
+            enhanced_system_prompt = f"""{system_prompt}
+
+    중요: 반드시 유효한 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.
+    정보가 부족하거나 추출할 수 없는 경우 null을 반환하세요."""
+            
+            # 사용자 메시지 구성 (system_prompt 중복 제거)
             user_content = f"""
             대화 히스토리: {history_context}
             현재 메시지: {message}
             현재 시간: {self._get_current_time()}
-            
-            주의: 메시지에 여러 일정이 포함된 경우, 모든 일정을 배열 형태로 반환하세요.
-            단일 일정인 경우: {{"schedules": [{{"title": "...", "start_time": "..."}}]}}
-            다중 일정인 경우: {{"schedules": [{{"title": "일정1", "start_time": "..."}}, {{"title": "일정2", "start_time": "..."}}]}}
+
+            위 정보를 바탕으로 {extraction_type} 정보를 추출해주세요.
             """
             
             # OpenAI API 직접 호출
@@ -180,40 +184,68 @@ class TaskAgentLLMHandler:
             from shared_modules.env_config import get_config
             
             config = get_config()
+            
+            # API 키 확인
+            if not config.OPENAI_API_KEY:
+                logger.error("OpenAI API 키가 설정되지 않았습니다.")
+                return None
+                
             client = openai.AsyncOpenAI(api_key=config.OPENAI_API_KEY)
             
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
+                    {"role": "system", "content": enhanced_system_prompt},
+                    {"role": "user", "content": user_content.strip()}
                 ],
                 temperature=0.1,
-                max_tokens=1000
+                max_tokens=1000,
+                response_format={"type": "json_object"}  # JSON 응답 강제
             )
             
+            # 응답 검증
+            if not response or not response.choices:
+                logger.error("OpenAI API 응답이 비어있습니다.")
+                return None
+                
+            if not response.choices[0] or not response.choices[0].message:
+                logger.error("OpenAI API 응답 구조가 올바르지 않습니다.")
+                return None
+                
             result_content = response.choices[0].message.content
             
-            # JSON 파싱 시도
+            # content가 None인 경우 처리
+            if result_content is None:
+                logger.error("OpenAI API에서 content가 None을 반환했습니다.")
+                return None
+                
+            # 빈 문자열 처리
+            if not result_content.strip():
+                logger.error("OpenAI API에서 빈 응답을 반환했습니다.")
+                return None
+            
+            # JSON 파싱
             try:
                 import json
                 parsed_result = json.loads(result_content)
+                
+                # 검증
                 if self._validate_multiple_extraction(parsed_result, extraction_type):
                     return parsed_result
-            except json.JSONDecodeError:
-                # JSON이 아닌 경우 문자열에서 JSON 추출 시도
-                import re
-                json_match = re.search(r'\{.*\}', result_content, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed_result = json.loads(json_match.group())
-                        if self._validate_multiple_extraction(parsed_result, extraction_type):
-                            return parsed_result
-                    except json.JSONDecodeError:
-                        pass
+                else:
+                    logger.warning(f"추출된 정보가 검증을 통과하지 못했습니다: {parsed_result}")
+                    return None
+                    
+            except json.JSONDecodeError as json_error:
+                logger.error(f"JSON 파싱 실패: {json_error}, 응답: {result_content}")
+                return None
             
+        except openai.APIError as api_error:
+            logger.error(f"OpenAI API 오류: {api_error}")
             return None
-    
+        except openai.RateLimitError as rate_error:
+            logger.error(f"OpenAI API 요청 한도 초과: {rate_error}")
+            return None
         except Exception as e:
             logger.error(f"정보 추출 실패 ({extraction_type}): {e}")
             return None

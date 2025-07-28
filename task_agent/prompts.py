@@ -905,8 +905,7 @@ class PromptManager:
 
     def get_automation_classification_prompt(self) -> str:
         """자동화 분류용 프롬프트"""
-        return """
-메시지를 분석하여 자동화 작업 유형을 분류하세요.
+        return """메시지를 분석하여 자동화 작업 유형을 분류하세요.
 
 ⚠️ 중요: 다음은 자동화가 아닙니다:
 - 단순 일정 조회/확인 요청 ("일정 알려줘", "언제 미팅이야?")
@@ -917,31 +916,53 @@ class PromptManager:
 ✅ 자동화 유형 (구체적인 실행 요청만):
 - calendar_sync: 특정 일정을 캘린더에 자동 등록
   예: "내일 오후 2시 팀미팅 캘린더에 등록해줘", "매주 월요일 9시 회의 일정 추가해줘"
-  
-- publish_sns: SNS에 게시물을 자동 발행
-  예: "이 내용으로 인스타그램에 포스팅해줘", "블로그에 자동 업로드해줘"
-  
+
 - send_email: 이메일을 자동 발송
   예: "이 내용으로 김대리에게 메일 보내줘", "고객들에게 공지메일 발송해줘"
   
-- send_reminder: 리마인더를 자동 설정
-  예: "내일 오전 9시에 약속 알림 설정해줘", "매월 15일에 월급날 알림 만들어줘"
-  
-- send_message: 메시지를 자동 전송
-  예: "팀원들에게 슬랙으로 이 내용 전송해줘", "엄마한테 카톡 보내줘"
-  
 - todo_list: Google Tasks에 할 일 등록
-  예: "내일 오후 2시 팀미팅 캘린더에 등록해줘", "매주 월요일 9시 회의 일정 추가해줘"
+  예: "할 일 목록에 '보고서 작성' 추가해줘", "내일 오전에 메모 등록해줘"
 
 자동화와 관련이 없으면 "none"을 반환하세요.
-유형명만 반환하세요 (예: "calendar_sync" 또는 "none")
+유형명만 반환하세요 (예: "calendar_sync" 또는 "none").
 """
 
     def get_information_extraction_prompt(self, extraction_type: str) -> str:
         """정보 추출용 프롬프트"""
         prompts = {
             "schedule": """
-일정 정보를 추출하여 JSON 형태로 반환하세요 (create_event API 호출용):
+일정 정보를 추출하여 JSON 형태로 반환하세요 :
+단일 일정의 경우:
+{
+  "title": "일정 제목",
+  "start_time": "YYYY-MM-DDTHH:MM:SS",
+  "end_time": "YYYY-MM-DDTHH:MM:SS",
+  "description": "상세 설명",
+  "location": "장소",
+  "timezone": "Asia/Seoul",
+  "all_day": false,
+  "calendar_id": "primary",
+  "reminders": [{"method": "popup", "minutes": 15}],
+  "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO"]
+}
+
+여러 일정의 경우 schedules 배열로 반환:
+[
+  {
+    "title": "첫 번째 일정",
+    "start_time": "2024-03-15T14:00:00",
+    "end_time": "2024-03-15T15:00:00",
+    "description": "첫 번째 일정 설명",
+    "location": "회의실 A"
+  },
+  {
+    "title": "두 번째 일정",
+    "start_time": "2024-03-16T10:00:00",
+    "end_time": "2024-03-16T11:00:00",
+    "description": "두 번째 일정 설명",
+    "location": "회의실 B"
+  }
+]
 
 필수 정보:
 - title: 일정 제목 (간단명료하게)
@@ -958,11 +979,10 @@ class PromptManager:
 - recurrence: 반복 설정 (배열 형태, 예: ["RRULE:FREQ=WEEKLY;BYDAY=MO"])
 
 정보가 부족하거나 애매하면 null을 반환하세요.
-예시: {"title": "팀 미팅", "start_time": "2024-03-15T14:00:00", "end_time": "2024-03-15T15:00:00", "location": "회의실 A", "reminders": [{"method": "popup", "minutes": 15}]}
 """,
             
             "email": """
-이메일 정보를 추출하여 JSON 형태로 반환하세요 (send_email API 호출용):
+이메일 정보를 추출하여 JSON 형태로 반환하세요 :
 
 필수 정보:
 - to_emails: 받는사람 이메일 주소 (배열 형태)
@@ -981,19 +1001,61 @@ class PromptManager:
 정보가 부족하면 null을 반환하세요.
 예시: {"to_emails": ["user@example.com"], "subject": "안녕하세요", "body": "메일 내용입니다."}
 """,
-            "task": """
-작업 정보를 추출하여 JSON 형태로 반환하세요 (create_task API 호출용):
+      "todo_list": """
+작업 목록 정보를 추출하여 JSON 형태로 반환하세요:
+
+기본 구조:
+{
+  "title": "작업 목록 제목",
+  "tasks": [
+    {
+      "title": "작업 제목",
+      "notes": "작업 상세 설명",
+      "due": "2024-03-20T17:00:00Z"
+    }
+  ]
+}
+
+단일 작업만 있는 경우:
+{
+  "title": "새 작업 목록",
+  "tasks": [
+    {
+      "title": "작업 제목",
+      "notes": "작업 상세 설명",
+      "due": "2024-03-20T17:00:00Z"
+    }
+  ]
+}
+
+여러 작업이 있는 경우:
+{
+  "title": "프로젝트 작업 목록",
+  "tasks": [
+    {
+      "title": "첫 번째 작업",
+      "notes": "첫 번째 작업 설명",
+      "due": "2024-03-20T17:00:00Z"
+    },
+    {
+      "title": "두 번째 작업",
+      "notes": "두 번째 작업 설명",
+      "due": "2024-03-21T17:00:00Z"
+    }
+  ]
+}
 
 필수 정보:
-- title: 작업 제목
-- tasklist_id: 작업 목록 ID (기본값: "@default")
+- title: 작업 목록 제목 (사용자 입력 내용을 분석하여 적절한 제목을 자동 생성하세요. 예: "회의 준비 작업", "프로젝트 마무리", "일일 업무" 등)
+- tasks: 작업 배열
+  - title: 각 작업의 제목 (필수)
 
 선택 정보:
-- notes: 작업 상세 설명
-- due: 마감일 (ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ)
+- tasks 내 각 작업의:
+  - notes: 작업 상세 설명
+  - due: 마감일 (ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ)
 
-정보가 부족하면 null을 반환하세요.
-예시: {"title": "보고서 작성", "tasklist_id": "@default", "notes": "주간 진행 상황 정리", "due": "2024-03-20T17:00:00Z"}
-"""}
+정보가 부족하면 null을 반환하세요."""}
+        return prompts.get(extraction_type, "")
 # 전역 인스턴스
 prompt_manager = PromptManager()

@@ -66,13 +66,13 @@ class LLMService:
     def _map_automation_to_extraction(self, automation_type: str) -> str:
         """자동화 타입을 추출 타입으로 매핑"""
         mapping = {
-            "calendar_sync": "calendar_info",
-            "send_email": "email_info",
-            "send_reminder": "reminder_info",
-            "send_message": "message_info",
-            "todo_list": "todo_info"
+            "calendar_sync": "schedule",  # calendar → schedule로 변경
+            "send_email": "email",
+            "send_reminder": "reminder",
+            "send_message": "message",
+            "todo_list": "todo_list"
         }
-        return mapping.get(automation_type, "general_info")
+        return mapping.get(automation_type, "general")
 
     async def get_status(self) -> Dict[str, Any]:
         """서비스 상태 조회"""

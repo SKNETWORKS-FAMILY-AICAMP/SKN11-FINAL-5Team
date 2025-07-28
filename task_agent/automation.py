@@ -39,7 +39,6 @@ from utils import TaskAgentLogger, create_success_response, create_error_respons
 # 자동화 작업 실행기들
 from automation_executors.email_executor import EmailExecutor
 from automation_executors.calendar_executor import CalendarExecutor
-from automation_executors.message_executor import MessageExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +118,7 @@ class AutomationManager:
         try:
             self.executors = {
                 AutomationTaskType.SEND_EMAIL.value: EmailExecutor(),
-                AutomationTaskType.SCHEDULE_CALENDAR.value: CalendarExecutor(),
-                AutomationTaskType.SEND_MESSAGE.value: MessageExecutor()
+                AutomationTaskType.SCHEDULE_CALENDAR.value: CalendarExecutor()
             }
             
             logger.info("자동화 실행기들 초기화 완료")
@@ -140,14 +138,14 @@ class AutomationManager:
                 details=f"user_id: {request.user_id}, title: {request.title}"
             )
             
-            # 1. 데이터 검증
-            validation_result = self._validate_task_data(request)
-            if not validation_result["is_valid"]:
-                return AutomationResponse(
-                    task_id=-1,
-                    status=AutomationStatus.FAILED,
-                    message=f"작업 데이터 검증 실패: {', '.join(validation_result['errors'])}"
-                )
+            # # 1. 데이터 검증
+            # validation_result = self._validate_task_data(request)
+            # if not validation_result["is_valid"]:
+            #     return AutomationResponse(
+            #         task_id=-1,
+            #         status=AutomationStatus.FAILED,
+            #         message=f"작업 데이터 검증 실패: {', '.join(validation_result['errors'])}"
+            #     )
             
             # 2. DB에 작업 저장
             task_id = await self._save_task_to_db(request)

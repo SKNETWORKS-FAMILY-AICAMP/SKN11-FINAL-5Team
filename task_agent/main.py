@@ -558,41 +558,83 @@ async def get_upcoming_events(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ===== google task =====
-@app.get("/google/tasks")
-async def list_tasks():
-    """Google Tasks 목록 조회"""
-    if "access_token" not in user_tokens:
-        return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+# 기존 import 섹션에 추가
+sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+from shared_modules.queries import get_user_tokens
+from shared_modules.database import get_session_context
+GOOGLE_TASKS_BASE = os.getenv("GOOGLE_TASKS_BASE", "https://tasks.googleapis.com/tasks/v1")
 
-    url = f"{GOOGLE_TASKS_BASE}/users/@me/lists"
-    headers = {"Authorization": f"Bearer {user_tokens['access_token']}"}
-    async with httpx.AsyncClient() as client:
-        res = await client.get(url, headers=headers)
-    return res.json()
+@app.post("/google/tasks/lists")
+async def create_tasklist(
+    title: str,
+    user_id: int = Query(..., description="사용자 ID")
+):
+    """Google Tasks에 새로운 작업 목록(Tasklist) 생성"""
+    try:
+        with get_session_context() as db:
+            token_data = get_user_tokens(db, user_id)
+            if not token_data or not token_data.get('access_token'):
+                return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+
+            url = f"{GOOGLE_TASKS_BASE}/users/@me/lists"
+            headers = {"Authorization": f"Bearer {token_data['access_token']}"}
+            payload = {"title": title}
+
+            async with httpx.AsyncClient() as client:
+                res = await client.post(url, headers=headers, json=payload)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Google Tasks 목록 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/google/tasks")
+async def list_tasks(user_id: int = Query(..., description="사용자 ID")):
+    """Google Tasks 목록 조회"""
+    try:
+        with get_session_context() as db:
+            token_data = get_user_tokens(db, user_id)
+            if not token_data or not token_data.get('access_token'):
+                return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+
+            url = f"{GOOGLE_TASKS_BASE}/users/@me/lists"
+            headers = {"Authorization": f"Bearer {token_data['access_token']}"}
+            async with httpx.AsyncClient() as client:
+                res = await client.get(url, headers=headers)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Google Tasks 목록 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/google/tasks")
 async def create_task(
     tasklist_id: str,
     title: str,
+    user_id: int = Query(..., description="사용자 ID"),
     notes: str = None,
     due: str = None  # ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ
 ):
     """Google Tasks에 작업(Task) 등록 (시간 설정 지원)"""
-    if "access_token" not in user_tokens:
-        return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
+    try:
+        with get_session_context() as db:
+            token_data = get_user_tokens(db, user_id)
+            if not token_data or not token_data.get('access_token'):
+                return JSONResponse({"error": "Google 로그인 필요"}, status_code=401)
 
-    url = f"{GOOGLE_TASKS_BASE}/lists/{tasklist_id}/tasks"
-    headers = {"Authorization": f"Bearer {user_tokens['access_token']}"}
+            url = f"{GOOGLE_TASKS_BASE}/lists/{tasklist_id}/tasks"
+            headers = {"Authorization": f"Bearer {token_data['access_token']}"}
 
-    payload = {"title": title}
-    if notes:
-        payload["notes"] = notes
-    if due:
-        payload["due"] = due  # e.g., "2025-07-28T09:00:00Z" (UTC 시간)
+            payload = {"title": title}
+            if notes:
+                payload["notes"] = notes
+            if due:
+                payload["due"] = due  # e.g., "2025-07-28T09:00:00Z" (UTC 시간)
 
-    async with httpx.AsyncClient() as client:
-        res = await client.post(url, headers=headers, json=payload)
-    return res.json()
+            async with httpx.AsyncClient() as client:
+                res = await client.post(url, headers=headers, json=payload)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Google Tasks 작업 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ===== 에러 핸들러 =====
