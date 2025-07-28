@@ -22,11 +22,8 @@ export default function LoginPage() {
         'oauth_failed': '소셜 로그인에 실패했습니다. 다시 시도해주세요.',
         'google_token_failed': '구글 로그인 인증에 실패했습니다.',
         'kakao_token_failed': '카카오 로그인 인증에 실패했습니다.',
-        'naver_token_failed': '네이버 로그인 인증에 실패했습니다.',
         'kakao_userinfo_failed': '카카오 사용자 정보를 가져올 수 없습니다.',
-        'naver_userinfo_failed': '네이버 사용자 정보를 가져올 수 없습니다.',
         'kakao_process_failed': '카카오 로그인 처리 중 오류가 발생했습니다.',
-        'naver_process_failed': '네이버 로그인 처리 중 오류가 발생했습니다.',
         'google_process_failed': '구글 로그인 처리 중 오류가 발생했습니다.'
       };
       setErrorMessage(errorMessages[error] || '로그인 중 오류가 발생했습니다.');
@@ -105,7 +102,6 @@ export default function LoginPage() {
   };
 
   const handleKakaoLogin = () => handleSocialLogin('kakao');
-  const handleNaverLogin = () => handleSocialLogin('naver');
   const handleGoogleLogin = () => handleSocialLogin('google');
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
@@ -151,18 +147,6 @@ export default function LoginPage() {
                   <span className="text-sm font-bold text-black">K</span>
                 </div>
                 <span className="font-medium">Kakao로 로그인</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="w-full h-14 text-left justify-start space-x-4 hover:bg-green-50 border-green-200 bg-transparent transition-all duration-200"
-                onClick={handleNaverLogin}
-                disabled={isLoading}
-              >
-                <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-bold text-white">N</span>
-                </div>
-                <span className="font-medium">Naver로 로그인</span>
               </Button>
 
               <Button

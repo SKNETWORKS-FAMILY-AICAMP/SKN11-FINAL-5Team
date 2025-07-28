@@ -1,53 +1,96 @@
 """
-Task Agent 핵심 에이전트 v4
-공통 모듈을 활용한 업무지원 에이전트
+Task Agent 핵심 에이전트 v5
+리팩토링된 업무지원 에이전트
 """
 
 import os
 import sys
-import json
 import logging
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../unified_agent_system"))
 
-from models import UserQuery, AutomationRequest, AutomationResponse, PersonaType, IntentType
-from core.models import UnifiedResponse, AgentType, RoutingDecision, Priority
-from llm_handler import TaskAgentLLMHandler
-from rag import TaskAgentRAGManager
-from automation import AutomationManager
-from utils import task_cache, generate_conversation_id, TaskAgentLogger, TaskAgentResponseFormatter
+from models import UserQuery, AutomationRequest, PersonaType
+try:
+    from core.models import UnifiedResponse, AgentType, RoutingDecision, Priority
+except ImportError:
+    # 공통 모듈이 없는 경우 더미 클래스들
+    class AgentType:
+        TASK_AUTOMATION = "task_automation"
+    
+    class Priority:
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+    
+    class RoutingDecision:
+        def __init__(self, agent_type, confidence, reasoning, keywords, priority):
+            self.agent_type = agent_type
+            self.confidence = confidence
+            self.reasoning = reasoning
+            self.keywords = keywords
+            self.priority = priority
+    
+    class UnifiedResponse:
+        def __init__(self, conversation_id, agent_type, response, confidence, 
+                     routing_decision, sources, metadata, processing_time, timestamp, alternatives):
+            self.conversation_id = conversation_id
+            self.agent_type = agent_type
+            self.response = response
+            self.confidence = confidence
+            self.routing_decision = routing_decision
+            self.sources = sources
+            self.metadata = metadata
+            self.processing_time = processing_time
+            self.timestamp = timestamp
+            self.alternatives = alternatives
+
+from utils import TaskAgentLogger
 
 # 공통 모듈 import
-from utils import create_success_response, create_error_response
+try:
+    from utils import create_success_response, create_error_response
+    from utils import get_or_create_conversation_session
+except ImportError:
+    def create_success_response(data, message="Success"):
+        return {"success": True, "data": data, "message": message}
+    
+    def create_error_response(message, error_code="ERROR"):
+        return {"success": False, "error": message, "error_code": error_code}
+        
+    def get_or_create_conversation_session(user_id, conversation_id):
+        return {"conversation_id": conversation_id or 1}
+
+# 서비스 레이어 import
+from services.llm_service import LLMService
+from services.rag_service import RAGService
+from services.automation_service import AutomationService
+from services.conversation_service import ConversationService
+from services.schedule_extraction_service import ScheduleExtractionService
 
 logger = logging.getLogger(__name__)
 
 class TaskAgent:
-    """Task Agent 핵심 클래스 (공통 모듈 기반)"""
+    """Task Agent 핵심 클래스 (리팩토링됨)"""
     
-    def __init__(self):
-        """에이전트 초기화"""
-        try:
-            # 핵심 컴포넌트 초기화
-            self.llm_handler = TaskAgentLLMHandler()
-            self.rag_manager = TaskAgentRAGManager()
-            self.automation_manager = AutomationManager()
-            
-            # 캐시 매니저는 utils에서 가져옴
-            self.cache_manager = task_cache
-            
-            logger.info("Task Agent v4 초기화 완료 (공통 모듈 기반)")
-            
-        except Exception as e:
-            logger.error(f"Task Agent 초기화 실패: {e}")
-            raise
+    def __init__(self, llm_service: LLMService, rag_service: RAGService, 
+                 automation_service: AutomationService, conversation_service: ConversationService):
+        """에이전트 초기화 - 의존성 주입"""
+        self.llm_service = llm_service
+        self.rag_service = rag_service
+        self.automation_service = automation_service
+        self.conversation_service = conversation_service
+        
+        # 일정 추출 서비스 초기화
+        self.schedule_extraction_service = ScheduleExtractionService(llm_service)
+        
+        logger.info("Task Agent v5 초기화 완료 (의존성 주입)")
 
-    async def process_query(self, query: UserQuery, conversation_history: List[Dict] = None) -> UnifiedResponse:
-        """사용자 쿼리 처리"""
+    async def process_query(self, query: UserQuery) -> UnifiedResponse:
+        """사용자 쿼리 처리 - 단순화된 워크플로우"""
         try:
             TaskAgentLogger.log_user_interaction(
                 user_id=query.user_id,
@@ -55,792 +98,598 @@ class TaskAgent:
                 details=f"persona: {query.persona}, message_length: {len(query.message)}"
             )
             
-            # 캐시 확인
-            cache_key = f"query_{hash(query.message)}_{query.persona.value}"
-            cached_response = self.cache_manager.get_conversation_context(cache_key)
+            # 1. 대화 세션 처리
+            session_info = await self._ensure_conversation_session(query)
+            query.conversation_id = session_info["conversation_id"]
             
-            if cached_response and isinstance(cached_response, dict):
-                # 캐시된 응답이 있으면 conversation_id만 업데이트하고 반환
-                cached_response["conversation_id"] = query.conversation_id or ""
-                TaskAgentLogger.log_user_interaction(
-                    user_id=query.user_id,
-                    action="cache_hit",
-                    details=f"cache_key: {cache_key}"
-                )
-                routing_decision = RoutingDecision(
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    confidence=cached_response.get("confidence", 0.8),
-                    reasoning="Cached response",
-                    keywords=[],
-                    priority=Priority.MEDIUM
-                )
-                
-                return UnifiedResponse(
-                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    response=cached_response.get("response", ""),
-                    confidence=cached_response.get("confidence", 0.8),
-                    routing_decision=routing_decision,
-                    sources=None,
-                    metadata=cached_response.get("metadata", {}),
-                    processing_time=0.0,
-                    timestamp=datetime.now(),
-                    alternatives=[]                    
-                )
+            # 2. 대화 히스토리 조회
+            conversation_history = await self.conversation_service.get_history(query.conversation_id)
             
-            # 의도 분석
-            intent_analysis = await self.llm_handler.analyze_intent(
+            # 3. 사용자 메시지 저장
+            await self.conversation_service.save_message(
+                query.conversation_id, query.message, "user"
+            )
+            
+            # 4. 의도 분석
+            intent_analysis = await self.llm_service.analyze_intent(
                 query.message, query.persona, conversation_history
             )
             
-            TaskAgentLogger.log_user_interaction(
-                user_id=query.user_id,
-                action="intent_analyzed",
-                details=f"intent: {intent_analysis['intent']}, confidence: {intent_analysis['confidence']}"
+            # 5. 워크플로우 결정 및 처리
+            response = await self._route_and_process(query, intent_analysis, conversation_history)
+            
+            # 6. 에이전트 응답 저장
+            await self.conversation_service.save_message(
+                query.conversation_id, response.response, "agent", "task_agent"
             )
-            
-            # 자동화 요청인지 확인
-            automation_type = None
-            if (
-                intent_analysis["intent"] == IntentType.TASK_AUTOMATION or
-                any(keyword in query.message for keyword in ["자동화", "자동", "등록", "생성", "업로드"])
-            ):
-                automation_type = await self.llm_handler.classify_automation_intent(query.message)
-            
-            # 자동화 완료 데이터 확인 (포맷에 맞게 입력된 데이터인지 확인)
-            is_automation_data = self._check_if_automation_data(query.message, conversation_history)
-            
-            # 워크플로우 결정
-            if automation_type:
-                # 자동화 타입이 감지되면 포맷 제공
-                response = await self._provide_automation_format(
-                    query, automation_type, intent_analysis
-                )
-            elif is_automation_data:
-                # 포맷에 맞는 데이터가 입력되면 DB 저장
-                response = await self._save_automation_task(
-                    query, intent_analysis, conversation_history
-                )
-            else:
-                response = await self._handle_consultation_workflow(
-                    query, intent_analysis, conversation_history
-                )
-            
-            # 캐시 저장 - UnifiedResponse 형식으로 변환
-            cache_data = {
-                "response": response.response,
-                "confidence": response.confidence,
-                "metadata": response.metadata,
-                "routing_decision": response.routing_decision.dict() if response.routing_decision else None
-            }
-            self.cache_manager.set_conversation_context(cache_key, cache_data)
             
             TaskAgentLogger.log_user_interaction(
                 user_id=query.user_id,
                 action="query_processing_completed",
-                details=f"response_length: {len(response.response)}, intent: {response.metadata.get('intent', 'unknown')}"
+                details=f"intent: {response.metadata.get('intent', 'unknown')}"
             )
             
             return response
                 
         except Exception as e:
             logger.error(f"쿼리 처리 실패: {e}")
-            TaskAgentLogger.log_user_interaction(
-                user_id=query.user_id,
-                action="query_processing_failed",
-                details=f"error: {str(e)}"
-            )
-            
-            # UnifiedResponse 형식으로 에러 응답 생성
-            routing_decision = RoutingDecision(
-                agent_type=AgentType.TASK_AUTOMATION,
-                confidence=0.0,
-                reasoning="Error occurred during processing",
-                keywords=[],
-                priority=Priority.MEDIUM
-            )
-            
-            return UnifiedResponse(
-                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                agent_type=AgentType.TASK_AUTOMATION,
-                response="죄송합니다. 요청을 처리하는 중에 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-                confidence=0.0,
-                routing_decision=routing_decision,
-                sources=None,
-                metadata={"error": str(e)},
-                processing_time=0.0,
-                timestamp=datetime.now(),
-                alternatives=[]
-            )
+            return self._create_error_response(query, str(e))
 
-    async def _handle_consultation_workflow(self, query: UserQuery, intent_analysis: Dict, 
+    async def _ensure_conversation_session(self, query: UserQuery) -> Dict[str, Any]:
+        """대화 세션 확보"""
+        try:
+            user_id_int = int(query.user_id)
+            session_info = get_or_create_conversation_session(
+                user_id_int, query.conversation_id
+            )
+            return session_info
+        except Exception as e:
+            logger.error(f"대화 세션 처리 실패: {e}")
+            raise Exception("대화 세션 생성에 실패했습니다")
+
+    async def _route_and_process(self, query: UserQuery, intent_analysis: Dict, 
+                                conversation_history: List[Dict] = None) -> UnifiedResponse:
+        """워크플로우 라우팅 및 처리"""
+        try:
+            # 자동화 의도 확인
+            automation_intent = await self.llm_service.analyze_automation_intent(
+                query.message, conversation_history
+            )
+            
+            if automation_intent["is_automation"]:
+                # 자동화 워크플로우
+                return await self._handle_automation_workflow(
+                    query, automation_intent, intent_analysis, conversation_history
+                )
+            else:
+                # 일반 상담 워크플로우
+                return await self._handle_consultation_workflow(
+                    query, intent_analysis, conversation_history
+                )
+                
+        except Exception as e:
+            logger.error(f"워크플로우 라우팅 실패: {e}")
+            return self._create_error_response(query, str(e))
+
+    async def _handle_automation_workflow(self, query: UserQuery, automation_intent: Dict,
+                                        intent_analysis: Dict, conversation_history: List[Dict] = None) -> UnifiedResponse:
+        """자동화 워크플로우 처리"""
+        try:
+            automation_type = automation_intent["automation_type"]
+            
+            # publish_sns 타입은 마케팅 페이지로 리다이렉션
+            if automation_type == "publish_sns":
+                return self._create_marketing_redirect_response(query, intent_analysis)
+            
+            # 일정 기반 자동 등록 요청 처리
+            if await self._is_schedule_based_request(query.message):
+                return await self._handle_schedule_based_automation(
+                    query, automation_intent, intent_analysis, conversation_history
+                )
+            
+            # 현재 메시지에서 자동화 정보 추출
+            extracted_info = await self.llm_service.extract_automation_info(
+                query.message, automation_type, conversation_history
+            )
+            
+            # 필수 정보 체크
+            missing_fields = self._check_missing_fields(extracted_info, automation_type)
+            
+            if not missing_fields:
+                # 모든 정보가 있으면 자동화 작업 등록
+                return await self._register_automation_task(
+                    query, automation_type, extracted_info, intent_analysis
+                )
+            else:
+                # 부족한 정보 요청
+                return self._request_missing_info(
+                    query, automation_type, extracted_info, missing_fields, intent_analysis
+                )
+            
+        except Exception as e:
+            logger.error(f"자동화 워크플로우 처리 실패: {e}")
+            return self._create_error_response(query, str(e))
+
+    async def _handle_consultation_workflow(self, query: UserQuery, intent_analysis: Dict,
                                           conversation_history: List[Dict] = None) -> UnifiedResponse:
-        """상담 워크플로우 처리"""
+        """일반 상담 워크플로우 처리"""
         try:
             # 지식 검색
-            search_result = await self.rag_manager.search_knowledge(
+            search_result = await self.rag_service.search_knowledge(
                 query.message, query.persona, intent_analysis.get("intent")
             )
             
-            # 컨텍스트 구성
-            context = ""
-            if search_result.chunks:
-                context_chunks = []
-                for chunk in search_result.chunks[:3]:  # 최대 3개 청크 사용
-                    context_chunks.append(chunk.content)
-                context = "\n\n".join(context_chunks)
+            # 응답 생성
+            response_text = await self.llm_service.generate_response(
+                query.message, query.persona, intent_analysis["intent"], 
+                search_result.get("context", ""), conversation_history
+            )
             
             # 응답 생성
-            response_text = await self.llm_handler.generate_response(
-                query.message, query.persona, intent_analysis["intent"], context, conversation_history
-            )
-            
-            # 후속 액션 생성
-            actions = self._generate_follow_up_actions(intent_analysis["intent"], query.persona)
-            
-            # UnifiedResponse 형식으로 응답 생성
-            routing_decision = RoutingDecision(
-                agent_type=AgentType.TASK_AUTOMATION,
-                confidence=intent_analysis.get("confidence", 0.5),
-                reasoning=f"Intent: {intent_analysis['intent']}",
-                keywords=intent_analysis.get("keywords", []),
-                priority=Priority.MEDIUM
-            )
-            
-            return UnifiedResponse(
-                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                agent_type=AgentType.TASK_AUTOMATION,
-                response=response_text,
-                confidence=intent_analysis.get("confidence", 0.5),
-                routing_decision=routing_decision,
-                sources=search_result.sources if search_result else None,
-                metadata={
-                    "actions": actions,
-                    "intent": intent_analysis["intent"],
-                    "persona": query.persona.value
-                },
-                processing_time=0.0,
-                timestamp=datetime.now(),
-                alternatives=[]
+            return self._create_consultation_response(
+                query, response_text, intent_analysis, search_result
             )
             
         except Exception as e:
             logger.error(f"상담 워크플로우 처리 실패: {e}")
-            # 백업 응답 생성
-            return self._create_fallback_response(query, intent_analysis)
+            return self._create_error_response(query, str(e))
 
-    def _check_if_automation_data(self, message: str, conversation_history: List[Dict] = None) -> bool:
-        """입력된 데이터가 자동화 포맷에 맞는지 확인"""
+    async def _register_automation_task(self, query: UserQuery, automation_type: str,
+                                      extracted_info: Dict[str, Any], intent_analysis: Dict) -> UnifiedResponse:
+        """자동화 작업 등록"""
         try:
-            # 대화 이력에서 마지막 메시지가 포맷 제공이었는지 확인
-            if not conversation_history:
-                return False
-                
-            # 마지막 어시스턴트 응답에서 포맷 제공 여부 확인
-            last_assistant_message = None
-            for msg in reversed(conversation_history):
-                if msg.get('role') == 'assistant':
-                    last_assistant_message = msg.get('content', '')
-                    break
-            
-            if not last_assistant_message:
-                return False
-                
-            # 포맷 제공 메시지인지 확인
-            format_indicators = [
-                "정보를 알려주세요",
-                "탬플릿",
-                "예시:",
-                "제목:",
-                "날짜:",
-                "시간:",
-                "내용:",
-                "플랫폼:",
-                "받는사람:"
-            ]
-            
-            has_format_in_last_message = any(indicator in last_assistant_message for indicator in format_indicators)
-            
-            if not has_format_in_last_message:
-                return False
-                
-            # 현재 메시지가 포맷에 맞는 데이터인지 확인
-            structured_data_patterns = [
-                r'제목[:\s]*(.+)',
-                r'날짜[:\s]*(.+)',
-                r'시간[:\s]*(.+)',
-                r'내용[:\s]*(.+)',
-                r'플랫폼[:\s]*(.+)',
-                r'받는사람[:\s]*(.+)',
-                r'주제[:\s]*(.+)'
-            ]
-            
-            import re
-            for pattern in structured_data_patterns:
-                if re.search(pattern, message, re.IGNORECASE):
-                    return True
-                    
-            # 일정 등록 패턴 확인 ("내일 오후 2시에 회의" 같은 형태)
-            time_patterns = [
-                r'\d{1,2}시',
-                r'\d{1,2}:\d{2}',
-                r'내일|모레|다음주',
-                r'\d{4}-\d{2}-\d{2}',
-                r'오전|오후'
-            ]
-            
-            has_time_info = any(re.search(pattern, message) for pattern in time_patterns)
-            
-            # 이메일 패턴 확인
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            has_email = re.search(email_pattern, message)
-            
-            return has_time_info or bool(has_email)
-            
-        except Exception as e:
-            logger.error(f"자동화 데이터 확인 실패: {e}")
-            return False
-    
-    async def _provide_automation_format(self, query: UserQuery, automation_type: str, 
-                                       intent_analysis: Dict) -> UnifiedResponse:
-        """자동화 타입에 따른 포맷 제공"""
-        try:
-            # 자동화 타입에 따른 포맷 제공
-            template = self._get_automation_template(automation_type)
-            
-            # 사용자 컨텍스트에 맞는 안내 메시지 추가
-            context_message = f"안녕하세요! {automation_type} 자동화를 설정해드리겠습니다. \n\n"
-            context_message += "아래 포맷에 맞춰 정보를 입력해주세요:\n\n"
-            
-            full_response = context_message + template
-            
-            routing_decision = RoutingDecision(
-                agent_type=AgentType.TASK_AUTOMATION,
-                confidence=intent_analysis.get("confidence", 0.8),
-                reasoning=f"Providing automation format for: {automation_type}",
-                keywords=intent_analysis.get("keywords", []),
-                priority=Priority.MEDIUM
-            )
-            
-            return UnifiedResponse(
-                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                agent_type=AgentType.TASK_AUTOMATION,
-                response=full_response,
-                confidence=intent_analysis.get("confidence", 0.8),
-                routing_decision=routing_decision,
-                sources=None,
-                metadata={
-                    "automation_type": automation_type,
-                    "intent": intent_analysis["intent"],
-                    "actions": [{
-                        "type": "automation_format_provided",
-                        "data": {"automation_type": automation_type},
-                        "description": f"{automation_type} 자동화 포맷이 제공되었습니다."
-                    }]
-                },
-                processing_time=0.0,
-                timestamp=datetime.now(),
-                alternatives=[])
-            
-        except Exception as e:
-            logger.error(f"자동화 포맷 제공 실패: {e}")
-            return self._create_fallback_response(query, intent_analysis)
-    
-    async def _save_automation_task(self, query: UserQuery, intent_analysis: Dict,
-                                  conversation_history: List[Dict] = None) -> UnifiedResponse:
-        """포맷에 맞는 데이터를 DB에 저장"""
-        try:
-            # 대화 이력에서 자동화 타입 추출
-            automation_type = self._extract_automation_type_from_history(conversation_history)
-            
-            if not automation_type:
-                # 자동화 타입을 다시 추출 시도
-                automation_type = await self.llm_handler.classify_automation_intent(query.message)
-            
-            if not automation_type:
-                routing_decision = RoutingDecision(
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    confidence=0.3,
-                    reasoning="자동화 타입 파악 실패",
-                    keywords=[],
-                    priority="medium"
-                )
-                
-                return UnifiedResponse(
-                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    response="자동화 타입을 파악할 수 없습니다. 다시 시도해주세요.",
-                    confidence=0.3,
-                    routing_decision=routing_decision,
-                    sources=None,
-                    metadata={"intent": intent_analysis["intent"]},
-                    processing_time=0.0,
-                    timestamp=datetime.now(),
-                    alternatives=[]
-                )
-            
-            # 정보 추출
-            extraction_type = self._map_automation_to_extraction(automation_type)
-            extracted_info = await self.llm_handler.extract_information(
-                query.message, extraction_type, conversation_history
-            )
-            
-            if not extracted_info or not self._validate_extracted_info(extracted_info, automation_type):
-                routing_decision = RoutingDecision(
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    confidence=0.4,
-                    reasoning="필수 정보 누락",
-                    keywords=[],
-                    priority="medium"
-                )
-                
-                return UnifiedResponse(
-                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    response="제공해주신 정보가 부족합니다. 필수 정보를 모두 입력해주세요.",
-                    confidence=0.4,
-                    routing_decision=routing_decision,
-                    sources=None,
-                    metadata={"intent": intent_analysis["intent"]},
-                    processing_time=0.0,
-                    timestamp=datetime.now(),
-                    alternatives=[]
-                )
-            
-            # 자동화 작업 생성 및 DB 저장
+            # 자동화 요청 생성
             automation_request = AutomationRequest(
                 user_id=int(query.user_id),
                 task_type=automation_type,
                 title=self._generate_automation_title(automation_type, extracted_info),
-                task_data=extracted_info
+                task_data=extracted_info,
+                scheduled_at=extracted_info.get("scheduled_at")
             )
             
-            automation_response = await self.automation_manager.create_automation_task(automation_request)
+            # 자동화 서비스를 통해 작업 등록 (스케쥴링 포함)
+            automation_response = await self.automation_service.create_task(automation_request)
             
-            # 성공 메시지 생성
-            success_message = f"✅ {automation_type} 자동화 작업이 성공적으로 등록되었습니다!\n\n"
-            success_message += f"작업 ID: {automation_response.task_id}\n"
-            success_message += f"제목: {automation_request.title}\n\n"
-            success_message += "자동화 작업이 예약된 시간에 실행됩니다."
-            
-            routing_decision = RoutingDecision(
-                agent_type=AgentType.TASK_AUTOMATION,
-                confidence=intent_analysis.get("confidence", 0.9),
-                reasoning="자동화 작업 저장 성공",
-                keywords=[automation_type],
-                priority=intent_analysis.get("urgency", "medium")
+            # 성공 응답 생성
+            success_message = self._create_automation_success_message(
+                automation_type, automation_response, extracted_info
             )
             
-            return UnifiedResponse(
-                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                agent_type=AgentType.TASK_AUTOMATION,
-                response=success_message,
-                confidence=intent_analysis.get("confidence", 0.9),
-                routing_decision=routing_decision,
-                sources=None,
-                metadata={
-                    "intent": intent_analysis["intent"],
-                    "task_id": automation_response.task_id,
-                    "automation_type": automation_type,
-                    "title": automation_request.title,
-                    "action": "automation_saved"
-                },
-                processing_time=0.0,
-                timestamp=datetime.now(),
-                alternatives=[]
+            return self._create_automation_response(
+                query, success_message, intent_analysis, 
+                automation_response.task_id, automation_type, True
             )
             
         except Exception as e:
-            logger.error(f"자동화 작업 저장 실패: {e}")
-            routing_decision = RoutingDecision(
-                agent_type=AgentType.TASK_AUTOMATION,
-                confidence=0.3,
-                reasoning="자동화 작업 저장 실패",
-                keywords=[],
-                priority="medium"
-            )
-            
-            return UnifiedResponse(
-                conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                agent_type=AgentType.TASK_AUTOMATION,
-                response="자동화 작업 저장 중 오류가 발생했습니다. 다시 시도해주세요.",
-                confidence=0.3,
-                routing_decision=routing_decision,
-                sources=None,
-                metadata={
-                    "intent": intent_analysis["intent"],
-                    "error": str(e)
-                },
-                processing_time=0.0,
-                timestamp=datetime.now(),
-                alternatives=[]
-            )
-    
-    def _extract_automation_type_from_history(self, conversation_history: List[Dict] = None) -> str:
-        """대화 이력에서 자동화 타입 추출"""
-        try:
-            if not conversation_history:
-                return None
-                
-            # 마지막 몇 개 메시지에서 자동화 타입 찾기
-            automation_types = {
-                "schedule_calendar": ["일정", "캘린더", "회의", "예약"],
-                "send_email": ["이메일", "메일", "발송"],
-                "publish_sns": ["SNS", "소셜", "게시", "트위터", "페이스북"],
-                "send_reminder": ["리마인더", "알림", "알려주기"],
-                "send_message": ["메시지", "슬랙", "Slack", "팀즈", "Teams"]
-            }
-            
-            for msg in reversed(conversation_history[-5:]):  # 마지막 5개 메시지만 확인
-                content = msg.get('content', '')
-                for auto_type, keywords in automation_types.items():
-                    if any(keyword in content for keyword in keywords):
-                        return auto_type
-                        
-            return None
-            
-        except Exception as e:
-            logger.error(f"자동화 타입 추출 실패: {e}")
-            return None
+            logger.error(f"자동화 작업 등록 실패: {e}")
+            return self._create_error_response(query, f"자동화 작업 등록 실패: {str(e)}")
 
-    async def _handle_automation_workflow(self, query: UserQuery, automation_type: str, 
-                                        intent_analysis: Dict, conversation_history: List[Dict] = None) -> UnifiedResponse:
-        """자동화 워크플로우 처리 (기존 로직 유지 - 호환성을 위해)"""
+    # ===== 일정 기반 자동화 처리 =====
+    
+    async def _is_schedule_based_request(self, message: str) -> bool:
+        """일정 기반 자동 등록 요청인지 판단"""
         try:
-            # 정보 추출
-            extraction_type = self._map_automation_to_extraction(automation_type)
-            extracted_info = await self.llm_handler.extract_information(
-                query.message, extraction_type, conversation_history
+            schedule_keywords = [
+                "지금 짜준 일정", "위에서 말한 일정", "방금 짜준 일정",
+                "아까 이야기한 일정", "대화에서 언급한 일정",
+                "기반으로 캘린더", "기반으로 일정", "기반으로 등록",
+                "짜준 일정 캘린더", "짜준 일정 등록",
+                "위 일정을 캘린더", "위 일정을 등록"
+            ]
+            
+            message_lower = message.lower()
+            for keyword in schedule_keywords:
+                if keyword in message_lower:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"일정 기반 요청 판단 실패: {e}")
+            return False
+    
+    async def _handle_schedule_based_automation(self, query: UserQuery, automation_intent: Dict,
+                                              intent_analysis: Dict, conversation_history: List[Dict]) -> UnifiedResponse:
+        """일정 기반 자동화 처리"""
+        try:
+            logger.info(f"일정 기반 자동화 처리 시작 - 사용자: {query.user_id}")
+            
+            # 대화 히스토리에서 일정 추출
+            extracted_schedules = await self.schedule_extraction_service.extract_schedules_from_conversation(
+                conversation_history or []
             )
             
-            if extracted_info and self._validate_extracted_info(extracted_info, automation_type):
-                # 자동화 작업 생성
-                automation_request = AutomationRequest(
-                    user_id=int(query.user_id),
-                    task_type=automation_type,
-                    title=self._generate_automation_title(automation_type, extracted_info),
-                    task_data=extracted_info
+            if not extracted_schedules:
+                return self._create_automation_response(
+                    query, 
+                    "😅 대화에서 등록할 일정을 찾을 수 없습니다.\n\n"
+                    "일정을 먼저 알려주시고, 다시 캘린더 등록을 요청해주세요.",
+                    intent_analysis, None, "calendar_sync", False
                 )
-                
-                automation_response = await self.automation_manager.create_automation_task(automation_request)
-                
-                routing_decision = RoutingDecision(
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    confidence=intent_analysis.get("confidence", 0.5),
-                    reasoning="자동화 작업 생성 성공",
-                    keywords=[automation_type],
-                    priority=intent_analysis.get("urgency", "medium")
-                )
-                
-                return UnifiedResponse(
-                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    response=automation_response.message,
-                    confidence=intent_analysis.get("confidence", 0.5),
-                    routing_decision=routing_decision,
-                    sources=None,
-                    metadata={
-                        "intent": intent_analysis["intent"],
-                        "task_id": automation_response.task_id,
-                        "automation_type": automation_type,
-                        "action": "automation_created"
-                    },
-                    processing_time=0.0,
-                    timestamp=datetime.now(),
-                    alternatives=[]
+            
+            # 사용자에게 일정 확인 요청
+            if len(extracted_schedules) == 1:
+                # 일정이 하나면 자동 등록
+                return await self._auto_register_single_schedule(
+                    query, extracted_schedules[0], intent_analysis
                 )
             else:
-                # 템플릿 제공
-                template = self._get_automation_template(automation_type)
-                routing_decision = RoutingDecision(
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    confidence=intent_analysis.get("confidence", 0.3),
-                    reasoning="템플릿 제공 필요",
-                    keywords=[automation_type],
-                    priority=intent_analysis.get("urgency", "medium")
+                # 여러 일정이 있으면 선택 요청
+                return self._request_schedule_selection(
+                    query, extracted_schedules, intent_analysis
                 )
-                
-                return UnifiedResponse(
-                    conversation_id=int(query.conversation_id) if query.conversation_id else 0,
-                    agent_type=AgentType.TASK_AUTOMATION,
-                    response=template,
-                    confidence=intent_analysis.get("confidence", 0.3),
-                    routing_decision=routing_decision,
-                    sources=None,
-                    metadata={
-                        "intent": intent_analysis["intent"],
-                        "automation_type": automation_type,
-                        "action": "template_provided"
-                    },
-                    processing_time=0.0,
-                    timestamp=datetime.now(),
-                    alternatives=[])
-                
+            
         except Exception as e:
-            logger.error(f"자동화 워크플로우 처리 실패: {e}")
-            return self._create_fallback_response(query, intent_analysis)
+            logger.error(f"일정 기반 자동화 처리 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    async def _auto_register_single_schedule(self, query: UserQuery, schedule, intent_analysis: Dict) -> UnifiedResponse:
+        """단일 일정 자동 등록"""
+        try:
+            # 자동화 작업 데이터 생성
+            automation_task_data = await self.schedule_extraction_service.create_calendar_automation_task(
+                schedule, int(query.user_id), int(query.conversation_id) if query.conversation_id else 0
+            )
+            
+            if not automation_task_data:
+                return self._create_error_response(query, "일정 자동화 작업 생성에 실패했습니다")
+            
+            # 자동화 요청 생성
+            automation_request = AutomationRequest(**automation_task_data)
+            
+            # 자동화 서비스를 통해 작업 등록 및 실행
+            automation_response = await self.automation_service.create_task(automation_request)
+            
+            # 성공 메시지 생성
+            success_message = self._create_schedule_registration_message(
+                schedule, automation_response
+            )
+            
+            return self._create_automation_response(
+                query, success_message, intent_analysis, 
+                automation_response.task_id, "calendar_sync", True
+            )
+            
+        except Exception as e:
+            logger.error(f"단일 일정 자동 등록 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    def _request_schedule_selection(self, query: UserQuery, schedules: List, intent_analysis: Dict) -> UnifiedResponse:
+        """여러 일정 중 선택 요청"""
+        try:
+            # 일정 목록 표시
+            schedule_summary = self.schedule_extraction_service.format_schedules_summary(schedules)
+            
+            message = f"📅 **여러개의 일정을 찾았습니다!**\n\n{schedule_summary}\n"
+            message += "🔍 **어떤 일정을 캘린더에 등록하시겠습니까?**\n\n"
+            message += "예: '처음 일정을 등록해주세요' 또는 '두 번째 일정을 등록해주세요'"
+            
+            return self._create_automation_response(
+                query, message, intent_analysis, None, "calendar_sync", False
+            )
+            
+        except Exception as e:
+            logger.error(f"일정 선택 요청 실패: {e}")
+            return self._create_error_response(query, str(e))
+    
+    def _create_schedule_registration_message(self, schedule, automation_response) -> str:
+        """일정 등록 성공 메시지 생성"""
+        try:
+            message = f"✅ **일정이 Google Calendar에 성공적으로 등록되었습니다!**\n\n"
+            message += f"📅 **일정 정보:**\n"
+            message += f"• 제목: {schedule.title}\n"
+            message += f"• 시간: {self.schedule_extraction_service._format_time(schedule.start_time)}"
+            
+            if schedule.end_time:
+                message += f" ~ {self.schedule_extraction_service._format_time(schedule.end_time)}"
+            message += "\n"
+            
+            if schedule.description:
+                message += f"• 설명: {schedule.description[:100]}...\n"
+            
+            if schedule.location:
+                message += f"• 위치: {schedule.location}\n"
+            
+            message += f"\n🎆 **작업 ID:** {automation_response.task_id}\n"
+            message += f"🔔 예약된 시간에 자동으로 등록됩니다!"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"일정 등록 메시지 생성 실패: {e}")
+            return "일정이 성공적으로 등록되었습니다."
 
-    def _create_fallback_response(self, query: UserQuery, intent_analysis: Dict) -> UnifiedResponse:
-        """백업 응답 생성"""
+    def _check_missing_fields(self, extracted_info: Dict[str, Any], automation_type: str) -> List[str]:
+        """필수 필드 체크"""
+        required_fields = {
+            "calendar_sync": ["title", "start_time"],
+            "send_email": ["to_emails", "subject", "body"],
+            "send_reminder": ["message", "remind_time"],
+            "send_message": ["platform", "content"]
+        }
+        
+        required = required_fields.get(automation_type, [])
+        missing = []
+        
+        for field in required:
+            if not extracted_info.get(field):
+                missing.append(field)
+        
+        return missing
+
+    def _generate_automation_title(self, automation_type: str, extracted_info: Dict[str, Any]) -> str:
+        """자동화 작업 제목 생성"""
+        titles = {
+            "calendar_sync": lambda info: info.get("title", "일정 등록"),
+            "send_email": lambda info: f"이메일: {info.get('subject', '제목 없음')}",
+            "send_reminder": lambda info: f"리마인더: {info.get('message', '알림')}",
+            "send_message": lambda info: f"{info.get('platform', '메시지')} 발송"
+        }
+        
+        title_func = titles.get(automation_type, lambda info: "자동화 작업")
+        return title_func(extracted_info)
+
+    def _create_automation_success_message(self, automation_type: str, 
+                                         automation_response, extracted_info: Dict[str, Any]) -> str:
+        """자동화 성공 메시지 생성"""
+        type_names = {
+            "calendar_sync": "일정 등록",
+            "send_email": "이메일 발송",
+            "send_reminder": "리마인더",
+            "send_message": "메시지 발송"
+        }
+        
+        type_name = type_names.get(automation_type, "자동화 작업")
+        
+        message = f"✅ {type_name} 자동화가 성공적으로 등록되었습니다!\n\n"
+        message += f"📋 **작업 정보:**\n"
+        message += f"• 작업 ID: {automation_response.task_id}\n"
+        message += f"• 상태: {automation_response.status.value}\n"
+        
+        if hasattr(automation_response, 'scheduled_time') and automation_response.scheduled_time:
+            message += f"• 예약 시간: {automation_response.scheduled_time.strftime('%Y-%m-%d %H:%M')}\n"
+        
+        message += f"\n📝 **등록된 내용:**\n"
+        message += self._format_extracted_info(extracted_info, automation_type)
+        
+        if hasattr(automation_response, 'scheduled_time') and automation_response.scheduled_time:
+            message += f"\n⏰ 예약된 시간에 자동으로 실행됩니다."
+        else:
+            message += f"\n🚀 즉시 실행됩니다."
+        
+        return message
+
+    def _format_extracted_info(self, extracted_info: Dict[str, Any], automation_type: str) -> str:
+        """추출된 정보 포맷팅"""
+        field_labels = {
+            "calendar_sync": {
+                "title": "제목", "start_time": "시작시간", "end_time": "종료시간",
+                "description": "설명", "attendees": "참석자"
+            },
+            "send_email": {
+                "to_emails": "받는사람", "subject": "제목", "body": "내용",
+                "attachments": "첨부파일"
+            },
+            "send_reminder": {
+                "message": "메시지", "remind_time": "알림시간"
+            },
+            "send_message": {
+                "platform": "플랫폼", "channel": "채널", "content": "내용"
+            }
+        }
+        
+        labels = field_labels.get(automation_type, {})
+        formatted = ""
+        
+        for field, value in extracted_info.items():
+            if value and field in labels:
+                label = labels[field]
+                if isinstance(value, list):
+                    value_str = ", ".join(str(v) for v in value)
+                else:
+                    value_str = str(value)
+                formatted += f"• {label}: {value_str}\n"
+        
+        return formatted
+
+    def _request_missing_info(self, query: UserQuery, automation_type: str,
+                            extracted_info: Dict[str, Any], missing_fields: List[str],
+                            intent_analysis: Dict) -> UnifiedResponse:
+        """부족한 정보 요청"""
+        type_names = {
+            "calendar_sync": "일정 등록",
+            "send_email": "이메일 발송", 
+            "send_reminder": "리마인더",
+            "send_message": "메시지 발송"
+        }
+        
+        type_name = type_names.get(automation_type, "자동화")
+        
+        message = f"📝 {type_name} 설정을 도와드리겠습니다.\n\n"
+        
+        # 이미 입력된 정보가 있으면 표시
+        if extracted_info:
+            message += "✅ **확인된 정보:**\n"
+            message += self._format_extracted_info(extracted_info, automation_type)
+            message += "\n"
+        
+        # 부족한 정보 요청
+        message += "❓ **추가로 필요한 정보:**\n"
+        message += self._get_missing_fields_template(automation_type, missing_fields)
+        
+        return self._create_automation_response(
+            query, message, intent_analysis, None, automation_type, False
+        )
+
+    def _get_missing_fields_template(self, automation_type: str, missing_fields: List[str]) -> str:
+        """부족한 필드 템플릿"""
+        templates = {
+            "calendar_sync": {
+                "title": "• 일정 제목을 알려주세요",
+                "start_time": "• 시작 시간을 알려주세요 (예: 내일 오후 2시, 2024-01-15 14:00)"
+            },
+            "send_email": {
+                "to_emails": "• 받는 사람 이메일을 알려주세요",
+                "subject": "• 이메일 제목을 알려주세요", 
+                "body": "• 이메일 내용을 알려주세요"
+            },
+            "send_reminder": {
+                "message": "• 리마인더 메시지를 알려주세요",
+                "remind_time": "• 알림 시간을 알려주세요"
+            },
+            "send_message": {
+                "platform": "• 플랫폼을 알려주세요 (Slack, Teams 등)",
+                "content": "• 메시지 내용을 알려주세요"
+            }
+        }
+        
+        type_templates = templates.get(automation_type, {})
+        
+        result = ""
+        for field in missing_fields:
+            if field in type_templates:
+                result += type_templates[field] + "\n"
+        
+        result += "\n💡 자연스럽게 말씀해주시면 자동으로 인식합니다!"
+        return result
+
+    # ===== 응답 생성 메서드들 =====
+
+    def _create_marketing_redirect_response(self, query: UserQuery, intent_analysis: Dict) -> UnifiedResponse:
+        """마케팅 페이지 리다이렉션 응답"""
         routing_decision = RoutingDecision(
             agent_type=AgentType.TASK_AUTOMATION,
-            confidence=0.3,
-            reasoning="의도 파악 실패",
-            keywords=[],
-            priority=intent_analysis.get("urgency", "medium")
+            confidence=1.0,
+            reasoning="SNS 마케팅 페이지로 리다이렉션",
+            keywords=["marketing", "sns"],
+            priority=Priority.HIGH
         )
         
         return UnifiedResponse(
             conversation_id=int(query.conversation_id) if query.conversation_id else 0,
             agent_type=AgentType.TASK_AUTOMATION,
-            response=f"{query.persona.value} 관련 업무를 도와드리고 싶지만, 현재 시스템에 일시적인 문제가 있습니다. 좀 더 구체적으로 말씀해주시면 더 나은 도움을 드릴 수 있습니다.",
-            confidence=0.3,
+            response="SNS 마케팅 기능을 이용하시려면 마케팅 페이지로 이동해주세요.\n\n[마케팅 페이지로 이동하기](/marketing)",
+            confidence=1.0,
             routing_decision=routing_decision,
             sources=None,
             metadata={
-                "intent": intent_analysis.get("intent", IntentType.GENERAL_INQUIRY),
-                "action": "fallback"
+                "redirect": "/marketing",
+                "automation_type": "publish_sns",
+                "intent": intent_analysis["intent"],
+                "automation_created": False
             },
             processing_time=0.0,
             timestamp=datetime.now(),
             alternatives=[]
         )
 
-    def _validate_extracted_info(self, extracted_info: Dict[str, Any], automation_type: str) -> bool:
-        """추출된 정보 검증"""
-        try:
-            if automation_type == "schedule_calendar":
-                return bool(extracted_info.get("title") and extracted_info.get("start_time"))
-            elif automation_type == "send_email":
-                return bool(extracted_info.get("to_emails") and 
-                          extracted_info.get("subject") and 
-                          extracted_info.get("body"))
-            elif automation_type == "publish_sns":
-                return bool(extracted_info.get("platform") and extracted_info.get("content"))
-            elif automation_type == "send_reminder":
-                return bool(extracted_info.get("title") and extracted_info.get("remind_time"))
-            elif automation_type == "send_message":
-                return bool(extracted_info.get("platform") and extracted_info.get("content"))
-            else:
-                return True  # 기타 타입은 기본적으로 통과
-        except Exception as e:
-            logger.error(f"정보 검증 실패: {e}")
-            return False
-
-    def _map_automation_to_extraction(self, automation_type: str) -> str:
-        """자동화 타입을 정보 추출 타입으로 매핑"""
-        mapping = {
-            "schedule_calendar": "schedule",
-            "send_email": "email",
-            "publish_sns": "sns",
-            "send_reminder": "reminder",
-            "send_message": "message"
-        }
-        return mapping.get(automation_type, "general")
-
-    def _generate_automation_title(self, automation_type: str, extracted_info: Dict[str, Any]) -> str:
-        """자동화 작업 제목 생성"""
-        try:
-            if automation_type == "schedule_calendar":
-                return f"일정 등록: {extracted_info.get('title', '제목 없음')}"
-            elif automation_type == "send_email":
-                subject = extracted_info.get('subject', '제목 없음')
-                recipients = extracted_info.get('to_emails', [])
-                if recipients:
-                    return f"이메일 발송: {subject} (to: {len(recipients)}명)"
-                return f"이메일 발송: {subject}"
-            elif automation_type == "publish_sns":
-                content = extracted_info.get('content', '')
-                platform = extracted_info.get('platform', 'SNS')
-                preview = content[:30] + "..." if len(content) > 30 else content
-                return f"{platform} 발행: {preview}"
-            elif automation_type == "send_reminder":
-                return f"리마인더: {extracted_info.get('title', '제목 없음')}"
-            elif automation_type == "send_message":
-                platform = extracted_info.get('platform', '메시지')
-                content = extracted_info.get('content', '')
-                preview = content[:30] + "..." if len(content) > 30 else content
-                return f"{platform} 메시지: {preview}"
-            else:
-                return f"{automation_type} 자동화 작업"
-        except Exception as e:
-            logger.error(f"자동화 제목 생성 실패: {e}")
-            return f"{automation_type} 자동화 작업"
-
-    def _generate_follow_up_actions(self, intent: str, persona: PersonaType) -> List[Dict[str, Any]]:
-        """후속 액션 생성"""
-        actions = []
+    def _create_consultation_response(self, query: UserQuery, response_text: str,
+                                    intent_analysis: Dict, search_result: Dict) -> UnifiedResponse:
+        """일반 상담 응답"""
+        routing_decision = RoutingDecision(
+            agent_type=AgentType.TASK_AUTOMATION,
+            confidence=intent_analysis.get("confidence", 0.8),
+            reasoning=f"일반 상담: {intent_analysis['intent']}",
+            keywords=intent_analysis.get("keywords", []),
+            priority=Priority.MEDIUM
+        )
         
-        try:
-            if intent == "schedule_management":
-                actions.append({
-                    "type": "calendar_integration",
-                    "description": "캘린더 연동을 설정하시겠습니까?",
-                    "data": {"persona": persona.value}
-                })
-                
-        except Exception as e:
-            logger.error(f"후속 액션 생성 실패: {e}")
+        return UnifiedResponse(
+            conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+            agent_type=AgentType.TASK_AUTOMATION,
+            response=response_text,
+            confidence=intent_analysis.get("confidence", 0.8),
+            routing_decision=routing_decision,
+            sources=search_result.get("sources", ""),
+            metadata={
+                "intent": intent_analysis["intent"],
+                "persona": query.persona.value,
+                "automation_created": False
+            },
+            processing_time=0.0,
+            timestamp=datetime.now(),
+            alternatives=[]
+        )
+
+    def _create_automation_response(self, query: UserQuery, message: str, intent_analysis: Dict,
+                                  task_id: Optional[int], automation_type: str, 
+                                  automation_created: bool) -> UnifiedResponse:
+        """자동화 관련 응답"""
+        routing_decision = RoutingDecision(
+            agent_type=AgentType.TASK_AUTOMATION,
+            confidence=intent_analysis.get("confidence", 0.9),
+            reasoning=f"자동화 처리: {automation_type}",
+            keywords=[automation_type],
+            priority=Priority.HIGH if automation_created else Priority.MEDIUM
+        )
         
-        return actions
-
-    def _get_automation_template(self, automation_type: str) -> str:
-        """자동화 템플릿 반환"""
-        templates = {
-            "schedule_calendar": """
-📅 **일정 등록을 위한 정보를 알려주세요:**
-
-• 제목: [일정 제목]
-• 날짜: [YYYY-MM-DD]
-• 시작시간: [HH:MM]
-• 종료시간: [HH:MM] (선택사항)
-• 설명: [상세 내용] (선택사항)
-• 참석자: [이메일 주소들] (선택사항)
-
-예시: "내일 오후 2시에 팀 미팅 예약해줘"
-""",
-            
-            "send_email": """
-📧 **이메일 발송을 위한 정보를 알려주세요:**
-
-• 받는사람: [이메일 주소]
-• 제목: [이메일 제목]
-• 내용: [이메일 본문]
-• 예약시간: [YYYY-MM-DD HH:MM] (선택사항)
-• 첨부파일: [파일 경로] (선택사항)
-
-예시: "john@company.com에게 '월간 보고서' 제목으로 보고서 첨부해서 보내줘"
-""",
-            
-            "publish_sns": """
-📱 **SNS 발행을 위한 정보를 알려주세요:**
-
-• 플랫폼: [Twitter, Facebook, Instagram, LinkedIn 등]
-• 내용: [게시물 내용]
-• 예약시간: [YYYY-MM-DD HH:MM] (선택사항)
-• 해시태그: [#태그1 #태그2] (선택사항)
-• 이미지: [이미지 경로] (선택사항)
-
-예시: "트위터에 '새로운 프로젝트 출시!' 내용으로 #프로젝트 #출시 태그와 함께 게시"
-""",
-            
-            "send_reminder": """
-⏰ **리마인더 설정을 위한 정보를 알려주세요:**
-
-• 제목: [리마인더 제목]
-• 알림시간: [YYYY-MM-DD HH:MM]
-• 내용: [상세 내용] (선택사항)
-• 반복설정: [매일/매주/매월] (선택사항)
-
-예시: "내일 오전 9시에 '회의 준비' 리마인더 설정해줘"
-""",
-            
-            "send_message": """
-💬 **메시지 발송을 위한 정보를 알려주세요:**
-
-• 플랫폼: [Slack, Teams, Discord 등]
-• 채널/수신자: [채널명 또는 사용자명]
-• 내용: [메시지 내용]
-• 예약시간: [YYYY-MM-DD HH:MM] (선택사항)
-
-예시: "Slack #dev-team 채널에 '배포 완료' 메시지 보내줘"
-"""
+        metadata = {
+            "intent": intent_analysis["intent"],
+            "automation_type": automation_type,
+            "automation_created": automation_created
         }
         
-        template = templates.get(automation_type, "자동화 설정을 위한 추가 정보가 필요합니다.")
+        if task_id:
+            metadata["task_id"] = task_id
         
-        # 페르소나별 추가 가이드 (예시)
-        template += "\n\n💡 **팁:** 더 자세한 정보를 제공할수록 정확한 자동화를 설정할 수 있습니다."
+        return UnifiedResponse(
+            conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+            agent_type=AgentType.TASK_AUTOMATION,
+            response=message,
+            confidence=intent_analysis.get("confidence", 0.9),
+            routing_decision=routing_decision,
+            sources=None,
+            metadata=metadata,
+            processing_time=0.0,
+            timestamp=datetime.now(),
+            alternatives=[]
+        )
+
+    def _create_error_response(self, query: UserQuery, error_message: str) -> UnifiedResponse:
+        """에러 응답"""
+        routing_decision = RoutingDecision(
+            agent_type=AgentType.TASK_AUTOMATION,
+            confidence=0.0,
+            reasoning="처리 중 오류 발생",
+            keywords=[],
+            priority=Priority.MEDIUM
+        )
         
-        return template
-
-    # ===== 자동화 관리 =====
-
-    async def create_automation_task(self, request: AutomationRequest) -> AutomationResponse:
-        """자동화 작업 생성"""
-        try:
-            TaskAgentLogger.log_automation_task(
-                task_id="creating",
-                task_type=request.task_type.value,
-                status="creating",
-                details=f"user_id: {request.user_id}"
-            )
-            
-            response = await self.automation_manager.create_automation_task(request)
-            
-            TaskAgentLogger.log_automation_task(
-                task_id=str(response.task_id),
-                task_type=request.task_type.value,
-                status=response.status.value,
-                details="automation task created via agent"
-            )
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"자동화 작업 생성 실패: {e}")
-            raise
-
-    async def get_automation_status(self, task_id: int) -> Dict[str, Any]:
-        """자동화 작업 상태 조회"""
-        try:
-            return await self.automation_manager.get_task_status(task_id)
-        except Exception as e:
-            logger.error(f"자동화 상태 조회 실패: {e}")
-            return {"error": f"작업 상태를 조회할 수 없습니다: {str(e)}"}
-
-    async def cancel_automation_task(self, task_id: int) -> bool:
-        """자동화 작업 취소"""
-        try:
-            result = await self.automation_manager.cancel_task(task_id)
-            
-            TaskAgentLogger.log_automation_task(
-                task_id=str(task_id),
-                task_type="unknown",
-                status="cancelled" if result else "cancel_failed",
-                details="cancellation requested via agent"
-            )
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"자동화 작업 취소 실패: {e}")
-            return False
+        return UnifiedResponse(
+            conversation_id=int(query.conversation_id) if query.conversation_id else 0,
+            agent_type=AgentType.TASK_AUTOMATION,
+            response="죄송합니다. 요청을 처리하는 중에 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            confidence=0.0,
+            routing_decision=routing_decision,
+            sources=None,
+            metadata={"error": error_message, "automation_created": False},
+            processing_time=0.0,
+            timestamp=datetime.now(),
+            alternatives=[]
+        )
 
     # ===== 시스템 관리 =====
 
     async def get_status(self) -> Dict[str, Any]:
         """에이전트 상태 조회"""
         try:
-            # LLM 핸들러 상태
-            llm_status = self.llm_handler.get_status()
-            
-            # RAG 매니저 상태
-            rag_status = self.rag_manager.get_status()
-            
-            # 캐시 상태
-            cache_stats = self.cache_manager.get_stats()
-            
             return {
-                "agent_version": "4.0.0",
+                "agent_version": "5.0.0",
                 "status": "healthy",
                 "timestamp": datetime.now().isoformat(),
                 "components": {
-                    "llm_handler": llm_status,
-                    "rag_manager": rag_status,
-                    "automation_manager": "active",
-                    "cache_manager": cache_stats
-                },
-                "memory_usage": {
-                    "cache_entries": cache_stats.get("general_cache_size", 0) + cache_stats.get("conversation_cache_size", 0)
+                    "llm_service": await self.llm_service.get_status(),
+                    "rag_service": await self.rag_service.get_status(),
+                    "automation_service": await self.automation_service.get_status(),
+                    "conversation_service": await self.conversation_service.get_status(),
+                    "schedule_extraction_service": await self.schedule_extraction_service.get_status()
                 }
             }
-            
         except Exception as e:
             logger.error(f"상태 조회 실패: {e}")
             return {
-                "agent_version": "4.0.0",
-                "status": "error", 
+                "agent_version": "5.0.0",
+                "status": "error",
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             }
@@ -848,39 +697,10 @@ class TaskAgent:
     async def cleanup_resources(self):
         """리소스 정리"""
         try:
-            # 캐시 정리
-            expired_count = self.cache_manager.cleanup_expired()
-            logger.info(f"만료된 캐시 {expired_count}개 정리 완료")
-            
-            # 자동화 매니저 종료
-            if hasattr(self.automation_manager, 'shutdown'):
-                await self.automation_manager.shutdown()
-            
+            await self.automation_service.cleanup()
+            await self.rag_service.cleanup()
+            await self.llm_service.cleanup()
+            await self.schedule_extraction_service.cleanup()
             logger.info("Task Agent 리소스 정리 완료")
-            
         except Exception as e:
             logger.error(f"리소스 정리 실패: {e}")
-
-    async def get_user_statistics(self, user_id: str) -> Dict[str, Any]:
-        """사용자 통계 조회"""
-        try:
-            stats = {
-                "user_id": user_id,
-                "total_queries": 0,
-                "automation_tasks": 0,
-                "last_interaction": None,
-                "preferred_persona": PersonaType.COMMON.value
-            }
-            
-            # 캐시에서 사용자 활동 정보 조회 시도
-            user_cache_key = f"user_stats_{user_id}"
-            cached_stats = self.cache_manager.get_user_preferences(user_id)
-            
-            if cached_stats:
-                stats.update(cached_stats)
-            
-            return stats
-            
-        except Exception as e:
-            logger.error(f"사용자 통계 조회 실패: {e}")
-            return {"error": str(e)}

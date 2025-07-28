@@ -27,6 +27,7 @@ export default function SignupPage() {
     name: "",
     businessType: "",
     startupStatus: "",
+    instagramId: "",
   })
 
   // 로그인 페이지에서 넘어온 소셜 정보 처리
@@ -61,97 +62,120 @@ export default function SignupPage() {
     setCurrentStep(1)
   }
 
-  const handleSocialSignup = async (provider: string) => {
-    try {
-      setIsLoading(true)
-      setErrorMessage('')
-      setSuccessMessage('')
+const handleSocialSignup = async (provider: string) => {
+  try {
+    setIsLoading(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    
+    console.log(`🔍 ${provider} 소셜 회원가입 시작`)
+    console.log('📝 현재 formData:', formData)
+    
+    let requestData;
+    let requestUrl;
+    
+    // 로그인 페이지에서 넘어온 소셜 정보가 있는 경우
+    if (socialInfo && socialInfo.provider === provider) {
+      // 이미 소셜 인증이 완료된 상태이므로 직접 회원가입 요청
+      requestUrl = 'http://localhost:8080/social_login'
       
-      console.log(`🔍 ${provider} 소셜 회원가입 시작`)
+      // 🔧 수정: 사용자 입력 이름 우선 사용
+      const finalUsername = formData.name.trim() || socialInfo.username || 'Unknown User'
       
-      let requestData;
-      let requestUrl;
+      requestData = {
+        provider: socialInfo.provider,
+        social_id: socialInfo.social_id,
+        username: finalUsername,  // 🔧 finalUsername 사용
+        email: socialInfo.email,
+        business_type: formData.businessType,
+        experience: formData.startupStatus === "experienced",
+        instagram_id: formData.instagramId || null,
+      }
       
-      // 로그인 페이지에서 넘어온 소셜 정보가 있는 경우
-      if (socialInfo && socialInfo.provider === provider) {
-        // 이미 소셜 인증이 완료된 상태이므로 직접 회원가입 요청
-        requestUrl = 'http://localhost:8080/social_login'
-        requestData = {
-          provider: socialInfo.provider,
-          social_id: socialInfo.social_id,
-          username: formData.name || socialInfo.username,
-          email: socialInfo.email
-        }
+      console.log('📤 소셜 로그인 API 전송 데이터:', requestData)
+      
+      const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ 응답 오류:', errorText)
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      console.log('📥 소셜 로그인 API 응답:', data)
+      
+      if (data.success) {
+        console.log('✅ 소셜 회원가입 성공')
         
-        const response = await fetch(requestUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestData)
+        // 채팅 페이지로 리다이렉션
+        const queryParams = new URLSearchParams({
+          user_id: data.data.user_id.toString(),
+          provider: data.data.provider || provider,
+          email: data.data.email || '',
+          username: finalUsername  // 🔧 finalUsername 사용
         })
         
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-        
-        const data = await response.json()
-        
-        if (data.success) {
-          console.log('✅ 소셜 회원가입 성공')
-          
-          // 채팅 페이지로 리다이렉션
-          const queryParams = new URLSearchParams({
-            user_id: data.data.user_id.toString(),
-            provider: data.data.provider || provider,
-            email: data.data.email || '',
-            username: formData.name || socialInfo.username || ''
-          })
-          
-          window.location.href = `/chat?${queryParams.toString()}`
-        } else {
-          setErrorMessage(data.message || '회원가입에 실패했습니다.')
-        }
+        window.location.href = `/chat?${queryParams.toString()}`
       } else {
-        // 일반적인 소셜 회원가입 플로우
-        requestUrl = `http://localhost:8080/auth/${provider}`
-        requestData = {
-          intent: 'signup',
-          user_data: formData
-        }
-        
-        const response = await fetch(requestUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestData)
-        })
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-        
-        const data = await response.json()
-        
-        if (data.success && data.data?.auth_url) {
-          console.log(`✅ ${provider} 인증 URL 생성 성공`)
-          
-          // 소셜 로그인 페이지로 리다이렉션
-          window.location.href = data.data.auth_url
-        } else {
-          console.error('❌ 소셜 회원가입 URL 생성 실패:', data.message)
-          setErrorMessage(data.message || `${provider} 회원가입 URL 생성에 실패했습니다.`)
+        setErrorMessage(data.error || data.message || '회원가입에 실패했습니다.')
+      }
+    } else {
+      // 일반적인 소셜 회원가입 플로우
+      requestUrl = `http://localhost:8080/auth/${provider}`
+      requestData = {
+        intent: 'signup',
+        user_data: {
+          name: formData.name,              // 🔧 사용자 입력 이름
+          businessType: formData.businessType,
+          startupStatus: formData.startupStatus,
+          instagramId: formData.instagramId
         }
       }
       
-    } catch (error) {
-      console.error('❌ 소셜 회원가입 오류:', error)
-      setErrorMessage('소셜 회원가입에 실패했습니다. 다시 시도해주세요.')
-    } finally {
-      setIsLoading(false)
+      console.log('📤 인증 URL 요청 데이터:', requestData)
+      
+      const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ 인증 URL 응답 오류:', errorText)
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      console.log('📥 인증 URL 응답:', data)
+      
+      if (data.success && data.data?.auth_url) {
+        console.log(`✅ ${provider} 인증 URL 생성 성공`)
+        
+        // 소셜 로그인 페이지로 리다이렉션
+        window.location.href = data.data.auth_url
+      } else {
+        console.error('❌ 소셜 회원가입 URL 생성 실패:', data.message)
+        setErrorMessage(data.error || data.message || `${provider} 회원가입 URL 생성에 실패했습니다.`)
+      }
     }
+    
+  } catch (error) {
+    console.error('❌ 소셜 회원가입 오류:', error)
+    setErrorMessage('소셜 회원가입에 실패했습니다. 다시 시도해주세요.')
+  } finally {
+    setIsLoading(false)
   }
+}
 
   const isStep1Complete = formData.name && formData.businessType && formData.startupStatus
 
@@ -215,7 +239,7 @@ export default function SignupPage() {
                       <SelectItem value="ecommerce">온라인 쇼핑몰</SelectItem>
                       <SelectItem value="beauty">뷰티</SelectItem>
                       <SelectItem value="tech">개발자</SelectItem>
-                      <SelectItem value="content">크리에이터</SelectItem>
+                      <SelectItem value="creator">크리에이터</SelectItem>
                       <SelectItem value="other">기타</SelectItem>
                     </SelectContent>
                   </Select>
@@ -233,6 +257,21 @@ export default function SignupPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="instagramId">인스타그램 아이디 (선택)</Label>
+                  <Input
+                    id="instagramId"
+                    placeholder="@your_instagram"
+                    value={formData.instagramId}
+                    onChange={(e) => handleInputChange("instagramId", e.target.value)}
+                    className="h-12"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    인스타그램 아이디는 마케팅 자동화에 활용하실 수 있습니다.
+                  </p>
+                </div>
+
 
                 <Button
                   onClick={handleNext}
@@ -275,20 +314,6 @@ export default function SignupPage() {
                   </div>
                   <span className="font-medium">
                     {socialInfo?.provider === 'kakao' ? 'Kakao 계정으로 회원가입' : 'Kakao로 계속하기'}
-                  </span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  className="w-full h-14 text-left justify-start space-x-4 hover:bg-green-50 border-green-200 bg-transparent transition-all duration-200"
-                  onClick={() => handleSocialSignup('naver')}
-                  disabled={isLoading}
-                >
-                  <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-bold text-white">N</span>
-                  </div>
-                  <span className="font-medium">
-                    {socialInfo?.provider === 'naver' ? 'Naver 계정으로 회원가입' : 'Naver로 계속하기'}
                   </span>
                 </Button>
 
