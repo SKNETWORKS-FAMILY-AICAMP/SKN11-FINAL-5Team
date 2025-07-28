@@ -69,7 +69,7 @@ from shared_modules.database import  get_db_dependency
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from pydantic import BaseModel
-from shared_modules.db_models import Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ
+from shared_modules.db_models import Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ, Instagram
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -340,6 +340,8 @@ async def google_login(request: Request, code: str, state: str = None):
         social_id = userinfo["id"]
         email = userinfo.get("email")
         social_nickname = userinfo.get("name", "")
+
+        
         
         with get_session_context() as db:
             existing_user = get_user_by_social(db, provider, social_id)
@@ -402,6 +404,42 @@ async def google_login(request: Request, code: str, state: str = None):
                         business_type=user_data.get("businessType"),
                         experience=experience_value
                     )
+                    
+                    logger.info(f"🔍 DEBUG: user_data 전체 내용 = {user_data}")
+                    logger.info(f"🔍 DEBUG: instagramId 값 = '{user_data.get('instagramId', 'KEY_NOT_FOUND')}'")
+                    logger.info(f"🔍 DEBUG: instagramId strip 후 = '{user_data.get('instagramId', '').strip()}'")
+                    logger.info(f"🔍 DEBUG: instagramId 조건 확인 = {bool(user_data.get('instagramId', '').strip())}")
+
+                    instagram_id = user_data.get("instagramId", "").strip()
+                    if instagram_id:
+                        # "@" 기호 제거
+                        username = instagram_id[1:] if instagram_id.startswith("@") else instagram_id
+                        
+                        logger.info(f"📥 구글 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
+                        
+                        try:
+                            insta = Instagram(
+                                user_id=new_user.user_id,
+                                username=username,
+                                access_token=access_token,  # 실제 구글/카카오 토큰 사용
+                                refresh_token=refresh_token or "",
+                                graph_id=""
+                                                        )
+                            db.add(insta)
+                            db.commit()
+                            logger.info("✅ 구글 인스타그램 저장 완료")
+                        except Exception as e:
+                            logger.error(f"❌ 구글 인스타그램 저장 실패: {e}")
+                            import traceback
+                            logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                            db.rollback()
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": final_nickname
+                    }
                     
                     user_data_response = {
                         "user_id": new_user.user_id,
@@ -561,6 +599,41 @@ def kakao_login(code: str, state: str = None):
                         business_type=business_type,
                         experience=experience_value
                     )
+                    logger.info(f"🔍 DEBUG: user_data 전체 내용 = {user_data}")
+                    logger.info(f"🔍 DEBUG: instagramId 값 = '{user_data.get('instagramId', 'KEY_NOT_FOUND')}'")
+                    logger.info(f"🔍 DEBUG: instagramId strip 후 = '{user_data.get('instagramId', '').strip()}'")
+                    logger.info(f"🔍 DEBUG: instagramId 조건 확인 = {bool(user_data.get('instagramId', '').strip())}")
+
+                    instagram_id = user_data.get("instagramId", "").strip()
+                    if instagram_id:
+                        # "@" 기호 제거
+                        username = instagram_id[1:] if instagram_id.startswith("@") else instagram_id
+                        
+                        logger.info(f"📥 카카오 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
+                        
+                        try:
+                            insta = Instagram(
+                                user_id=new_user.user_id,
+                                username=username,
+                                access_token=access_token,  # 실제 구글/카카오 토큰 사용
+                                refresh_token=refresh_token or "",
+                                graph_id=""
+                            )
+                            db.add(insta)
+                            db.commit()
+                            logger.info("✅ 카카오 인스타그램 저장 완료")
+                        except Exception as e:
+                            logger.error(f"❌ 카카오 인스타그램 저장 실패: {e}")
+                            import traceback
+                            logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                            db.rollback()
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": final_nickname
+                    }
                     
                     # 🔍 생성 후 확인
                     logger.info(f"카카오 새 사용자 생성 완료:")
@@ -643,7 +716,29 @@ async def social_login(req: SocialLoginRequest):
                     business_type=req.business_type,
                     experience=req.experience
                 )
-                
+
+                # ✅ 인스타그램 아이디가 있을 경우 저장
+                if req.instagram_id and req.instagram_id.strip():
+
+                    
+                    # "@" 기호 제거
+                    username = req.instagram_id.strip()
+                    if username.startswith("@"):
+                        username = username[1:]
+
+                    logger.info(f"📥 저장 시도: {username}")
+                    insta = Instagram(
+                        user_id=user.user_id,
+                        username=username,
+                        access_token="",  # 실제 구글/카카오 토큰 사용
+                        refresh_token= "",
+                        graph_id=""
+                    )
+                    db.add(insta)
+                    db.commit()
+                    logger.info("✅ 인스타그램 저장 완료")
+
+                            
                 # 🔍 생성 후 확인
                 logger.info(f"새 사용자 생성 완료:")
                 logger.info(f"  - user_id: {user.user_id}")

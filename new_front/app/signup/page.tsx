@@ -27,6 +27,7 @@ export default function SignupPage() {
     name: "",
     businessType: "",
     startupStatus: "",
+    instagramId: "",
   })
 
   // 로그인 페이지에서 넘어온 소셜 정보 처리
@@ -87,7 +88,8 @@ const handleSocialSignup = async (provider: string) => {
         username: finalUsername,  // 🔧 finalUsername 사용
         email: socialInfo.email,
         business_type: formData.businessType,
-        experience: formData.startupStatus === "experienced"
+        experience: formData.startupStatus === "experienced",
+        instagram_id: formData.instagramId || null,
       }
       
       console.log('📤 소셜 로그인 API 전송 데이터:', requestData)
@@ -132,7 +134,8 @@ const handleSocialSignup = async (provider: string) => {
         user_data: {
           name: formData.name,              // 🔧 사용자 입력 이름
           businessType: formData.businessType,
-          startupStatus: formData.startupStatus
+          startupStatus: formData.startupStatus,
+          instagramId: formData.instagramId
         }
       }
       
@@ -254,6 +257,21 @@ const handleSocialSignup = async (provider: string) => {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="instagramId">인스타그램 아이디 (선택)</Label>
+                  <Input
+                    id="instagramId"
+                    placeholder="@your_instagram"
+                    value={formData.instagramId}
+                    onChange={(e) => handleInputChange("instagramId", e.target.value)}
+                    className="h-12"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    인스타그램 아이디는 마케팅 자동화에 활용하실 수 있습니다.
+                  </p>
+                </div>
+
 
                 <Button
                   onClick={handleNext}

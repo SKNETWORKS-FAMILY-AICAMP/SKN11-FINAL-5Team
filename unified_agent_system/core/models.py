@@ -133,6 +133,9 @@ class SocialLoginRequest(BaseModel):
     social_id: str
     username: str
     email: str
+    business_type: Optional[str] = None  # 추가
+    experience: Optional[bool] = None    # 추가
+    instagram_id: Optional[str] = None   # 이미 있지만 확실히 하기 위해
 
 class PHQ9StartRequest(BaseModel):
     user_id: int
