@@ -175,10 +175,18 @@ class AutomationDateTimeUtils:
     @staticmethod
     def parse_datetime(date_string: str) -> Optional[datetime]:
         """다양한 형식의 날짜 문자열을 datetime으로 변환"""
+        if not date_string:
+            return None
+            
+        # If it's already a datetime object, return it
+        if isinstance(date_string, datetime):
+            return date_string
+            
         formats = [
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S.%fZ",  # Added microseconds support
             "%Y-%m-%d %H:%M",
             "%Y-%m-%dT%H:%M",
             "%Y-%m-%d",
@@ -191,6 +199,14 @@ class AutomationDateTimeUtils:
             "%Y년 %m월 %d일 %H시 %M분",
             "%Y년 %m월 %d일"
         ]
+        
+        # Try ISO format parsing first
+        try:
+            # Handle ISO format with timezone
+            if 'T' in date_string:
+                return datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            pass
         
         for fmt in formats:
             try:
@@ -210,6 +226,11 @@ class AutomationDateTimeUtils:
     def format_datetime_iso(dt: datetime) -> str:
         """ISO 형식으로 날짜시간 포맷"""
         return dt.isoformat()
+    
+    @staticmethod
+    def add_time_delta(dt: datetime, **kwargs) -> datetime:
+        """datetime에 시간 간격 추가"""
+        return dt + timedelta(**kwargs)
     
     @staticmethod
     def is_business_hour(dt: datetime, start_hour: int = 9, end_hour: int = 18) -> bool:

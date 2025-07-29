@@ -23,14 +23,16 @@ from utils import TaskAgentLogger, create_success_response, create_error_respons
 
 # 자동화 작업 서비스들 import
 from automation_task.email_service import EmailService
-from automation_task.google_calendar_service import GoogleCalendarService
+from automation_task.google_calendar_service import GoogleCalendarService, GoogleCalendarConfig
 # from automation_task.sns_service import SNSService
 from automation_task.reminder_service import ReminderService
 from automation_task.common.config_manager import get_automation_config_manager
 from automation_task.common.db_helper import get_automation_db_helper
+from automation_task.common.auth_manager import AuthManager
+from automation_task.common.utils import AutomationDateTimeUtils
+from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
-from automation_task.email_service import get_email_service 
 
 class TaskAgentAutomationManager:
     """Task Agent 자동화 매니저 (공통 모듈 기반)"""
@@ -59,7 +61,29 @@ class TaskAgentAutomationManager:
         """자동화 서비스들 초기화"""
         try:
             self.email_service = EmailService()
-            self.calendar_service = GoogleCalendarService()
+            
+            # Google Calendar Service 초기화 (의존성 주입)
+            config = GoogleCalendarConfig({
+                "google_calendar": {
+                    "client_id": os.getenv("GOOGLE_CALENDAR_CLIENT_ID", ""),
+                    "client_secret": os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET", "your_client_secret"),
+                    "redirect_uri": os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "http://localhost:8080/callback"),
+                    "token_url": "https://oauth2.googleapis.com/token",
+                    "default_timezone": os.getenv("GOOGLE_CALENDAR_DEFAULT_TIMEZONE", "Asia/Seoul")
+                }
+            })
+            
+            # 간단한 Google API 클라이언트
+            class SimpleGoogleApiClient:
+                def build_service(self, service_name: str, version: str, credentials):
+                    return build(service_name, version, credentials=credentials)
+            
+            self.calendar_service = GoogleCalendarService(
+                api=SimpleGoogleApiClient(),
+                time_utils=AutomationDateTimeUtils(),
+                config=config
+            )
+            
             # self.sns_service = SNSService()
             self.reminder_service = ReminderService()
             
@@ -263,13 +287,9 @@ class TaskAgentAutomationManager:
             )
             
             result = await self._execute_by_type(task_type, task_data, task_info["user_id"])
-            print("[DEBUG] 실행 결과:", result)
-            logger.info(f"[DEBUG] 작업 실행 결과: {result}")
             
             # 결과에 따른 상태 업데이트
-            result_status = result.get("status", "failed")  # 기본값 설정
-            final_status = AutomationStatus.SUCCESS.value if result_status == "success" else AutomationStatus.FAILED.value
-
+            final_status = AutomationStatus.SUCCESS.value if result["status"] == "success" else AutomationStatus.FAILED.value
             await self.db_helper.update_automation_task_status(
                 task_id, 
                 final_status,
@@ -309,13 +329,11 @@ class TaskAgentAutomationManager:
     
     async def _execute_by_type(self, task_type: str, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
         """타입별 작업 실행"""
-        logger.info(f"[DEBUG] 타입별 실행 진입: {task_type}")
-        print(f"[DEBUG] 타입별 실행 진입: {task_type}")
         try:
             if task_type == AutomationTaskType.SCHEDULE_CALENDAR.value:
                 return await self._execute_calendar(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_EMAIL.value:
-                return await get_email_service().send_email_from_task(task_data)
+                return await self._execute_email(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_REMINDER.value:
                 return await self._execute_reminder(task_data, user_id)
             elif task_type == AutomationTaskType.SEND_MESSAGE.value:

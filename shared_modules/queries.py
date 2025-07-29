@@ -11,6 +11,7 @@ from sqlalchemy import bindparam, text
 from shared_modules.database import DatabaseManager
 from typing import Optional, List
 from sqlalchemy import or_
+from task_agent.models import TaskTypeEnum
 
 # SQLAlchemy 충돌 방지를 위해 fully qualified import 사용
 import shared_modules.db_models as db_models
@@ -725,28 +726,35 @@ def get_user_template_by_title(db: Session, user_id: int, title: str):
 # -------------------
 def create_automation_task(db: Session, user_id: int, task_type: str, title: str,
                           template_id: int = None, task_data: dict = None, 
-                          conversation_id: int = None, scheduled_at: datetime = None):
+                          conversation_id: int = None, scheduled_at: datetime = None,
+                          status: str = "PENDING"):
     """자동화 작업 생성 (status: PENDING, RUNNING, COMPLETED, FAILED)"""
     try:
+        # ✅ 문자열을 Enum으로 변환 시도
+        task_type_enum = TaskTypeEnum(task_type)
+
         task = db_models.AutomationTask(
             user_id=user_id,
             conversation_id=conversation_id,
-            task_type=task_type,
+            task_type=task_type_enum,  # ✅ Enum 인스턴스로 전달
             title=title,
             template_id=template_id,
             task_data=task_data,
-            status='PENDING',
+            status=status,
             scheduled_at=scheduled_at
         )
         db.add(task)
         db.commit()
         db.refresh(task)
         return task
+    except ValueError as ve:
+        logger.error(f"[create_automation_task Enum 변환 실패] '{task_type}'는 유효하지 않은 TaskTypeEnum 값입니다.", exc_info=True)
+        db.rollback()
+        return None
     except Exception as e:
         logger.error(f"[create_automation_task 오류] {e}", exc_info=True)
         db.rollback()
         return None
-
 def get_user_tasks(db: Session, user_id: int, status: str = None, limit: int = 50):
     try:
         query = db.query(db_models.AutomationTask).filter(db_models.AutomationTask.user_id == user_id)
@@ -1026,4 +1034,31 @@ def delete_template(template_id: int) -> bool:
             return result.rowcount > 0
     except Exception as e:
         return handle_db_error(e, "delete_template") or False
+
+def get_user_tokens(db: Session, user_id: int) -> Optional[dict]:
+    """사용자 ID로 토큰 정보 조회"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user:
+            return {
+                'access_token': user.access_token,
+                'refresh_token': user.refresh_token,
+                'user_id': user.user_id,
+                'email': user.email
+            }
+        return None
+    except Exception as e:
+        logger.error(f"[get_user_tokens 오류] {e}", exc_info=True)
+        return None
+
+def check_user_token_exists(db: Session, user_id: int) -> bool:
+    """사용자의 토큰 존재 여부 확인"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user and user.access_token:
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"[check_user_token_exists 오류] {e}", exc_info=True)
+        return False
 

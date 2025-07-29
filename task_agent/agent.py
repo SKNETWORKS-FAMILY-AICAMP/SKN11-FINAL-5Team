@@ -12,10 +12,12 @@ from typing import Dict, List, Any, Optional, Tuple
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../unified_agent_system"))
 
+
 from models import UserQuery, AutomationRequest, AutomationResponse, PersonaType, IntentType
-from core.models import UnifiedResponse, AgentType, RoutingDecision, Priority
+from unified_agent_system.core.models import UnifiedResponse, AgentType, RoutingDecision, Priority
 from llm_handler import TaskAgentLLMHandler
 from rag import TaskAgentRAGManager
 from automation import AutomationManager

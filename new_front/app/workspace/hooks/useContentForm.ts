@@ -10,10 +10,19 @@ import type {
 import {
   createEmailTemplate,
   updateEmailTemplate,
-  fetchEmailTemplates,
 } from "../lib/api"
 import axios from "axios"
-export function useContentForm(userId: number) {
+
+async function fetchEmailTemplates(userId: number) {
+  const res = await axios.get("http://localhost:8005/api/email/templates", {
+    params: { user_id: userId },
+  })
+  return {
+    templates: res.data.templates,
+    contents: [], // ← 필요 시 수정
+  }
+}
+export function useContentForm(userId: number | null) {
   const [contentForm, setContentForm] = useState<ContentForm>({
     title: "",
     content: "",
@@ -21,42 +30,55 @@ export function useContentForm(userId: number) {
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | EmailContent | null>(null)
   const [emailContents, setEmailContents] = useState<EmailContent[]>([])
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
+  
+  
+  
 
   useEffect(() => {
+    if (!userId) return
+
     const fetchData = async () => {
       try {
         const { templates, contents } = await fetchEmailTemplates(userId)
         setTemplates(templates)
-        setEmailContents(contents)
+        
+        // setEmailContents(contents)
       } catch (error) {
         console.error("이메일 템플릿 불러오기 실패:", error)
       }
     }
 
-    if (userId) fetchData()
+    fetchData()
   }, [userId])
 
-const saveEmailContent = async () => {
+  const saveEmailContent = async () => {
+  if (!userId) {
+    alert("로그인 정보가 없습니다. 다시 로그인해주세요.")
+    return
+  }
+
   const payload = {
-    user_id: Number(userId), // 타입 확실히
+    user_id: Number(userId),
     title: contentForm.title.trim(),
     content: contentForm.content.trim(),
     channel_type: "EMAIL",
-    content_type: "text", // 또는 "marketing"
+    content_type: "text",
   }
 
-  console.log("📤 보낼 payload", payload)
+  const payloadWithType = {
+    ...payload,
+    template_type: "user_made",  
+  }
+
+  console.log("📤 보낼 payload", payloadWithType)
 
   try {
-    const res = await axios.post("http://localhost:8005/workspace/email", payload)
-    console.log("✅ 이메일 콘텐츠 저장 성공", res.data)
+    const res = await axios.post("http://localhost:8005/api/email/templates", payloadWithType)
     alert("콘텐츠가 저장되었습니다!")
 
-    // ✅ 저장 후 목록 새로고침
     const { templates, contents } = await fetchEmailTemplates(userId)
     setTemplates(templates)
-    setEmailContents(contents)
-
+    // setEmailContents(contents)
   } catch (err) {
     console.error("❌ 저장 실패:", err)
     alert("저장에 실패했습니다.")
@@ -76,30 +98,115 @@ const saveEmailContent = async () => {
   }
 }
 
-export function useAiContents() {
+export function useAiContents(userId: number | null) {
   const [aiGeneratedContents, setAiGeneratedContents] = useState<AiGeneratedContent[]>([])
+  const [latestGeneratedContent, setLatestGeneratedContent] = useState<any | null>(null) 
 
-const generateContent = (keywords: string, platform: string) => {
-  const contentText = `${keywords}에 대한 예시 콘텐츠입니다.`
+  const generateContent = async (keyword: string, platform: string) => {
+    if (!userId) {
+      throw new Error("userId가 없습니다. 로그인 상태를 확인해주세요.")
+    }
 
-  const generated: AiGeneratedContent = {
-    task_id: Date.now(),
-    user_id: 3,
-    task_type: platform.toLowerCase(),
-    title: `[${platform}] ${keywords} 관련 제목`,
-    template_id: undefined,
-    task_data: {
-      content: contentText,
-      platform
-    },
-    status: "draft",
-    scheduled_at: null,
-    executed_at: null,
-    created_at: new Date().toISOString()
-  }
+    let url = ""
+    let taskType = ""
 
-    setAiGeneratedContents((prev) => [generated, ...prev])
+    if (platform === "instagram") {
+      url = "http://localhost:8000/api/v1/content/instagram"
+      taskType = "sns_publish_instagram"
+    } else if (platform === "naver") {
+      url = "http://localhost:8000/api/v1/content/blog"
+      taskType = "sns_publish_blog"
+    } else {
+      throw new Error("지원되지 않는 플랫폼입니다.")
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyword }),
+    })
+
+    if (!res.ok) {
+      throw new Error("콘텐츠 생성 실패")
+    }
+
+    const data = await res.json()
+
+    const content =
+      data.post_content ??
+      data.instagram_content?.post_content ??
+      data.full_content ??
+      data.blog_content?.full_content ?? ""
+
+    const hashtags =
+      data.selected_hashtags ??
+      data.instagram_content?.selected_hashtags ??
+      data.hashtag_analysis?.searched_hashtags ?? []
+
+    const topKeywords =
+      data.blog_content?.top_keywords ??
+      data.top_keywords ?? []
+
+    const generated = {
+      title: `${keyword} 자동 생성 콘텐츠`,
+      task_type: taskType,
+      task_data:
+        platform === "instagram"
+          ? {
+              platform,
+              post_content: content,
+              searched_hashtags: hashtags,
+            }
+          : {
+              platform,
+              full_content: content,
+              top_keywords: topKeywords,
+            },
+      content,
+      keywords: [...hashtags, ...topKeywords],
+    }
+
+    setLatestGeneratedContent(generated) // 
     return generated
   }
 
-  return { aiGeneratedContents, generateContent }}
+  // 저장 함수 추가
+  const saveGeneratedContent = async () => {
+    if (!userId || !latestGeneratedContent) return
+
+    const payload = {
+      user_id: userId,
+      title: latestGeneratedContent.title,
+      task_type: latestGeneratedContent.task_type,
+      task_data: latestGeneratedContent.task_data,
+      status: "created",
+    }
+
+    try {
+      const res = await axios.post("http://localhost:8005/workspace/automation/ai", payload)
+      alert("✅ 자동 생성 콘텐츠가 저장되었습니다!")
+      return res.data
+    } catch (err) {
+      console.error("❌ 자동 생성 콘텐츠 저장 실패:", err)
+      alert("저장 중 오류가 발생했습니다.")
+    }
+  }
+
+  const fetchGeneratedContents = async () => {
+  const res = await axios.get("http://localhost:8005/workspace/automation/contents", {
+    params: { user_id: userId },
+  });
+  setAiGeneratedContents(res.data.data); // 기존 state에 넣기
+};
+
+  // ✅ 저장 함수와 latest 추가 리턴
+  return {
+    aiGeneratedContents,
+    setAiGeneratedContents,
+    generateContent,
+    saveGeneratedContent,     
+    latestGeneratedContent,   
+    fetchGeneratedContents,
+    
+  }
+}

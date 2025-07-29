@@ -1,19 +1,20 @@
 export interface AutomationTask {
   task_id: number
-  user_id: number
-  conversation_id?: number
+  user_id?: number
   task_type: string
   title: string
-  template_id?: number
   task_data: {
-    content: string
     platform: string
-    keywords?: string
+    content?: string
+    full_content?: string
+    post_content?: string
+    searched_hashtags?: string[]
+    top_keywords?: string[]
+    image_url?: string
   }
   status: string
-  scheduled_at?: string | null
-  executed_at?: string | null
   created_at: string
+  scheduled_at?: string
 }
 
 
@@ -40,7 +41,7 @@ export interface EmailTemplate {
   title: string
   content: string
   createdAt: string
-  contentType: string
+  template_type: string
 }
 
 export type EmailContent = {
@@ -49,11 +50,19 @@ export type EmailContent = {
   title: string
   content: string
   createdAt: string
+  template_type: string
 }
 
 export interface ContentForm {
-  title: string
+    title: string
   content: string
+  task_data?: {
+    platform: string
+    post_content?: string
+    full_content?: string
+    searched_hashtags?: string[]
+    top_keywords?: string[]
+  }
 }
 
 export interface PublishSchedule {
@@ -86,4 +95,40 @@ export interface AiGeneratedContent extends AutomationTask {
     content: string
     platform: string
   }
+}
+
+export interface InstagramTaskData {
+  post_content: string
+  selected_hashtags?: string[]
+}
+
+export interface BlogTaskData {
+  full_content: string
+  keywords?: string[]
+}
+
+export interface GoogleCalendarEvent {
+  id: string
+  summary?: string
+  description?: string
+  start: {
+    dateTime?: string
+    date?: string
+  }
+  end: {
+    dateTime?: string
+    date?: string
+  }
+  status?: string
+  htmlLink?: string
+  [key: string]: any // 유연성을 위해 기타 필드 허용
+}
+
+export interface EventCreate {
+  title: string
+  description?: string
+  start_time: string // ISO string (e.g., "2025-07-30T15:00:00")
+  end_time: string   // ISO string
+  calendar_id?: string // optional, default: "primary"
+  timezone?: string // optional, default: "Asia/Seoul"
 }

@@ -20,6 +20,8 @@ interface EmailEditorProps {
   setPublishSchedule: (schedule: PublishSchedule) => void
   onSave: () => void
   onPublish: () => void
+  toEmail: string
+  setToEmail: (value: string) => void
 }
 
 export function EmailEditor({
@@ -31,8 +33,11 @@ export function EmailEditor({
   setPublishSchedule,
   onSave,
   onPublish,
+  toEmail,      
+  setToEmail  
 }: EmailEditorProps) {
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
+  const [recipientEmail, setRecipientEmail] = useState("")
 
   const handlePublish = () => {
     onPublish()
@@ -51,7 +56,7 @@ export function EmailEditor({
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-600">받는 사람:</span>
-              <span className="text-sm">고객님 &lt;customer@example.com&gt;</span>
+              <span className="text-sm">{recipientEmail || "customer@example.com"}</span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-600">제목:</span>
@@ -195,37 +200,49 @@ export function EmailEditor({
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         {!isPreviewMode ? (
           <>
+            {/* 제목 입력 */}
             <div className="space-y-2">
-              <Label htmlFor="emailSubject" className="text-sm">
-                제목 (이메일 제목)
+              <Label htmlFor="emailSubject" className="text-sm font-medium text-gray-700">
+                제목 
               </Label>
               <Input
                 id="emailSubject"
-                placeholder="이메일 제목을 입력하세요"
+                // placeholder="이메일 제목을 입력하세요"
                 value={contentForm.title}
                 onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })}
                 className="rounded-lg"
               />
             </div>
+
+            {/* 본문 입력 */}
             <div className="space-y-2">
-              <Label htmlFor="emailContent" className="text-sm">
+              <Label htmlFor="emailContent" className="text-sm font-medium text-gray-700">
                 본문
               </Label>
               <Textarea
                 id="emailContent"
-                placeholder="이메일 본문을 입력하세요..."
+                // placeholder="이메일 본문을 입력하세요..."
                 className="min-h-[300px] rounded-lg"
                 value={contentForm.content}
                 onChange={(e) => setContentForm({ ...contentForm, content: e.target.value })}
               />
             </div>
+
+            {/* 받는 사람 이메일 입력 - 본문 바로 아래로 이동 */}
             <div className="space-y-2">
-              <Label htmlFor="emailTags" className="text-sm">
-                태그
+              <Label htmlFor="recipientEmail" className="text-sm font-medium text-gray-700">
+                받는 사람
               </Label>
+              <Input
+                id="recipientEmail"
+                type="email"
+                value={toEmail} // ✅ props 사용
+                onChange={(e) => setToEmail(e.target.value)} // ✅ props setter 사용
+                className="rounded-lg"
+              />
             </div>
           </>
         ) : (

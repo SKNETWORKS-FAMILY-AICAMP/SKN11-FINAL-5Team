@@ -1,10 +1,13 @@
+from ast import main
 import httpx
 import logging
 import os
 import requests
 import asyncio
+import json
+from pathlib import Path
 from typing import Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 from urllib.parse import urljoin
 
@@ -20,7 +23,272 @@ class InstagramPostingService:
 
     def __init__(self):
         self.base_url = "https://graph.instagram.com/v23.0"
-        self.backend_url = settings.BACKEND_URL 
+        self.backend_url = settings.BACKEND_URL
+        # Instagram OAuth 설정
+        self.instagram_app_id = os.getenv('INSTAGRAM_APP_ID')
+        self.instagram_app_secret = os.getenv('INSTAGRAM_APP_SECRET')
+        self.redirect_uri = os.getenv('INSTAGRAM_REDIRECT_URI', 'https://localhost:8000/auth/instagram/callback')
+        # 토큰 저장 파일 경로
+        self.token_file = Path("instagram_tokens.json")
+
+    def get_instagram_auth_url(self) -> str:
+        """Instagram 인증 URL 생성 (1단계) - 올바른 scope 사용"""
+        if not self.instagram_app_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Instagram App ID가 설정되지 않았습니다."
+            )
+        
+        from urllib.parse import urlencode
+        
+        # Instagram Basic Display API scope 사용
+        params = {
+            "client_id": self.instagram_app_id,
+            "redirect_uri": self.redirect_uri,
+            "scope": "instagram_basic",  # 또는 "instagram_business_basic"
+            "response_type": "code",
+            "state": "csrf_protection_string"  # CSRF 보호
+        }
+        
+        auth_url = f"https://api.instagram.com/oauth/authorize?{urlencode(params)}"
+        logger.info(f"Instagram 인증 URL: {auth_url}")
+        return auth_url
+
+    async def get_access_token(self, authorization_code: str, state: str = None) -> Dict:
+        """인증 코드로 Short-lived Access Token 발급 후 Long-lived Token으로 교환 (2단계)"""
+        logger.info("=== Instagram Access Token 발급 시작 ===")
+        
+        if not self.instagram_app_id or not self.instagram_app_secret:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Instagram App 설정이 완료되지 않았습니다."
+            )
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                # Short-lived Access Token 요청
+                response = await client.post(
+                    "https://api.instagram.com/oauth/access_token",
+                    data={
+                        "client_id": self.instagram_app_id,
+                        "client_secret": self.instagram_app_secret,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": self.redirect_uri,
+                        "code": authorization_code
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=30.0
+                )
+                
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"토큰 발급 실패: {response.text}"
+                    )
+                
+                token_data = response.json()
+                short_lived_token = token_data.get("access_token")
+                user_id = token_data.get("user_id")
+                
+                if not short_lived_token:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Short-lived Access Token을 받지 못했습니다."
+                    )
+                
+                logger.info(f"Short-lived Access Token 발급 성공: {short_lived_token[:20]}...")
+                
+                # Long-lived Access Token으로 교환
+                long_lived_data = await self.exchange_for_long_lived_token(short_lived_token)
+                
+                # 토큰 저장
+                await self.save_tokens(user_id, long_lived_data)
+                
+                return {
+                    "access_token": long_lived_data["access_token"],
+                    "user_id": user_id,
+                    "token_type": "bearer",
+                    "expires_in": long_lived_data["expires_in"]
+                }
+                
+        except Exception as e:
+            logger.error(f"토큰 발급 중 오류: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"토큰 발급 중 오류가 발생했습니다: {str(e)}"
+            )
+
+    async def exchange_for_long_lived_token(self, short_lived_token: str) -> Dict:
+        """Short-lived Token을 Long-lived Token으로 교환 (3단계)"""
+        logger.info("=== Long-lived Access Token 교환 시작 ===")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://graph.instagram.com/access_token",
+                    params={
+                        "grant_type": "ig_exchange_token",
+                        "client_secret": self.instagram_app_secret,
+                        "access_token": short_lived_token
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Long-lived Token 교환 실패: {response.text}"
+                    )
+                
+                data = response.json()
+                logger.info(f"Long-lived Token 발급 성공, 유효기간: {data.get('expires_in')}초")
+                
+                return data
+                
+        except Exception as e:
+            logger.error(f"Long-lived Token 교환 중 오류: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Long-lived Token 교환 중 오류가 발생했습니다: {str(e)}"
+            )
+
+    async def refresh_long_lived_token(self, current_token: str) -> Dict:
+        """Long-lived Token 갱신 (4단계)"""
+        logger.info("=== Long-lived Access Token 갱신 시작 ===")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://graph.instagram.com/refresh_access_token",
+                    params={
+                        "grant_type": "ig_refresh_token",
+                        "access_token": current_token
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Token 갱신 실패: {response.text}"
+                    )
+                
+                data = response.json()
+                logger.info(f"Token 갱신 성공, 새로운 유효기간: {data.get('expires_in')}초")
+                
+                return data
+                
+        except Exception as e:
+            logger.error(f"Token 갱신 중 오류: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Token 갱신 중 오류가 발생했습니다: {str(e)}"
+            )
+
+    async def save_tokens(self, user_id: str, token_data: Dict) -> None:
+        """토큰을 파일에 저장"""
+        try:
+            # 기존 토큰 데이터 로드
+            tokens = {}
+            if self.token_file.exists():
+                with open(self.token_file, 'r', encoding='utf-8') as f:
+                    tokens = json.load(f)
+            
+            # 새 토큰 데이터 추가
+            tokens[user_id] = {
+                "access_token": token_data["access_token"],
+                "expires_in": token_data["expires_in"],
+                "created_at": datetime.now().isoformat(),
+                "expires_at": (datetime.now() + 
+                              timedelta(seconds=token_data["expires_in"])).isoformat()
+            }
+            
+            # 파일에 저장
+            with open(self.token_file, 'w', encoding='utf-8') as f:
+                json.dump(tokens, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"토큰이 성공적으로 저장되었습니다: {user_id}")
+            
+        except Exception as e:
+            logger.error(f"토큰 저장 중 오류: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"토큰 저장 중 오류가 발생했습니다: {str(e)}"
+            )
+
+    async def load_tokens(self, user_id: str) -> Optional[Dict]:
+        """저장된 토큰 로드"""
+        try:
+            if not self.token_file.exists():
+                return None
+            
+            with open(self.token_file, 'r', encoding='utf-8') as f:
+                tokens = json.load(f)
+            
+            return tokens.get(user_id)
+            
+        except Exception as e:
+            logger.error(f"토큰 로드 중 오류: {str(e)}")
+            return None
+
+    async def get_valid_access_token(self, user_id: str) -> Optional[str]:
+        """유효한 Access Token 반환 (자동 갱신 포함)"""
+        try:
+            # 저장된 토큰 로드
+            token_data = await self.load_tokens(user_id)
+            if not token_data:
+                logger.warning(f"저장된 토큰이 없습니다: {user_id}")
+                return None
+            
+            # 토큰 만료 확인
+            expires_at = datetime.fromisoformat(token_data["expires_at"])
+            now = datetime.now()
+            
+            # 토큰이 7일 이내에 만료되면 갱신
+            if (expires_at - now).days < 7:
+                logger.info(f"토큰이 곧 만료됩니다. 갱신을 시도합니다: {user_id}")
+                
+                # 토큰 갱신
+                refreshed_data = await self.refresh_long_lived_token(token_data["access_token"])
+                
+                # 갱신된 토큰 저장
+                await self.save_tokens(user_id, refreshed_data)
+                
+                return refreshed_data["access_token"]
+            
+            return token_data["access_token"]
+            
+        except Exception as e:
+            logger.error(f"토큰 검증 중 오류: {str(e)}")
+            return None
+
+    async def revoke_access_token(self, user_id: str) -> bool:
+        """Access Token 취소"""
+        try:
+            token_data = await self.load_tokens(user_id)
+            if not token_data:
+                return False
+            
+            # 토큰 취소는 Instagram API에서 직접 지원하지 않음
+            # 대신 저장된 토큰을 삭제
+            if self.token_file.exists():
+                with open(self.token_file, 'r', encoding='utf-8') as f:
+                    tokens = json.load(f)
+                
+                if user_id in tokens:
+                    del tokens[user_id]
+                    
+                    with open(self.token_file, 'w', encoding='utf-8') as f:
+                        json.dump(tokens, f, indent=2, ensure_ascii=False)
+                    
+                    logger.info(f"토큰이 삭제되었습니다: {user_id}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"토큰 취소 중 오류: {str(e)}")
+            return False
 
     def _validate_image_url(self, image_url: str) -> bool:
         """이미지 URL 기본 검증"""
@@ -677,21 +945,30 @@ class InstagramPostingService:
 
         return results
 
-    # 테스트용 값 (실제 값으로 대체 필요)
-    ACCESS_TOKEN = "IGAApvP0R9Y3tBZAE5LTWxIZADUtYnU5N1o5akt6OWgxMFZAvZAXpsNmtBeUUtX2VCVDFIQWpoWk9NSEFpZATdZAQ2x3ZA21oUlBJUmRyNExyOUJsTE5NSmJfbW5JVEw0cFVhM2JCMWxEVjdDcVBIVHRUb1d2Q29fQWUtMVVGVk5aRzl2WQZDZD"  # Instagram Graph API에서 받은 long-lived 토큰
-    INSTAGRAM_ID = "17841464558647230"  # 연결된 비즈니스 Instagram 계정 ID
-    IMAGE_URL = "https://m.health.chosun.com/site/data/img_dir/2025/04/08/2025040803041_0.jpg"  # 공개 접근 가능한 이미지 URL
-    CAPTION = "🚀 오늘도 열심히! #테스트"
+    # # 테스트용 값 (실제 값으로 대체 필요)
+    # ACCESS_TOKEN = "IGAApvP0R9Y3tBZAE5LTWxIZADUtYnU5N1o5akt6OWgxMFZAvZAXpsNmtBeUUtX2VCVDFIQWpoWk9NSEFpZATdZAQ2x3ZA21oUlBJUmRyNExyOUJsTE5NSmJfbW5JVEw0cFVhM2JCMWxEVjdDcVBIVHRUb1d2Q29fQWUtMVVGVk5aRzl2WQZDZD"  # Instagram Graph API에서 받은 long-lived 토큰
+    # INSTAGRAM_ID = "17841464558647230"  # 연결된 비즈니스 Instagram 계정 ID
+    # IMAGE_URL = "https://m.health.chosun.com/site/data/img_dir/2025/04/08/2025040803041_0.jpg"  # 공개 접근 가능한 이미지 URL
+    # CAPTION = "🚀 오늘도 열심히! #테스트"
     
-    async def test_post_to_instagram():
+    # async def test_post_to_instagram():
+    #     service = InstagramPostingService()
+    #     result = await service.post_to_instagram(
+    #         instagram_id=INSTAGRAM_ID,
+    #         access_token=ACCESS_TOKEN,
+    #         image_url=IMAGE_URL,
+    #         caption=CAPTION,
+    #     )
+    #     print("✅ 업로드 결과:", result)
+    
+    async def test_get_access_token():
         service = InstagramPostingService()
-        result = await service.post_to_instagram(
-            instagram_id=INSTAGRAM_ID,
-            access_token=ACCESS_TOKEN,
-            image_url=IMAGE_URL,
-            caption=CAPTION,
-        )
-        print("✅ 업로드 결과:", result)
-    
+        auth_url = service.get_instagram_auth_url()
+        print(f"이 URL로 이동하세요: {auth_url}")
+        code = "사용자가_받은_인증_코드"
+        token_info = await service.get_access_token(code)
+        print(f"액세스 토큰: {token_info['access_token']}")
+        
     if __name__ == "__main__":
-        asyncio.run(test_post_to_instagram())
+        asyncio.run(test_get_access_token())
+        

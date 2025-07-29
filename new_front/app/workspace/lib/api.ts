@@ -25,14 +25,14 @@ export const updateEmailTemplate = async (templateId: number, data: {
   return res.data
 }
 
-// ✅ 관리자 템플릿 + 사용자 콘텐츠 둘 다 가져오기
-export const fetchEmailTemplates = async (userId: number) => {
-  const res = await axios.get(`${BASE_URL}/workspace/email`, {
-    params: { user_id: userId },
-  })
+// // ✅ 관리자 템플릿 + 사용자 콘텐츠 둘 다 가져오기
+// export const fetchEmailTemplates = async (userId: number) => {
+//   const res = await axios.get(`${BASE_URL}/workspace/email`, {
+//     params: { user_id: userId },
+//   })
 
-  return {
-    templates: res.data.email_templates,
-    contents: res.data.email_contents,
-  }
-}
+//   return {
+//     templates: res.data.email_templates,
+//     contents: res.data.email_contents,
+//   }
+// }
