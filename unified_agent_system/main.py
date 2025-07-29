@@ -113,9 +113,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 from api.admin import router as admin_router
+
 app.include_router(admin_router, prefix="/admin")
+
 
 # ===== 공통 대화 관리 API =====
 

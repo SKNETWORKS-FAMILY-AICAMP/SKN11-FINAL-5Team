@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, EmailStr, Field
+from typing import Union
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
@@ -351,3 +352,68 @@ class CalendarListResponse(BaseModel):
 class QuickEventCreate(BaseModel):
     text: str = Field(..., description="빠른 이벤트 텍스트 (예: '내일 오후 2시에 회의')")
     calendar_id: Optional[str] = Field("primary", description="캘린더 ID")
+    
+    
+from sqlalchemy import Column, Integer, String, Enum, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
+import enum
+from datetime import datetime
+
+Base = declarative_base()
+
+
+class TaskTypeEnum(str, enum.Enum):
+    calendar_sync = "calendar_sync"
+    reminder_notify = "reminder_notify"
+    content_generate = "content_generate"
+    sns_publish_instagram = "sns_publish_instagram"
+    sns_publish_blog = "sns_publish_blog"
+    send_email = "send_email"
+    mcp_insta = "mcp_insta"
+    mcp_blog = "mcp_blog"
+    todo_list = "todo_list"
+
+class AutomationTask(Base):
+    __tablename__ = "automation_task"
+
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    conversation_id = Column(Integer)
+    task_type = Column(Enum(TaskTypeEnum), nullable=False)
+    title = Column(String(200), nullable=False)
+    template_id = Column(Integer)
+    task_data = Column(JSON)  
+    status = Column(String(20))
+    scheduled_at = Column(DateTime)
+    executed_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AiContentSaveRequest(BaseModel):
+    user_id: int
+    task_type: TaskTypeEnum
+    title: str
+    task_data: Dict[str, Union[str, List[str], Dict]]  # ✅ 필수!
+    status: str = "PENDING"
+
+# 공통 필드 포함 모델
+class BaseContentRequest(BaseModel):
+    user_id: int
+    title: str
+    task_type: TaskTypeEnum
+    task_data: Dict[str, Union[str, List[str], Dict]]  # 해시태그나 키워드 포함
+    status: str = "PENDING"
+
+
+# 수동 작성 콘텐츠는 content 필드가 필수
+class ManualContentRequest(BaseModel):
+    user_id: int
+    title: str
+    task_type: str
+    content: str
+    platform: str
+    task_data: dict
+    status: str
+    scheduled_at: Optional[datetime] = None
+
+class GenerateContentRequest(BaseModel):
+    keyword: str

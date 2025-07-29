@@ -657,7 +657,15 @@ async def general_exception_handler(request, exc):
     )
 
 # ===== 에러 핸들러 =====
+# ===== 에러 핸들러 =====
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """HTTP 예외 처리"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=create_error_response(exc.detail, f"HTTP_{exc.status_code}")
+    )
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP 예외 처리"""
@@ -677,6 +685,101 @@ async def general_exception_handler(request, exc):
 
 from services.instagram import router as insta_router
 app.include_router(insta_router, tags=["Instagram"])
+
+
+class ContentSaveRequest(BaseModel):
+    user_id: int
+    title: str
+    content: str
+    task_type: str      # 예: sns_publish_instagram
+    platform: str       # 예: instagram / blog
+    scheduled_at: Optional[datetime] = None
+
+@app.post("/workspace/automation/manual")
+async def save_manual_content(req: ManualContentRequest):
+    """
+    수동 작성 콘텐츠 저장 API
+    """
+    try:
+        logger.info(f"📨 [Manual] 저장 요청: {req.task_type=} {req.task_data=}")
+
+        with get_session_context() as db:
+            task = create_automation_task(
+                db=db,
+                user_id=req.user_id,
+                title=req.title,
+                task_type=req.task_type,
+                task_data={
+                    "platform": req.platform,
+                    "full_content": req.content,
+                    **req.task_data
+                },
+                status=req.status,
+                scheduled_at=req.scheduled_at
+            )
+
+            # ✅ 세션 닫히기 전에 필요한 필드만 복사
+            task_result = {
+                "task_id": task.task_id,
+                "user_id": task.user_id,
+                "task_type": task.task_type,
+                "title": task.title,
+                "task_data": task.task_data,
+                "status": task.status,
+                "created_at": task.created_at,
+            }
+
+        return {
+            "success": True,
+            "message": "수동 콘텐츠가 성공적으로 저장되었습니다.",
+            **task_result
+        }
+
+    except Exception as e:
+        logger.error(f"❌ 수동 콘텐츠 저장 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="수동 콘텐츠 저장 중 오류 발생")
+
+@app.get("/workspace/automation")
+def get_user_automation_tasks(user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        tasks = db.query(AutomationTask).filter(
+            AutomationTask.user_id == user_id,
+            AutomationTask.task_type.in_([
+                "sns_publish_instagram",
+                "sns_publish_blog"
+            ])
+        ).order_by(AutomationTask.created_at.desc()).all()
+
+        return {
+            "success": True,
+            "data": {
+                "tasks": [
+                    {
+                        "task_id": task.task_id,
+                        "title": task.title,
+                        "task_type": task.task_type,
+                        "task_data": task.task_data,
+                        "status": task.status,
+                        "created_at": task.created_at,
+                    }
+                    for task in tasks
+                ]
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.delete("/workspace/automation/{task_id}")
+def delete_automation_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(AutomationTask).filter(AutomationTask.task_id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Automation task not found")
+
+    db.delete(task)
+    db.commit()
+    return {"success": True, "message": f"Task {task_id} deleted"}
+    
 
 if __name__ == "__main__":
     import uvicorn
