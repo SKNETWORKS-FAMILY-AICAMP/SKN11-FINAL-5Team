@@ -169,7 +169,7 @@ class TaskAgent:
             return self._create_error_response(query, str(e))
 
     async def _handle_automation_workflow(self, query: UserQuery, automation_intent: Dict,
-                                        intent_analysis: Dict, conversation_history: List[Dict] = None) -> UnifiedResponse:
+                                    intent_analysis: Dict, conversation_history: List[Dict] = None) -> UnifiedResponse:
         """자동화 워크플로우 처리"""
         try:
             automation_type = automation_intent["automation_type"]
@@ -178,6 +178,11 @@ class TaskAgent:
             extracted_info = await self.llm_service.extract_automation_info(
                 query.message, automation_type, conversation_history
             )
+            
+            # extracted_info가 None인 경우 처리
+            if extracted_info is None:
+                extracted_info = {}
+                logger.warning(f"자동화 정보 추출 실패, 빈 딕셔너리로 초기화: {automation_type}")
             
             # 필수 정보 체크
             missing_fields = self._check_missing_fields(extracted_info, automation_type)
@@ -588,8 +593,6 @@ class TaskAgent:
         
         if hasattr(automation_response, 'scheduled_at') and automation_response.scheduled_at:
             message += f"\n⏰ **실행 예정:** {automation_response.scheduled_at}\n"
-        else:
-            message += f"\n🚀 **즉시 실행됩니다!**\n"
         
         return message
     def _format_extracted_info(self, extracted_info: Dict[str, Any], automation_type: str) -> str:
@@ -915,7 +918,7 @@ class TaskAgent:
             sources=search_result.get("sources", ""),
             metadata={
                 "intent": intent_analysis["intent"],
-                "persona": query.persona.value,
+                "persona": query.persona.value if hasattr(query.persona, 'value') else str(query.persona),
                 "automation_created": False
             },
             processing_time=0.0,

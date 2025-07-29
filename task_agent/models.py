@@ -36,6 +36,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 class AutomationTaskType(str, Enum):
+    POST_INSTAGRAM = "sns_publish_instagram"
     SCHEDULE_CALENDAR = "calendar_sync"
     PUBLISH_SNS = "publish_sns"
     SEND_EMAIL = "send_email"
@@ -66,16 +67,16 @@ class UrgencyLevel(str, Enum):
 
 class UserQuery(BaseModel):
     """사용자 쿼리 요청"""
-    user_id: Optional[int] = Field(..., description="사용자 ID")
+    user_id: int = Field(..., description="사용자 ID")  # Optional 제거
     conversation_id: Optional[int] = Field(None, description="대화 ID")
     message: str = Field(..., description="사용자 메시지")
-    persona: PersonaType = Field(PersonaType.COMMON, description="페르소나 타입")
+    persona: str = Field("common", description="페르소나 타입")  # str로 변경하거나 PersonaType 유지
     
     class Config:
         json_schema_extra = {
             "example": {
-                "user_id": "user123",
-                "conversation_id": "conv_abc123",
+                "user_id": 123,  # int로 변경
+                "conversation_id": 456,
                 "message": "내일 회의 일정을 예약해줘",
                 "persona": "developer"
             }

@@ -39,6 +39,7 @@ from utils import TaskAgentLogger, create_success_response, create_error_respons
 # 자동화 작업 실행기들
 from automation_executors.email_executor import EmailExecutor
 from automation_executors.calendar_executor import CalendarExecutor
+from automation_executors.instagram_executor import InstagramExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ class AutomationManager:
         try:
             self.executors = {
                 AutomationTaskType.SEND_EMAIL.value: EmailExecutor(),
-                AutomationTaskType.SCHEDULE_CALENDAR.value: CalendarExecutor()
+                AutomationTaskType.SCHEDULE_CALENDAR.value: CalendarExecutor(),
+                AutomationTaskType.POST_INSTAGRAM.value: InstagramExecutor()
             }
             
             logger.info("자동화 실행기들 초기화 완료")

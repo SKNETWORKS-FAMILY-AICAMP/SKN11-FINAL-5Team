@@ -197,9 +197,9 @@ class CalendarExecutor:
         """이벤트 데이터 정규화"""
         try:
             normalized = {
-                "title": task_data.get("title", "").strip(),
-                "description": task_data.get("description", "").strip(),
-                "location": task_data.get("location", "").strip(),
+                "title": (task_data.get("title") or "").strip(),
+                "description": (task_data.get("description") or "").strip(),
+                "location": (task_data.get("location") or "").strip(),
                 "attendees": task_data.get("attendees", []),
                 "reminder_minutes": task_data.get("reminder_minutes", 15),
                 "all_day": task_data.get("all_day", False),
