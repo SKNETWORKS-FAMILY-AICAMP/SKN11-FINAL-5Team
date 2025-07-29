@@ -102,18 +102,23 @@ async def instagram_callback(code: str, state: str):
     return JSONResponse({"message": "Instagram 계정 연동 성공", "data": me_data})
 
 class InstagramPostRequest(BaseModel):
+    user_id: int
     caption: str
     image_url: str
 
 @router.post("/instagram/post")
 async def instagram_post(body: InstagramPostRequest):
+    user_id = body.user_id
     caption = body.caption
     image_url = body.image_url
-
+    
     with get_session_context() as db:
-        account = db.query(InstagramToken).order_by(desc(InstagramToken.updated_at)).first()
+        account = db.query(InstagramToken).filter(InstagramToken.user_id == user_id).order_by(desc(InstagramToken.updated_at)).first()
         if not account:
-            return JSONResponse({"error": "Instagram 계정이 등록되지 않았습니다."}, status_code=400)
+            return JSONResponse(
+                {"error": f"Instagram 계정(user_id={user_id})이 등록되지 않았습니다."},
+                status_code=400
+            )
 
         # 1. 미디어 생성
         async with httpx.AsyncClient(timeout=20.0) as client:

@@ -1870,7 +1870,7 @@ export default function ChatRoomPage() {
         setMessages([])
         setConversationId(null) 
         setCurrentChatId(null)
-        window.history.replaceState({}, '', `/chat/room?agent=${type}`)
+        router.push(`/chat/room?agent=${type}`)
       }
     } catch (error) {
       console.error("에이전트 변경 실패:", error)
@@ -1974,7 +1974,7 @@ export default function ChatRoomPage() {
     initializeUser()
   }, [initializeUser])
 
-  // 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
+// 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
   useEffect(() => {
     if (userId && !initializeRef.current) {
       initializeRef.current = true
@@ -1988,8 +1988,8 @@ export default function ChatRoomPage() {
         try {
           const promises = [fetchProjects(userId), fetchChatHistory(userId)]
           
-          if (initialConversationId && !initialQuestion) {
-            promises.push(loadPreviousChat(initialConversationId))
+          if (conversationId && !initialQuestion) {
+            promises.push(loadPreviousChat(conversationId))
           }
           
           if (initialProjectId) {
