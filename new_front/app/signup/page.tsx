@@ -201,7 +201,7 @@ const handleSocialSignup = async (provider: string) => {
       </nav>
 
       {/* Signup Section */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-80px)] px-6">
+      <div className="flex items-center justify-center min-h-[calc(100vh-80px)] px-6 pt-5">
         <div className="w-full max-w-md">
           {/* Step 1: Basic Info */}
           {currentStep === 1 && (
@@ -210,7 +210,7 @@ const handleSocialSignup = async (provider: string) => {
                 <CardTitle className="text-2xl font-bold text-gray-900">회원가입</CardTitle>
                 <p className="text-sm text-gray-600 mt-2">기본 정보를 입력해주세요</p>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 {/* 성공 메시지 표시 */}
                 {successMessage && (
                   <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-md text-sm">

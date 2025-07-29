@@ -343,6 +343,17 @@ const PHQ9ButtonComponent = React.memo(({
   )
 })
 
+function escapeMarkdown(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')  // 백슬래시 먼저
+    // .replace(/\*/g, '\\*')
+    .replace(/_/g, '\\_')
+    .replace(/~/g, '\\~')
+    .replace(/`/g, '\\`')
+    .replace(/</g, '\\<')
+    .replace(/>/g, '\\>');
+}
+
 function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: string, speed?: number, onComplete?: () => void, onTextUpdate?: () => void }) {
   const [displayedText, setDisplayedText] = useState("")
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -365,6 +376,7 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
       onComplete()
     }
   }, [currentIndex, text, speed, onComplete, onTextUpdate])
+  
 
   useEffect(() => {
     setDisplayedText("")
@@ -376,8 +388,8 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
       <ReactMarkdown
         remarkPlugins={[remarkGfm]} // GitHub Flavored Markdown 지원
         skipHtml={false}
-        disallowedElements={['del']} // 줄긋기 <del> 제거
-        unwrapDisallowed={true}      // 감싸진 요소 걷어냄
+        // disallowedElements={['del']} // 줄긋기 <del> 제거
+        // unwrapDisallowed={true}      // 감싸진 요소 걷어냄
         components={{
           p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
           ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
@@ -437,7 +449,7 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
             )
         }}
       >
-        {displayedText}
+        {escapeMarkdown(displayedText)}
       </ReactMarkdown>
       {currentIndex < text.length && (
         <span className="inline-block w-0.5 h-4 bg-gray-400 ml-1 animate-pulse"></span>
@@ -1256,9 +1268,14 @@ export default function ChatRoomPage() {
   // PHQ-9 설문 관련 상태
   const [phq9Processing, setPhq9Processing] = useState(false)
 
+  // 답변 중 정지
+  const [isGenerating, setIsGenerating] = useState(false) // 답변 생성 중 상태
+  const [isStopped, setIsStopped] = useState(false) // 사용자가 정지시켰는지 여부
+
   // ===== PHQ-9 관련 함수 =====
   const handlePHQ9Response = useCallback(async (responseValue: number) => {
     if (!userId || !conversationId || phq9Processing) return
+
 
     console.log("[DEBUG] PHQ-9 응답 처리:", { responseValue, conversationId, userId })
     
@@ -1367,6 +1384,28 @@ export default function ChatRoomPage() {
       setPhq9Processing(false)
     }
   }, [userId, conversationId, phq9Processing])
+
+  const handleStopGeneration = useCallback(() => {
+    setIsGenerating(false)
+    setIsSubmitting(false)
+    setIsLoading(false)
+    setIsStopped(true) // 정지 플래그 설정
+    
+    // 타이핑 중인 메시지를 그 상태로 완료 처리 (현재까지 타이핑된 텍스트 유지)
+    setMessages(prev => {
+      return prev.map(msg => {
+        // 타이핑 중이거나 완료되지 않은 에이전트 메시지를 즉시 완료
+        if (msg.sender === "agent" && (!msg.isComplete || msg.isTyping)) {
+          return {
+            ...msg,
+            isComplete: true,
+            isTyping: false
+          }
+        }
+        return msg
+      })
+    })
+  }, [])
 
   // 메시지에서 PHQ-9 컴포넌트 파싱
   const parsePHQ9Component = useCallback((text: string) => {
@@ -1568,6 +1607,8 @@ export default function ChatRoomPage() {
 
     setIsSubmitting(true)
     setIsLoading(true)
+    setIsGenerating(true) // 답변 생성 중 상태 활성화
+    setIsStopped(false) // 정지 플래그 초기화
 
     if (!messageOverride) setUserInput("")
 
@@ -1579,6 +1620,9 @@ export default function ChatRoomPage() {
       isComplete: false,
     }
     setMessages((prev) => [...prev, loadingMessage])
+
+    // AbortController 생성
+    const controller = new AbortController()
 
     try {
       let currentConversationId = conversationId || initialConversationId
@@ -1601,6 +1645,11 @@ export default function ChatRoomPage() {
         agentType,
         currentProjectId
       )
+
+       // 🔥 중요: 사용자가 정지시켰다면 결과 무시하고 함수 종료
+      if (isStopped) {
+        return
+      }
 
       if (!result || !result.success || !result.data) {
         throw new Error(result?.error || "응답을 받을 수 없습니다")
@@ -1656,7 +1705,12 @@ export default function ChatRoomPage() {
 
       // 채팅 히스토리 갱신
       await fetchChatHistory(userId)
-    } catch (error) {
+    } catch (error: any) {
+      // AbortError는 사용자가 의도적으로 취소한 것이므로 에러 처리하지 않음
+      if (error.name === 'AbortError') {
+        return
+      }
+
       console.error("응답 실패:", error)
       alert("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
@@ -1670,8 +1724,11 @@ export default function ChatRoomPage() {
     } finally {
       setIsSubmitting(false)
       setIsLoading(false)
+      setIsGenerating(false) // 답변 생성 완료
+      setIsStopped(false)
+
     }
-  }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory, saveGeneratedContent, closePostingModal])
+  }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory, saveGeneratedContent, closePostingModal, isStopped])
 
   const handleTypingComplete = useCallback((messageIndex: number) => {
     setMessages(prev => 
@@ -2171,8 +2228,8 @@ export default function ChatRoomPage() {
                                       <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         skipHtml={false}
-                                        disallowedElements={['del']} // 줄긋기 <del> 제거
-                                        unwrapDisallowed={true}      // 감싸진 요소 걷어냄
+                                        // disallowedElements={['del']} // 줄긋기 <del> 제거
+                                        // unwrapDisallowed={true}      // 감싸진 요소 걷어냄
                                         components={{
                                           p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
                                           ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
@@ -2232,7 +2289,7 @@ export default function ChatRoomPage() {
                                             )
                                         }}
                                       >
-                                        {phq9Parse.textWithoutPHQ9}
+                                        {escapeMarkdown(phq9Parse.textWithoutPHQ9)}
                                       </ReactMarkdown>
                                     )}
                                     
@@ -2348,12 +2405,19 @@ export default function ChatRoomPage() {
                   }}
                 />
                 <Button
-                  type="submit"
+                  type={isGenerating ? "button" : "submit"}
                   size="icon"
                   className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-green-600 hover:bg-green-700 shadow-lg disabled:opacity-50"
-                  disabled={!userInput.trim() || isSubmitting || isLoading}
+                  disabled={(!userInput.trim() && !isGenerating) || (isSubmitting && !isGenerating)}
+                  onClick={isGenerating ? handleStopGeneration : undefined}
                 >
-                  <Send className="h-4 w-4" />
+                  {isGenerating ? (
+                    // 답변 중일 때는 정지 아이콘 (하얀 네모)
+                    <div className="w-3 h-3 bg-white rounded-sm" />
+                  ) : (
+                    // 일반 상태일 때는 전송 아이콘
+                    <Send className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </form>
