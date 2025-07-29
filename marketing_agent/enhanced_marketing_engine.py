@@ -25,6 +25,19 @@ from enhanced_marketing_state import (
 )
 from config import config
 
+# 🔥 프로젝트 자동 저장 기능 추가
+try:
+    from shared_modules.project_utils import (
+        save_marketing_strategy_as_project,
+        auto_save_completed_project
+    )
+    from shared_modules.database import get_session_context
+    from shared_modules.queries import get_conversation_by_id
+    AUTO_SAVE_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ 자동 저장 기능을 사용할 수 없습니다: {e}")
+    AUTO_SAVE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class EnhancedMarketingEngine:
@@ -68,35 +81,40 @@ class EnhancedMarketingEngine:
 - 전체 분량은 약 300자 내외, 말 걸 듯한 친근한 톤을 유지해주세요. """
 
         # 🔥 핵심 개선: 사용자 의도 파악 프롬프트
-        self.intent_analysis_prompt = """사용자의 메시지에서 의도와 정보를 정확히 추출하세요.
+        self.intent_analysis_prompt = """
+        사용자의 메시지에서 마케팅 관련 의도와 핵심 정보를 추출하세요.
 
-사용자 입력: "{user_input}"
+        사용자 입력: "{user_input}"
 
-### 추출 가이드라인:
-1. **마케팅 채널 감지**: 인스타그램, 인스타, instagram → "인스타그램"
-2. **업종 감지**: 카페, 커피 → "카페", 쇼핑몰, 이커머스 → "온라인쇼핑몰"
-3. **목표 감지**: 매출, 수익 → "매출증대", 인지도, 브랜드 → "브랜드인지도"
-4. **타겟 감지**: 20대, 청년 → "20대", 30대, 직장인 → "30대 직장인"
+        ### 추출 지침
+        1. intent는 아래 리스트 중 하나를 선택:
+        ["blog_marketing", "content_marketing", "conversion_optimization", 
+            "digital_advertising", "email_marketing", "influencer_marketing", 
+            "local_marketing", "marketing_fundamentals", "marketing_metrics", 
+            "personal_branding", "social_media_marketing", "viral_marketing"]
+        
+        2. business_type은 ["카페", "온라인쇼핑몰", "뷰티샵", "레스토랑", "피트니스", "앱/IT서비스", "교육", "프리랜서", "기타"] 중 하나로 매칭.
+        3. product는 문장에서 언급된 서비스/제품명 추출 (없으면 null).
+        4. main_goal, target_audience, channels는 문맥 기반으로 추론 (없으면 null).
+        5. 잘못된 추측은 하지 말고 불명확하면 null.
+        6. user_sentiment는 positive, neutral, negative 중 선택.
+        7. next_action은 continue_conversation, create_content, provide_advice, ask_question 중 선택.
 
-다음 JSON 형식으로 정확히 답변하세요:
-{{
-    "intent":"blog_marketing|content_marketing|conversion_optimization|digital_advertising|email_marketing|influencer_marketing|local_marketing|marketing_fundamentals|marketing_metrics|personal_branding|social_media_marketing|viral_marketing",
-    "extracted_info": {{
-        "business_type": "업종명 또는 null",
-        "product": "제품/서비스명 또는 null",
-        "main_goal": "마케팅 목표 또는 null",
-        "target_audience": "타겟 고객 또는 null",
-        "budget": "예산 정보 또는 null",
-        "channels": "마케팅 채널명 또는 null"
-    }},
-    "user_sentiment": "positive|neutral|negative",
-    "next_action": "continue_conversation|create_content|provide_advice|ask_question"
-}}
-
-예시:
-- "인스타그램 마케팅을 효과적으로 하는 법은?" → channels: "인스타그램"
-- "카페 운영하는데 20대 고객 늘리고 싶어" → business_type: "카페", target_audience: "20대", main_goal: "신규고객"
-"""
+        출력(JSON):
+        {
+            "intent": "...",
+            "extracted_info": {
+                "business_type": "...",
+                "product": "...",
+                "main_goal": "...",
+                "target_audience": "...",
+                "budget": "...",
+                "channels": "..."
+            },
+            "user_sentiment": "positive|neutral|negative",
+            "next_action": "continue_conversation|create_content|provide_advice|ask_question"
+        }
+        """
 
         # 🔥 핵심 개선: 콘텐츠 생성 프롬프트
         self.content_type_prompt = """
@@ -142,16 +160,44 @@ class EnhancedMarketingEngine:
             
             # 2. 🔥 핵심 개선: 사용자 의도 및 정보 추출
             intent_result = await self._analyze_user_intent(user_input, context)
+            print(intent_result)
             
             # 3. 추출된 정보 저장
             self._save_extracted_info(context, intent_result.get("extracted_info", {}))
             
-            # 4. 🔥 핵심 개선: 의도에 따른 처리 분기
+            # 4. 🔥 핵심 개선: 의도에 따라 분기
             user_intent = intent_result.get("intent")
             next_action = intent_result.get("next_action", "continue_conversation")
             
             print(f"user_intent: {intent_result}")
             print(f"next_action: {next_action}")
+            
+            # 🔥 최종 단계 감지 및 자동 마케팅 전략 생성 + 저장
+            completion_rate = context.get_completion_rate()
+            current_stage = context.current_stage
+            
+            # 마케팅 전략 완료 조건 확인
+            should_generate_strategy = (
+                completion_rate >= 0.8 or  # 80% 이상 완료
+                current_stage == MarketingStage.STRATEGY or  # 전략 단계
+                current_stage == MarketingStage.CONTENT_CREATION or  # 콘텐츠 생성 단계
+                "전략" in user_input.lower() or
+                "완료" in user_input.lower() or
+                "전체" in user_input.lower() or
+                "종합" in user_input.lower()
+            )
+            
+            if should_generate_strategy and AUTO_SAVE_AVAILABLE:
+                logger.info(f"[AUTO_SAVE] 마케팅 전략 생성 조건 충족 - completion_rate: {completion_rate}, stage: {current_stage}")
+                
+                # 마케팅 전략 생성
+                marketing_strategy_result = await self._generate_and_save_marketing_strategy(
+                    context, user_id, conversation_id, user_input
+                )
+                
+                if marketing_strategy_result.get("auto_saved"):
+                    # 자동 저장이 성공한 경우 바로 반환
+                    return marketing_strategy_result
             
             if next_action == "create_content":
                 business_type = context.get_info_value("business_type")
@@ -228,11 +274,35 @@ class EnhancedMarketingEngine:
             }
     
     async def _analyze_user_intent(self, user_input: str, context: ConversationContext) -> Dict[str, Any]:
-        """🔥 핵심 개선: 사용자 의도 분석"""
+        """🔥 핵심 개선: 사용자 의도 분석 (컨텍스트 활용)"""
         try:
+            # 🔥 컨텍스트 정보 추가
+            context_info = ""
+            if context.collected_info:
+                context_items = []
+                for key, info in context.collected_info.items():
+                    context_items.append(f"- {key}: {info.value}")
+                context_info = "\n현재 수집된 정보:\n" + "\n".join(context_items)
+            
+            # 🔥 이전 대화 맥락 추가 (messages → conversation_history로 수정)
+            recent_messages = ""
+            if len(context.conversation_history) > 1:
+                recent_msgs = context.conversation_history[-5:]  # 최근 5개 메시지
+                recent_messages = "\n이전 대화:\n" + "\n".join([f"{msg['role']}: {msg['content'][:100]}..." for msg in recent_msgs])
+            
+            print(recent_messages)
+            # 🔥 개선된 프롬프트 (컨텍스트 포함)
+            enhanced_prompt = f"""{self.intent_analysis_prompt}
+    {context_info}
+    {recent_messages}
+            
+    현재 대화 단계: {context.current_stage.value}
+    완료율: {context.get_completion_rate():.1%}
+            """
+            
             # LLM 기반 의도 분석
             response = await self._call_llm_with_timeout(
-                self.intent_analysis_prompt.format(user_input=user_input),
+                enhanced_prompt.format(user_input=user_input),
                 timeout=10
             )
             
@@ -247,6 +317,13 @@ class EnhancedMarketingEngine:
                 
         except Exception as e:
             logger.warning(f"의도 분석 실패, 폴백 사용: {e}")
+            # 🔥 폴백 값 반환 추가
+            return {
+                "intent": "marketing_fundamentals",
+                "extracted_info": {},
+                "user_sentiment": "neutral",
+                "next_action": "continue_conversation"
+            }
     
     def _save_extracted_info(self, context: ConversationContext, extracted_info: Dict[str, Any]):
         """추출된 정보 저장"""
@@ -494,7 +571,8 @@ class EnhancedMarketingEngine:
             return analysis + "\n\n마케팅에 대해 더 자세히 알려주세요!"
 
     async def _handle_content_creation(self, context: ConversationContext, 
-                                     user_input: str, intent_result: Dict[str, Any]) -> str:
+                                 user_input: str, intent_result: Dict[str, Any], 
+                                 user_id: int = None) -> str:
         """🔥 핵심 개선: 콘텐츠 생성 처리"""
         try:
             # 채널 결정
@@ -687,6 +765,105 @@ class EnhancedMarketingEngine:
         elif current_stage == MarketingStage.STRATEGY and context.can_proceed_to_next_stage():
             # 전략 단계에서는 사용자 요청에 따라 분기
             pass
+    
+    async def _generate_and_save_marketing_strategy(self, context: ConversationContext, 
+                                                   user_id: int, conversation_id: int, 
+                                                   user_input: str) -> Dict[str, Any]:
+        """🔥 마케팅 전략 생성 및 자동 저장"""
+        try:
+            logger.info(f"[AUTO_SAVE] 마케팅 전략 생성 시작 - conversation_id: {conversation_id}")
+            
+            # 수집된 정보를 딕셔너리로 변환
+            marketing_info = {
+                key: info.value for key, info in context.collected_info.items()
+            }
+            
+            # general_marketing_tools에서 generate_marketing_strategy 호출
+            from general_marketing_tools import get_marketing_tools
+            marketing_tools = get_marketing_tools()
+            
+            # 마케팅 전략 생성
+            strategy_result = await marketing_tools.generate_marketing_strategy(marketing_info)
+            
+            if not strategy_result.get("success"):
+                logger.error(f"[AUTO_SAVE] 마케팅 전략 생성 실패: {strategy_result.get('error')}")
+                return {
+                    "success": False,
+                    "error": strategy_result.get("error", "마케팅 전략 생성 실패"),
+                    "auto_saved": False
+                }
+            
+            strategy_content = strategy_result.get("strategy", "")
+            
+            # 자동 저장 실행
+            auto_saved = False
+            save_message = ""
+            
+            try:
+                # 사용자 ID를 이미 알고 있으므로 바로 저장
+                save_result = save_marketing_strategy_as_project(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    marketing_strategy_content=strategy_content,
+                    marketing_info=marketing_info
+                )
+                
+                if save_result["success"]:
+                    logger.info(f"[AUTO_SAVE] 마케팅 전략 자동 저장 성공: project_id={save_result['project_id']}")
+                    auto_saved = True
+                    
+                    # 저장 완료 메시지 추가
+                    save_message = f"\n\n📁 **마케팅 전략 자동 저장 완료**\n" \
+                                 f"• 프로젝트 제목: {save_result['title']}\n" \
+                                 f"• 파일명: {save_result['file_name']}\n" \
+                                 f"• 프로젝트 ID: {save_result['project_id']}\n" \
+                                 f"• 저장 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n" \
+                                 f"💡 마이페이지에서 생성된 마케팅 전략을 확인하실 수 있습니다."
+                else:
+                    logger.error(f"[AUTO_SAVE] 마케팅 전략 자동 저장 실패: {save_result.get('error')}")
+                    save_message = f"\n\n⚠️ **저장 실패**\n저장 중 오류가 발생했습니다: {save_result.get('error', '알 수 없는 오류')}"
+                    
+            except Exception as save_error:
+                logger.error(f"[AUTO_SAVE] 마케팅 전략 저장 중 오류: {save_error}")
+                save_message = f"\n\n⚠️ **저장 실패**\n저장 중 예외 발생: {str(save_error)}"
+            
+            # 최종 응답 구성
+            final_content = f"🎯 **마케팅 전략 완성**\n\n{strategy_content}{save_message}"
+            
+            # 응답 저장
+            context.add_message("assistant", final_content)
+            
+            return {
+                "success": True,
+                "data": {
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "answer": final_content,
+                    "current_stage": "completed",
+                    "completion_rate": 1.0,
+                    "collected_info": {k: v.value for k, v in context.collected_info.items()},
+                    "can_proceed": False,
+                    "user_engagement": context.user_engagement,
+                    "processing_engine": "enhanced_v2",
+                    "auto_saved": auto_saved,
+                    "strategy_generated": True
+                },
+                "auto_saved": auto_saved
+            }
+            
+        except Exception as e:
+            logger.error(f"[AUTO_SAVE] 마케팅 전략 생성 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "auto_saved": False,
+                "data": {
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "answer": f"마케팅 전략 생성 중 오류가 발생했습니다: {str(e)}",
+                    "processing_engine": "enhanced_v2"
+                }
+            }
     
     async def _call_llm_with_timeout(self, prompt: str, timeout: int = 15) -> str:
         """타임아웃이 있는 LLM 호출"""

@@ -138,7 +138,7 @@ workflows:
         
       - step: calendar_scheduling
         server: task_automation
-        tool: schedule_calendar_event
+        tool: calendar_sync_event
         description: "캘린더 일정 등록"
         input_from: project_breakdown
         input_schema:

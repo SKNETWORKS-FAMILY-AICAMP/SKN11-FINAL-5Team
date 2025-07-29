@@ -43,7 +43,14 @@ from shared_modules import (
     format_conversation_history,
     sanitize_filename,
     get_current_timestamp,
-    create_business_response  # 표준 응답 생성 함수 추가
+    create_business_response,  # 표준 응답 생성 함수 추가
+)
+
+# 🔥 프로젝트 자동 저장 기능 추가
+from shared_modules.project_utils import (
+    save_business_plan_as_project,
+    check_project_completion,
+    auto_save_completed_project
 )
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../unified_agent_system'))
@@ -370,12 +377,84 @@ class BusinessPlanningService:
             # 2. 토픽 및 단계
             topics = await self.classify_topics(user_input)
             current_stage = self.multi_turn.determine_stage(topics)
+            print("topics:",topics)
+            print("current_stage:",current_stage)
 
             # 3. 진행률 및 누락 정보
             progress_info = await self.multi_turn.check_overall_progress(conversation_id, history)
             progress = progress_info.get("current_progress", 0.0)
             missing = progress_info.get("missing", [])
             logger.info(f"progress: {progress}, missing: {missing}")
+            
+            # 🔥 새로운 기능: 최종 기획서 작성 감지 및 자동 저장
+            if current_stage == "최종 기획서 작성" or "final_business_plan" in topics or progress >= 0.95:
+                logger.info(f"[AUTO_SAVE] 최종 사업기획서 작성 단계 감지 - conversation_id: {conversation_id}, progress: {progress}")
+                
+                # 최종 사업기획서 생성
+                business_plan_content = await self._generate_final_business_plan(conversation_id, history)
+                
+                # 🔥 자동 저장 실행
+                auto_saved = False
+                save_message = ""
+                
+                try:
+                    # 수집된 정보 추출
+                    business_info = self._extract_business_info_from_history(history)
+                    # 사용자 ID 추출 (대화에서)
+                    with get_session_context() as db:
+                        conversation = get_conversation_by_id(db, conversation_id)
+                        if conversation:
+                            user_id = conversation.user_id
+                            
+                            # 프로젝트로 자동 저장
+                            save_result = save_business_plan_as_project(
+                                user_id=user_id,
+                                conversation_id=conversation_id,
+                                business_plan_content=business_plan_content,
+                                business_info=business_info
+                            )
+                            
+                            if save_result["success"]:
+                                logger.info(f"[AUTO_SAVE] 사업기획서 자동 저장 성공: project_id={save_result['project_id']}")
+                                auto_saved = True
+                                
+                                # 저장 완료 메시지 추가
+                                save_message = f"\n\n📁 **자동 저장 완료**\n" \
+                                             f"• 프로젝트 제목: {save_result['title']}\n" \
+                                             f"• 파일명: {save_result['file_name']}\n" \
+                                             f"• 프로젝트 ID: {save_result['project_id']}\n" \
+                                             f"• 저장 시간: {get_current_timestamp()}\n\n" \
+                                             f"💡 마이페이지에서 저장된 사업기획서를 확인하실 수 있습니다."
+                            else:
+                                logger.error(f"[AUTO_SAVE] 사업기획서 자동 저장 실패: {save_result.get('error')}")
+                                save_message = f"\n\n⚠️ **저장 실패**\n저장 중 오류가 발생했습니다: {save_result.get('error', '알 수 없는 오류')}"
+                        else:
+                            logger.error(f"[AUTO_SAVE] 대화 정보를 찾을 수 없음: conversation_id={conversation_id}")
+                            save_message = "\n\n⚠️ **저장 실패**\n대화 정보를 찾을 수 없습니다."
+                                
+                except Exception as save_error:
+                    logger.error(f"[AUTO_SAVE] 자동 저장 중 오류: {save_error}")
+                    save_message = f"\n\n⚠️ **저장 실패**\n저장 중 예외 발생: {str(save_error)}"
+                
+                # 최종 응답 구성
+                final_content = business_plan_content + save_message
+                
+                return {
+                    "topics": topics,
+                    "answer": final_content,
+                    "sources": "종합된 대화 히스토리 기반",
+                    "retrieval_used": False,
+                    "metadata": {
+                        "type": "final_business_plan",
+                        "current_stage": current_stage,
+                        "progress": 1.0,  # 완료
+                        "missing": [],
+                        "next_stage": None,
+                        "next_question": None,
+                        "auto_saved": auto_saved,
+                        "completion_detected": True
+                    }
+                }
 
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)
@@ -440,13 +519,93 @@ class BusinessPlanningService:
         try:
             messages = [
                 {"role": "system", "content": "너는 1인 창업 전문가로서 사업기획서를 작성하는 전문가야."},
-                {"role": "user", "content": f"다음 대화 히스토리를 기반으로 사업기획서를 작성해줘:\n\n{history}\n\n포맷: 개요, 시장 분석, 비즈니스 모델, 실행 계획, 리스크 관리."}
+                {"role": "user", "content": f"""
+다음 대화 히스토리를 기반으로 종합적인 사업기획서를 작성해줘:
+
+{history}
+
+다음 형식으로 작성해주세요:
+
+# 📋 사업기획서
+
+## 1. 사업 개요
+- 사업 아이디어
+- 사업 목표
+- 핵심 가치 제안
+
+## 2. 시장 분석
+- 시장 규모 및 동향
+- 타겟 고객 분석
+- 경쟁사 분석
+
+## 3. 비즈니스 모델
+- 수익 모델
+- 가격 전략
+- 비용 구조
+
+## 4. 실행 계획
+- 개발 로드맵
+- 마케팅 계획
+- 운영 계획
+
+## 5. 재무 계획
+- 초기 투자비
+- 매출 예상
+- 손익 분석
+
+## 6. 리스크 관리
+- 주요 리스크 요인
+- 대응 방안
+- 백업 계획
+
+## 7. 향후 계획
+- 단기 목표 (6개월)
+- 중기 목표 (1-2년)
+- 장기 비전 (3-5년)
+
+실용적이고 구체적으로 작성해주세요.
+"""}
             ]
             result = await self.llm_manager.generate_response(messages=messages, provider="openai")
             return result
         except Exception as e:
             logger.error(f"[final_business_plan] 생성 실패: {e}")
             return "최종 사업기획서를 생성하지 못했습니다. 다시 시도해주세요."
+    
+    def _extract_business_info_from_history(self, history: str) -> Dict[str, Any]:
+        """대화 히스토리에서 비즈니스 정보 추출"""
+        business_info = {}
+        
+        try:
+            # 간단한 키워드 기반 정보 추출
+            history_lower = history.lower()
+            
+            # 업종 추출
+            business_types = ["카페", "쇼핑몰", "뷰티", "교육", "IT", "식당", "서비스", "제조", "유통"]
+            for bt in business_types:
+                if bt in history:
+                    business_info["business_type"] = bt
+                    break
+            
+            # 목표 추출
+            if "매출" in history_lower or "수익" in history_lower:
+                business_info["main_goal"] = "매출 증대"
+            elif "고객" in history_lower or "인지도" in history_lower:
+                business_info["main_goal"] = "고객 확보"
+            
+            # 타겟 추출
+            age_groups = ["10대", "20대", "30대", "40대", "50대"]
+            for age in age_groups:
+                if age in history:
+                    business_info["target_audience"] = age
+                    break
+            
+            logger.info(f"추출된 비즈니스 정보: {business_info}")
+            return business_info
+            
+        except Exception as e:
+            logger.error(f"비즈니스 정보 추출 실패: {e}")
+            return {}
 
 
 

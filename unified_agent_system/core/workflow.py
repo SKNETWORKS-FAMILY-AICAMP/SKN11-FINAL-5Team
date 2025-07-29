@@ -127,21 +127,17 @@ class UnifiedAgentWorkflow:
             conversation_id = state.request.conversation_id or 0
             conversation_history = self.conversation_histories.get(conversation_id, [])
             
-            # 컨텍스트 라우팅 실행
-            if self.enable_context_routing:
-                routing_decision = await self.router.route_query(
-                    state.request, 
-                    conversation_history, 
-                    enable_context_routing=True
-                )
-                logger.info(f"컨텍스트 라우팅 사용 - 대화 히스토리: {len(conversation_history)}개")
-            else:
-                # 기존 라우팅
-                routing_decision = await self.router.route_query(state.request)
+            # 향상된 컨텍스트 라우팅 실행
+            routing_decision = await self.router.route_query(
+                state.request, 
+                conversation_history, 
+                enable_context_routing=self.enable_context_routing
+            )
             
             state.routing_decision = routing_decision
             
             logger.info(f"라우팅 완료: {routing_decision.agent_type} (신뢰도: {routing_decision.confidence})")
+            logger.info(f"라우팅 이유: {routing_decision.reasoning}")
             
             return {"routing_decision": routing_decision, "step": "routing_complete"}
             
@@ -273,6 +269,14 @@ class UnifiedAgentWorkflow:
                 "timestamp": time.time()
             })
             
+            # 라우터의 대화 흐름 업데이트
+            self.router.update_conversation_flow(
+                user_message=state.request.message,
+                agent_type=state.routing_decision.agent_type,
+                agent_response=state.primary_response.response,
+                routing_reasoning=state.routing_decision.reasoning
+            )
+            
             # 히스토리 길이 제한 (최대 20개 메시지)
             if len(self.conversation_histories[conversation_id]) > 20:
                 self.conversation_histories[conversation_id] = self.conversation_histories[conversation_id][-20:]
@@ -350,19 +354,13 @@ class UnifiedAgentWorkflow:
             # 특정 대화 히스토리만 삭제
             if conversation_id in self.conversation_histories:
                 del self.conversation_histories[conversation_id]
+                # 해당 대화의 라우터 컨텍스트도 초기화 (실제로는 대화별로 관리되어야 함)
                 logger.info(f"대화 {conversation_id} 히스토리 삭제")
     
-    def configure_routing_settings(self, 
-                                 min_interval_minutes: int = 2,
-                                 continuity_threshold: float = 0.7,
-                                 switch_penalty: float = 0.15):
-        """라우팅 설정 변경"""
-        self.router.set_routing_config(
-            min_interval_minutes=min_interval_minutes,
-            continuity_threshold=continuity_threshold,
-            switch_penalty=switch_penalty
-        )
-        logger.info(f"라우팅 설정 변경: interval={min_interval_minutes}분, threshold={continuity_threshold}, penalty={switch_penalty}")
+    def configure_routing_settings(self, **kwargs):
+        """라우팅 설정 변경 (새로운 라우터는 자동으로 최적화됨)"""
+        # 새로운 라우터는 대화 흐름 기반으로 자동 최적화되므로 별도 설정 불필요
+        logger.info("새로운 라우터는 자동으로 대화 흐름을 최적화합니다")
     
     async def cleanup(self):
         """리소스 정리"""
