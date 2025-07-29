@@ -193,6 +193,17 @@ class ConversationState:
         total_fields = len(self.collected_info)
         completed_fields = len([v for v in self.collected_info.values() if v and v != []])
         return completed_fields / total_fields if total_fields > 0 else 0.0
+    
+    def cancel_phq9(self):
+        """PHQ-9 설문 중단"""
+        self.phq9_state["is_active"] = False
+        self.phq9_state["current_question"] = 0
+        self.phq9_state["responses"] = []
+        self.phq9_state["completed"] = False
+        self.phq9_state["score"] = None
+        self.phq9_state["interpretation"] = None
+        self.update_stage(ConversationStage.RAPPORT_BUILDING)
+
 
 class MentalHealthAgentManager:
     """통합 정신건강 에이전트 관리자 - 멀티턴 대화 시스템"""
@@ -444,6 +455,37 @@ class MentalHealthAgentManager:
         else:
             return "counseling"
     
+    def start_phq9_survey(self, conversation_id: int, user_id: int) -> Dict[str, Any]:
+        """PHQ-9 설문 시작 (ConversationState 내부 메서드 호출)"""
+        from mental_agent.utils.mental_health_utils import PHQ9_QUESTIONS
+
+        state = self.get_or_create_conversation_state(conversation_id, user_id)
+
+        if state.phq9_state["is_active"]:
+            return {
+                "message": "이미 PHQ-9 설문이 진행 중입니다.",
+                "phq9_active": True,
+                "current_index": state.phq9_state.get("current_question", 0)
+            }
+
+        # 🔽 ConversationState의 메서드 호출
+        state.start_phq9_survey()
+
+        first_question = PHQ9_QUESTIONS[0]
+
+        return {
+            "message": {
+                "text": first_question["text"],
+                "options": first_question["options"],
+                "index": 1,
+                "total": len(PHQ9_QUESTIONS)
+            },
+            "phq9_active": True,
+            "phq9_completed": False,
+            "current_index": 0
+        }
+
+    
     def handle_phq9_survey(self, user_input: str, state: ConversationState) -> str:
         """PHQ-9 설문 처리"""
         try:
@@ -621,6 +663,16 @@ class MentalHealthAgentManager:
             
             # 사용자 상태 분석
             analysis_result = self.analyze_user_state(user_input, state)
+
+            if user_input.strip() in ["네", "시작"] and not state.phq9_state["is_active"]:
+                return self.start_phq9_survey(conversation_id, user_id)
+            
+            if user_input.strip() in ["그만", "그만할래요", "그만하고 싶어요", "설문 종료","멈춤"]:
+                state.cancel_phq9()  # 상태 종료 메서드
+                return {
+                    "response": "PHQ-9 설문이 중단되었습니다. 언제든 다시 시작하실 수 있어요.",
+                    "end_survey": True
+                }
             
             # 현재 단계에 따른 처리
             if analysis_result.get("immediate_intervention_needed", False):
@@ -629,7 +681,7 @@ class MentalHealthAgentManager:
                 
             elif state.stage == ConversationStage.INITIAL:
                 # 초기 접촉
-                if any(word in user_input for word in ["PHQ", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"]):
+                if any(word in user_input for word in ["PHQ","우울증","우울증 테스트", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"]):
                     response_content = (
                         "PHQ-9 우울증 자가진단 설문을 시작하시겠습니까?\n\n"
                         "이 설문은 지난 2주간의 우울 증상을 평가하는 9개 문항으로 구성되어 있습니다.\n\n"
@@ -637,17 +689,43 @@ class MentalHealthAgentManager:
                         "그만두고 싶으시면 '아니요' 또는 '취소'라고 말씀해 주세요."
                     )
                 else:
-                    # 일반 인사
-                    persona = get_persona_by_issue_type(analysis_result.get("recommended_persona", "common"))
-                    response_content = (
-                        f"{persona['greeting']}\n\n"
-                        "현재 어떤 어려움을 겪고 계신지 편안하게 말씀해 주세요.\n"
-                        "비밀보장이 되며, 비판하지 않는 안전한 공간입니다.\n\n"
-                        "혹시 우울감이나 정신건강에 대한 평가를 받고 싶으시다면 "
-                        "간단한 자가진단 설문을 제안해드릴 수 있습니다."
-                    )
-                
-                state.update_stage(ConversationStage.RAPPORT_BUILDING)
+                    # 바로 상담 응답 생성
+                    persona_key = analysis_result.get("recommended_persona", "common")
+                    persona = PERSONA_CONFIG.get(persona_key, PERSONA_CONFIG["common"])
+                    
+                    # 적절한 페르소나로 응답 생성
+                    counseling_prompt = f""""당신은 따뜻하고 전문적인 정신건강 상담사입니다.
+
+                    사용자가 "{user_input}"라고 말했습니다.
+
+                    다음과 같은 구조로 응답해주세요:
+
+                    1. 먼저 사용자의 감정에 공감하는 따뜻한 말을 건네주세요. 너무 정형적이지 않고 자연스럽게 표현해주세요.
+
+                    2. 그 다음, 해결책이나 도움이 될 만한 조언을 **목록 형식이나 단락 형식 중 적절하게** 제안해주세요. 항목이 많을 경우에는 숫자나 점을 사용하거나, 연결어(예: 그리고, 또한, 혹은 한 가지 더) 등으로 자연스럽게 이어가 주세요.
+
+                    3. 마지막에는 따뜻하고 진심 어린 격려의 말로 마무리해주세요. 사용자가 스스로를 믿고 위로받을 수 있도록 말해주세요.
+
+                    답변은 진정성 있고 인간적인 톤으로 작성하며, 각 아이디어는 줄바꿈으로 구분하고 완전한 문장으로 표현해주세요."""
+
+                    try:
+                        from langchain.schema import SystemMessage, HumanMessage
+                        from langchain_openai import ChatOpenAI
+                        
+                        messages = [
+                            SystemMessage(content=counseling_prompt),
+                            HumanMessage(content=user_input)
+                        ]
+                        
+                        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.7)
+                        raw_response = llm.invoke(messages)
+                        response_content = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
+                        
+                    except Exception as e:
+                        logger.error(f"상담 응답 생성 실패: {e}")
+                        response_content = "안녕하세요. 정신건강 상담사입니다. 어떤 어려움이든 함께 나누고 해결해 나갈 수 있습니다. 편안하게 이야기해 주세요."
+
+                state.update_stage(ConversationStage.COUNSELING)
 
 
                 
@@ -657,25 +735,25 @@ class MentalHealthAgentManager:
                 persona = PERSONA_CONFIG.get(persona_key, PERSONA_CONFIG["common"])
                 
                 # 적절한 페르소나로 응답 생성
-                counseling_prompt = f"""당신은 {persona['name']}입니다.
+                counseling_prompt = f"""당신은 따뜻하고 전문적인 정신건강 상담사입니다.
 
-{persona['description']}
+                사용자가 "{user_input}"라고 말했습니다.
 
-특성:
-{chr(10).join([f"- {trait}" for trait in persona['traits']])}
+                다음과 같은 구조로 응답해주세요:
 
-현재 사용자 상태:
-- 감정 상태: {analysis_result.get('emotional_analysis', {}).get('primary_emotion', 'neutral')}
-- 위험 수준: {analysis_result.get('risk_level', 'low')}
+                1. 먼저 사용자의 감정에 공감하는 따뜻한 말을 건네주세요. 너무 정형적이지 않고 자연스럽게 표현해주세요.
 
-사용자 메시지: "{user_input}"
+                2. 그 다음, 해결책이나 도움이 될 만한 조언을 **목록 형식이나 단락 형식 중 적절하게** 제안해주세요. 항목이 많을 경우에는 숫자나 점을 사용하거나, 연결어(예: 그리고, 또한, 혹은 한 가지 더) 등으로 자연스럽게 이어가 주세요.
 
-{persona['name']}으로서 공감적이고 전문적인 상담을 제공해주세요. 
-필요하다면 후속 질문을 하거나 적절한 자원을 제안할 수 있습니다."""
+                3. 마지막에는 따뜻하고 진심 어린 격려의 말로 마무리해주세요. 사용자가 스스로를 믿고 위로받을 수 있도록 말해주세요.
+
+                답변은 진정성 있고 인간적인 톤으로 작성하며, 각 아이디어는 줄바꿈으로 구분하고 완전한 문장으로 표현해주세요."""
+
 
                 try:
                     # SystemMessage, HumanMessage를 사용한 메시지 구성
                     from langchain.schema import SystemMessage, HumanMessage
+                    from langchain_openai import ChatOpenAI
                     
                     messages = [
                         SystemMessage(content=counseling_prompt),
@@ -688,7 +766,7 @@ class MentalHealthAgentManager:
                     raw_response = llm.invoke(messages)
                     response_content = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
                     
-                    # 후속 질문 추가
+                    # # 후속 질문 추가
                     # follow_up_questions = get_follow_up_questions(analysis_result.get("emotional_analysis", {}))
                     # if follow_up_questions and analysis_result.get("risk_level") != "critical":
                     #     response_content += f"\n\n더 도움이 되도록 몇 가지 질문을 드려도 될까요?\n"
@@ -697,6 +775,7 @@ class MentalHealthAgentManager:
                 except Exception as e:
                     logger.error(f"상담 응답 생성 실패: {e}")
                     response_content = "안녕하세요. 정신건강 상담사입니다. 어떤 어려움이든 함께 나누고 해결해 나갈 수 있습니다. 편안하게 이야기해 주세요."
+                state.update_stage(ConversationStage.COUNSELING)
             
             # 응답 메시지 저장
             insert_message_raw(
@@ -760,217 +839,227 @@ class MentalHealthAgentManager:
                 "멀티턴 상담"
             ]
         }
-# mental_health_manager.py에 추가할 메서드들
+    # mental_health_manager.py에 추가할 메서드들
 
-def get_phq9_status(self, conversation_id: int) -> Dict[str, Any]:
-    """PHQ-9 설문 상태 조회"""
-    try:
-        if conversation_id not in self.conversation_states:
-            return {
-                "success": False,
-                "is_active": False,
-                "current_question": None,
-                "error": "대화를 찾을 수 없습니다"
-            }
-        
-        state = self.conversation_states[conversation_id]
-        
-        if state.phq9_state["is_active"]:
-            current_q_index = len(state.phq9_state["responses"])
-            if current_q_index < 9:
+    def get_phq9_status(self, conversation_id: int) -> Dict[str, Any]:
+        """PHQ-9 설문 상태 조회"""
+        try:
+            if conversation_id not in self.conversation_states:
                 return {
-                    "success": True,
-                    "is_active": True,
-                    "current_question": {
-                        "index": current_q_index,
-                        "text": PHQ9_QUESTIONS[current_q_index],
-                        "progress": f"{current_q_index + 1}/9",
-                        "options": [
-                            {"value": 0, "label": "전혀 그렇지 않다"},
-                            {"value": 1, "label": "며칠 정도 그렇다"},
-                            {"value": 2, "label": "일주일 이상 그렇다"},
-                            {"value": 3, "label": "거의 매일 그렇다"}
-                        ]
-                    },
-                    "completed": False
+                    "success": False,
+                    "is_active": False,
+                    "current_question": None,
+                    "error": "대화를 찾을 수 없습니다"
                 }
-        
-        return {
-            "success": True,
-            "is_active": False,
-            "current_question": None,
-            "completed": state.phq9_state["completed"],
-            "score": state.phq9_state.get("score")
-        }
-        
-    except Exception as e:
-        logger.error(f"PHQ-9 상태 조회 실패: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-def submit_phq9_button_response(self, conversation_id: int, user_id: int, response_value: int) -> Dict[str, Any]:
-    """PHQ-9 버튼 응답 처리"""
-    try:
-        if conversation_id not in self.conversation_states:
-            return {
-                "success": False,
-                "error": "대화를 찾을 수 없습니다"
-            }
-        
-        state = self.conversation_states[conversation_id]
-        
-        if not state.phq9_state["is_active"]:
-            return {
-                "success": False,
-                "error": "PHQ-9 설문이 활성화되지 않았습니다"
-            }
-        
-        if response_value not in [0, 1, 2, 3]:
-            return {
-                "success": False,
-                "error": "응답값은 0-3 사이여야 합니다"
-            }
-        
-        # 응답 저장
-        state.add_phq9_response(response_value)
-        
-        # 사용자 응답을 메시지로 저장
-        response_labels = ["전혀 그렇지 않다", "며칠 정도 그렇다", "일주일 이상 그렇다", "거의 매일 그렇다"]
-        user_response_text = f"[PHQ-9 응답] {response_value}: {response_labels[response_value]}"
-        
-        with get_session_context() as db:
-            create_message(db, conversation_id, "user", "mental_health", user_response_text)
-        
-        current_question_index = len(state.phq9_state["responses"])
-        
-        # 설문 완료 체크
-        if state.phq9_state["completed"]:
-            # 완료 메시지 생성
-            result = state.phq9_state["interpretation"]
-            score = result.get("total_score", 0)
-            severity = result.get("severity", "")
-            recommendation = result.get("recommendation", "")
             
-            completion_message = f"""✅ **PHQ-9 설문 완료**
-
-**총점: {score}점**
-**평가 결과: {severity}**
-
-{result.get('interpretation', '')}
-
-**권장사항**: {recommendation}"""
+            state = self.conversation_states[conversation_id]
             
-            # 위기 상황 체크
-            if result.get("suicide_risk", False):
-                completion_message += f"""
-
-⚠️ **중요 안내**: 자해나 자살에 대한 생각이 감지되었습니다. 
-즉시 전문가의 도움을 받으시기 바랍니다.
-
-**응급 연락처**:
-- 생명의전화: 1393
-- 정신건강위기상담: 1577-0199
-- 응급실: 119"""
-                
-                state.update_stage(ConversationStage.CRISIS_EVALUATION)
-            else:
-                state.update_stage(ConversationStage.COUNSELING)
-            
-            # 완료 메시지 저장
-            with get_session_context() as db:
-                create_message(db, conversation_id, "agent", "mental_health", completion_message)
+            if state.phq9_state["is_active"]:
+                current_q_index = len(state.phq9_state["responses"])
+                if current_q_index < 9:
+                    return {
+                        "success": True,
+                        "is_active": True,
+                        "current_question": {
+                            "index": current_q_index,
+                            "text": PHQ9_QUESTIONS[current_q_index],
+                            "progress": f"{current_q_index + 1}/9",
+                            "options": [
+                                {"value": 0, "label": "전혀 그렇지 않다"},
+                                {"value": 1, "label": "며칠 정도 그렇다"},
+                                {"value": 2, "label": "일주일 이상 그렇다"},
+                                {"value": 3, "label": "거의 매일 그렇다"}
+                            ]
+                        },
+                        "completed": False
+                    }
             
             return {
                 "success": True,
-                "completed": True,
-                "result": {
-                    "score": score,
-                    "severity": severity,
-                    "recommendation": recommendation,
-                    "suicide_risk": result.get("suicide_risk", False),
-                    "interpretation": result.get("interpretation", "")
-                },
-                "agent_message": completion_message,
-                "next_stage": state.stage.value
+                "is_active": False,
+                "current_question": None,
+                "completed": state.phq9_state["completed"],
+                "score": state.phq9_state.get("score")
             }
-        
-        else:
-            # 다음 질문 정보 반환
-            if current_question_index < 9:
-                return {
-                    "success": True,
-                    "completed": False,
-                    "next_question": {
-                        "index": current_question_index,
-                        "text": PHQ9_QUESTIONS[current_question_index],
-                        "progress": f"{current_question_index + 1}/9",
-                        "options": [
-                            {"value": 0, "label": "전혀 그렇지 않다"},
-                            {"value": 1, "label": "며칠 정도 그렇다"},
-                            {"value": 2, "label": "일주일 이상 그렇다"},
-                            {"value": 3, "label": "거의 매일 그렇다"}
-                        ]
-                    }
-                }
-        
-        return {
-            "success": False,
-            "error": "예상치 못한 오류가 발생했습니다"
-        }
-        
-    except Exception as e:
-        logger.error(f"PHQ-9 버튼 응답 처리 실패: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-def start_phq9_survey(self, conversation_id: int, user_id: int) -> Dict[str, Any]:
-    """PHQ-9 설문 시작"""
-    try:
-        if conversation_id not in self.conversation_states:
+            
+        except Exception as e:
+            logger.error(f"PHQ-9 상태 조회 실패: {e}")
             return {
                 "success": False,
-                "error": "대화를 찾을 수 없습니다"
+                "error": str(e)
             }
-        
-        state = self.conversation_states[conversation_id]
-        
-        # PHQ-9 시작
-        state.start_phq9_survey()
-        
-        # 시작 메시지 생성
-        start_message = """📋 **PHQ-9 우울증 자가진단 설문**
 
-총 9개 문항으로 구성되어 있습니다. 각 문항에 대해 지난 2주간의 경험을 바탕으로 버튼을 클릭하여 답변해 주세요.
+    def submit_phq9_button_response(self, conversation_id: int, user_id: int, response_value: int) -> Dict[str, Any]:
+        """PHQ-9 버튼 응답 처리 - 프론트엔드와 호환되도록 수정"""
+        try:
+            if conversation_id not in self.conversation_states:
+                return {
+                    "success": False,
+                    "error": "대화를 찾을 수 없습니다"
+                }
+            
+            state = self.conversation_states[conversation_id]
+            
+            if not state.phq9_state["is_active"]:
+                return {
+                    "success": False,
+                    "error": "PHQ-9 설문이 활성화되지 않았습니다"
+                }
+            
+            if response_value not in [0, 1, 2, 3]:
+                return {
+                    "success": False,
+                    "error": "응답값은 0-3 사이여야 합니다"
+                }
+            
+            # 응답 저장
+            state.add_phq9_response(response_value)
+            
+            # 사용자 응답을 메시지로 저장
+            response_labels = ["전혀 그렇지 않다", "며칠 정도 그렇다", "일주일 이상 그렇다", "거의 매일 그렇다"]
+            user_response_text = f"[PHQ-9 응답] {response_value}: {response_labels[response_value]}"
+            
+            with get_session_context() as db:
+                create_message(db, conversation_id, "user", "mental_health", user_response_text)
 
-**첫 번째 질문을 시작합니다.**"""
-        
-        # 시작 메시지 저장
-        with get_session_context() as db:
-            create_message(db, conversation_id, "agent", "mental_health", start_message)
-        
-        return {
-            "success": True,
-            "message": start_message,
-            "first_question": {
-                "index": 0,
+            current_question_index = len(state.phq9_state["responses"])
+            
+            # 설문 완료 체크
+            if state.phq9_state["completed"]:
+                # 완료 메시지 생성
+                result = state.phq9_state["interpretation"]
+                score = result.get("total_score", 0)
+                severity = result.get("severity", "")
+                recommendation = result.get("recommendation", "")
+                
+                completion_message = f"""✅ **PHQ-9 설문 완료**
+
+    **총점: {score}점**
+    **평가 결과: {severity}**
+
+    {result.get('interpretation', '')}
+
+    **권장사항**: {recommendation}"""
+                
+                # 위기 상황 체크
+                if result.get("suicide_risk", False):
+                    completion_message += f"""
+
+    ⚠️ **중요 안내**: 자해나 자살에 대한 생각이 감지되었습니다. 
+    즉시 전문가의 도움을 받으시기 바랍니다.
+
+    **응급 연락처**:
+    - 생명의전화: 1393
+    - 정신건강위기상담: 1577-0199
+    - 응급실: 119"""
+                    
+                    state.update_stage(ConversationStage.CRISIS_EVALUATION)
+                else:
+                    state.update_stage(ConversationStage.COUNSELING)
+                
+                # 완료 메시지 저장
+                with get_session_context() as db:
+                    create_message(db, conversation_id, "agent", "mental_health", completion_message)
+                
+                return {
+                    "success": True,
+                    "completed": True,
+                    "response": completion_message,  # 프론트엔드에서 기대하는 키
+                    "result": {
+                        "score": score,
+                        "severity": severity,
+                        "recommendation": recommendation,
+                        "suicide_risk": result.get("suicide_risk", False),
+                        "interpretation": result.get("interpretation", "")
+                    },
+                    "next_stage": state.stage.value,
+                }
+            
+            else:
+                # 다음 질문 생성 - 프론트엔드 형식에 맞춤
+                if current_question_index < 9:
+                    next_question_data = {
+                        "text": PHQ9_QUESTIONS[current_question_index],
+                        "progress": f"{current_question_index + 1}/9",
+                        "question_id": current_question_index + 1,
+                        "isDisabled": False
+                    }
+                    
+                    # 프론트엔드가 기대하는 PHQ9_BUTTON 형식으로 메시지 생성
+                    agent_message = f"다음 질문입니다.\n\nPHQ9_BUTTON:{json.dumps(next_question_data)}"
+                    
+                    # 메시지 저장
+                    with get_session_context() as db:
+                        create_message(db, conversation_id, "agent", "mental_health", agent_message)
+                    
+                    return {
+                        "success": True,
+                        "completed": False,
+                        "response": agent_message,  # 프론트엔드에서 기대하는 키
+                        "next_question": next_question_data,
+                        "log_message": user_response_text
+
+                    }
+            
+            return {
+                "success": False,
+                "error": "예상치 못한 오류가 발생했습니다"
+            }
+            
+        except Exception as e:
+            logger.error(f"PHQ-9 버튼 응답 처리 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def start_phq9_survey(self, conversation_id: int, user_id: int) -> Dict[str, Any]:
+        """PHQ-9 설문 시작 - 프론트엔드와 호환되도록 수정"""
+        try:
+            if conversation_id not in self.conversation_states:
+                return {
+                    "success": False,
+                    "error": "대화를 찾을 수 없습니다"
+                }
+            
+            state = self.conversation_states[conversation_id]
+            
+            if state.phq9_state["is_active"]:
+                return {
+                    "success": False,
+                    "error": "이미 PHQ-9 설문이 진행 중입니다."
+                }
+            
+            # PHQ-9 시작
+            state.start_phq9_survey()
+            
+            # 시작 메시지와 첫 번째 질문을 PHQ9_BUTTON 형식으로 생성
+            first_question_data = {
                 "text": PHQ9_QUESTIONS[0],
                 "progress": "1/9",
-                "options": [
-                    {"value": 0, "label": "전혀 그렇지 않다"},
-                    {"value": 1, "label": "며칠 정도 그렇다"},
-                    {"value": 2, "label": "일주일 이상 그렇다"},
-                    {"value": 3, "label": "거의 매일 그렇다"}
-                ]
+                "question_id": 1,
+                "isDisabled": False
             }
-        }
-        
-    except Exception as e:
-        logger.error(f"PHQ-9 시작 실패: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+            
+            start_message = f"""📋 **PHQ-9 우울증 자가진단 설문**
+
+    총 9개 문항으로 구성되어 있습니다. 각 문항에 대해 지난 2주간의 경험을 바탕으로 버튼을 클릭하여 답변해 주세요.
+
+    PHQ9_BUTTON:{json.dumps(first_question_data)}"""
+            
+            # 시작 메시지 저장
+            with get_session_context() as db:
+                create_message(db, conversation_id, "agent", "mental_health", start_message)
+            
+            return {
+                "success": True,
+                "response": start_message,  # 프론트엔드에서 기대하는 키
+                "first_question": first_question_data
+            }
+            
+        except Exception as e:
+            logger.error(f"PHQ-9 시작 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }

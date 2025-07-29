@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from fastapi import Body
+import httpx
+import asyncio
 
 # 공통 모듈 임포트
 from shared_modules import (
@@ -86,6 +88,7 @@ async def process_user_query(request: UserQuery):
         
         # 정신건강 매니저로 처리
         result = mental_health_manager.process_user_query(
+            
             user_input=request.message,
             user_id=request.user_id,
             conversation_id=request.conversation_id
@@ -307,7 +310,7 @@ def health_check():
         logger.error(f"헬스체크 실패: {e}")
         return create_error_response(f"헬스체크 실패: {str(e)}", "HEALTH_CHECK_ERROR")
     
-# mental_agent/main.py에 추가할 엔드포인트들
+# main.py의 PHQ-9 관련 엔드포인트들 수정
 
 @app.get("/conversation/{conversation_id}/phq9/status")
 def get_phq9_status_endpoint(conversation_id: int):
@@ -321,7 +324,7 @@ def get_phq9_status_endpoint(conversation_id: int):
 
 @app.post("/conversation/{conversation_id}/phq9/response")
 def submit_phq9_button_response_endpoint(conversation_id: int, data: dict = Body(...)):
-    """PHQ-9 버튼 응답 제출"""
+    """PHQ-9 버튼 응답 제출 - 프론트엔드 응답 형식에 맞춤"""
     try:
         user_id = data.get("user_id")
         response_value = data.get("response_value")
@@ -336,7 +339,22 @@ def submit_phq9_button_response_endpoint(conversation_id: int, data: dict = Body
             conversation_id, user_id, response_value
         )
         
-        return create_success_response(result)
+        if result.get("success"):
+            # 프론트엔드가 기대하는 형식으로 응답 구성
+            response_data = {
+                "completed": result.get("completed", False),
+                "response": result.get("response", ""),  # 메시지 내용
+            }
+            
+            if result.get("completed"):
+                response_data["result"] = result.get("result", {})
+                response_data["next_stage"] = result.get("next_stage", "")
+            else:
+                response_data["next_question"] = result.get("next_question", {})
+            
+            return create_success_response(response_data)
+        else:
+            return create_error_response(result.get("error", "알 수 없는 오류"), "PHQ9_SUBMIT_ERROR")
             
     except Exception as e:
         logger.error(f"PHQ-9 버튼 응답 제출 실패: {e}")
@@ -344,7 +362,7 @@ def submit_phq9_button_response_endpoint(conversation_id: int, data: dict = Body
 
 @app.post("/conversation/{conversation_id}/phq9/start")
 def start_phq9_survey_endpoint(conversation_id: int, data: dict = Body(...)):
-    """PHQ-9 설문 시작"""
+    """PHQ-9 설문 시작 - 프론트엔드 응답 형식에 맞춤"""
     try:
         user_id = data.get("user_id")
         
@@ -353,9 +371,17 @@ def start_phq9_survey_endpoint(conversation_id: int, data: dict = Body(...)):
         
         result = mental_health_manager.start_phq9_survey(conversation_id, user_id)
         
-        return create_success_response(result)
+        if result.get("success"):
+            # 프론트엔드가 기대하는 형식으로 응답 구성
+            response_data = {
+                "response": result.get("response", ""),  # PHQ9_BUTTON을 포함한 메시지
+                "first_question": result.get("first_question", {})
+            }
+            return create_success_response(response_data)
+        else:
+            return create_error_response(result.get("error", "알 수 없는 오류"), "PHQ9_START_ERROR")
             
-    except Exception as e:
+    except Exception as e: 
         logger.error(f"PHQ-9 시작 실패: {e}")
         return create_error_response(str(e), "PHQ9_START_ERROR")
 
@@ -373,6 +399,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app, 
         host=config.HOST, 
-        port=getattr(config, 'MENTAL_HEALTH_PORT', 8003),
+        port=getattr(config, 'MENTAL_HEALTH_PORT', 8004),
         log_level=config.LOG_LEVEL.lower()
     )

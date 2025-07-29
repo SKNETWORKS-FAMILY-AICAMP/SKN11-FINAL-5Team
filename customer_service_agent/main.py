@@ -2,7 +2,11 @@
 Customer Service Agent - 리팩토링된 메인 진입점
 마케팅 에이전트의 구조를 참고하여 멀티턴 대화 시스템으로 업그레이드
 """
+import sys
+import os
 
+# shared_modules가 있는 상위 디렉토리를 Python 경로에 추가
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import logging
 import time
 from typing import Optional

@@ -88,8 +88,8 @@ export default function HomePage() {
 
                   {showProfileMenu && (
                     <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                      <Link href="/chat" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
-                        상담으로 돌아가기
+                      <Link href="/mypage" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
+                        마이페이지
                       </Link>
                       <Link href="/workspace" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
                         워크스페이스

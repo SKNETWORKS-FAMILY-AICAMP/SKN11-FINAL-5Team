@@ -331,7 +331,7 @@ const PHQ9ButtonComponent = React.memo(({
               </span>
             </Button>
           ))}
-        </div>
+        </div> 
         
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-xs text-gray-600">
@@ -375,6 +375,9 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
     <div className="whitespace-pre-wrap !leading-snug">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]} // GitHub Flavored Markdown 지원
+        skipHtml={false}
+        disallowedElements={['del']} // 줄긋기 <del> 제거
+        unwrapDisallowed={true}      // 감싸진 요소 걷어냄
         components={{
           p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
           ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
@@ -1833,16 +1836,47 @@ export default function ChatRoomPage() {
         router.push("/chat")
         return
       }
-      setAgentType(type as AgentType)
-      setMessages([])
-      setConversationId(null)
-      setCurrentChatId(null)
-      window.history.replaceState({}, '', `/chat/room?agent=${type}`)
+
+      // 🔧 수정: 에이전트 선택 시 새 대화 세션 생성
+      if (userId) {
+        // 새 대화 세션 생성
+        const result = await agentApi.createConversation(userId)
+        if (result.success && result.data?.conversationId) {
+          const newConversationId = result.data.conversationId
+          
+          // 상태 초기화
+          setMessages([])
+          setConversationId(newConversationId)
+          setCurrentChatId(null)
+          setAgentType(type as AgentType)
+          
+          // 인스타그램 포스팅 상태도 리셋
+          closePostingModal()
+          
+          // URL 업데이트 - 새 대화 ID와 함께
+          const newUrl = `/chat/room?conversation_id=${newConversationId}&agent=${type}`
+          window.history.replaceState({}, '', newUrl)
+          
+          // 채팅 히스토리 갱신
+          await fetchChatHistory(userId)
+          
+          console.log(`🎯 ${type} 에이전트 새 대화 시작: conversation_id=${newConversationId}`)
+        } else {
+          throw new Error("새 대화 세션 생성 실패")
+        }
+      } else {
+        // 사용자 정보가 없으면 기존 방식대로
+        setAgentType(type as AgentType)
+        setMessages([])
+        setConversationId(null) 
+        setCurrentChatId(null)
+        window.history.replaceState({}, '', `/chat/room?agent=${type}`)
+      }
     } catch (error) {
       console.error("에이전트 변경 실패:", error)
-      alert("에이전트 변경에 실패했습니다. 다시 시도해주세요.")
+      alert("새 대화를 시작할 수 없습니다. 다시 시도해주세요.")
     }
-  }, [router])
+  }, [router, userId, agentApi, fetchChatHistory, closePostingModal])
 
   const handleNewChat = useCallback(() => {
     if (isSubmitting) return
@@ -2136,6 +2170,9 @@ export default function ChatRoomPage() {
                                     {phq9Parse.textWithoutPHQ9 && (
                                       <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
+                                        skipHtml={false}
+                                        disallowedElements={['del']} // 줄긋기 <del> 제거
+                                        unwrapDisallowed={true}      // 감싸진 요소 걷어냄
                                         components={{
                                           p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
                                           ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,

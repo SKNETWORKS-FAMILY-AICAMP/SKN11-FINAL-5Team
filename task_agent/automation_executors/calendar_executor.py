@@ -196,14 +196,10 @@ class CalendarExecutor:
     async def _normalize_event_data(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """이벤트 데이터 정규화"""
         try:
-            # None 값을 안전하게 처리하는 헬퍼 함수
-            def safe_strip(value):
-                return (value or "").strip()
-            
             normalized = {
-                "title": safe_strip(task_data.get("title")),
-                "description": safe_strip(task_data.get("description")),
-                "location": safe_strip(task_data.get("location")),
+                "title": task_data.get("title", "").strip(),
+                "description": task_data.get("description", "").strip(),
+                "location": task_data.get("location", "").strip(),
                 "attendees": task_data.get("attendees", []),
                 "reminder_minutes": task_data.get("reminder_minutes", 15),
                 "all_day": task_data.get("all_day", False),

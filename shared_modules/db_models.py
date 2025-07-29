@@ -293,3 +293,4 @@ class InstagramToken(Base):
     refresh_token = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    user = relationship("User", backref="instagram_accounts")

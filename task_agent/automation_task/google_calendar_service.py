@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Google Calendar API 스코프
-SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.events']
+SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 class GoogleCalendarConfig:
     """Google Calendar 설정 클래스"""

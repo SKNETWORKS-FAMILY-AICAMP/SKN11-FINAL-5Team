@@ -21,6 +21,7 @@ import sys
 import os
 import shutil
 from typing import Optional
+import httpx
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -68,7 +69,7 @@ from shared_modules.database import  get_db_dependency
 from shared_modules.queries import get_conversation_history
 from shared_modules.utils import get_or_create_conversation_session, create_success_response as unified_create_success_response
 from pydantic import BaseModel
-from shared_modules.db_models import Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ
+from shared_modules.db_models import InstagramToken, Template, User, TemplateMessage, Project, ProjectDocument, Conversation, FAQ
 
 # 로깅 설정
 logging.basicConfig(level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT)
@@ -144,16 +145,26 @@ async def get_user_conversations(user_id: int):
     try:
         with get_session_context() as db:
             from shared_modules.queries import get_user_conversations
+            from shared_modules.db_models import Message
+            
             conversations = get_user_conversations(db, user_id, visible_only=True)
             
             conversation_list = []
             for conv in conversations:
-                conversation_list.append({
-                    "conversation_id": conv.conversation_id,
-                    "started_at": conv.started_at.isoformat() if conv.started_at else None,
-                    "ended_at": conv.ended_at.isoformat() if conv.ended_at else None,
-                    "title": "대화"
-                })
+                # 🔧 해당 대화에 메시지가 있는지 확인
+                message_count = db.query(Message).filter(
+                    Message.conversation_id == conv.conversation_id
+                ).count()
+                
+                # 메시지가 있는 대화만 포함
+                if message_count > 0:
+                    conversation_list.append({
+                        "conversation_id": conv.conversation_id,
+                        "started_at": conv.started_at.isoformat() if conv.started_at else None,
+                        "ended_at": conv.ended_at.isoformat() if conv.ended_at else None,
+                        "title": "대화",
+                        "message_count": message_count
+                    })
             
             return create_success_response(conversation_list)
             
@@ -344,6 +355,8 @@ async def google_login(request: Request, code: str, state: str = None):
         social_id = userinfo["id"]
         email = userinfo.get("email")
         social_nickname = userinfo.get("name", "")
+
+        
         
         with get_session_context() as db:
             existing_user = get_user_by_social(db, provider, social_id)
@@ -406,6 +419,42 @@ async def google_login(request: Request, code: str, state: str = None):
                         business_type=user_data.get("businessType"),
                         experience=experience_value
                     )
+                    
+                    logger.info(f"🔍 DEBUG: user_data 전체 내용 = {user_data}")
+                    logger.info(f"🔍 DEBUG: instagramId 값 = '{user_data.get('instagramId', 'KEY_NOT_FOUND')}'")
+                    logger.info(f"🔍 DEBUG: instagramId strip 후 = '{user_data.get('instagramId', '').strip()}'")
+                    logger.info(f"🔍 DEBUG: instagramId 조건 확인 = {bool(user_data.get('instagramId', '').strip())}")
+
+                    instagram_id = user_data.get("instagramId", "").strip()
+                    if instagram_id:
+                        # "@" 기호 제거
+                        username = instagram_id[1:] if instagram_id.startswith("@") else instagram_id
+                        
+                        logger.info(f"📥 구글 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
+                        
+                        try:
+                            insta = InstagramToken(
+                                user_id=new_user.user_id,
+                                username=username,
+                                access_token=access_token,  # 실제 구글/카카오 토큰 사용
+                                refresh_token=refresh_token or "",
+                                graph_id=""
+                                                        )
+                            db.add(insta)
+                            db.commit()
+                            logger.info("✅ 구글 인스타그램 저장 완료")
+                        except Exception as e:
+                            logger.error(f"❌ 구글 인스타그램 저장 실패: {e}")
+                            import traceback
+                            logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                            db.rollback()
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": final_nickname
+                    }
                     
                     user_data_response = {
                         "user_id": new_user.user_id,
@@ -565,6 +614,41 @@ def kakao_login(code: str, state: str = None):
                         business_type=business_type,
                         experience=experience_value
                     )
+                    logger.info(f"🔍 DEBUG: user_data 전체 내용 = {user_data}")
+                    logger.info(f"🔍 DEBUG: instagramId 값 = '{user_data.get('instagramId', 'KEY_NOT_FOUND')}'")
+                    logger.info(f"🔍 DEBUG: instagramId strip 후 = '{user_data.get('instagramId', '').strip()}'")
+                    logger.info(f"🔍 DEBUG: instagramId 조건 확인 = {bool(user_data.get('instagramId', '').strip())}")
+
+                    instagram_id = user_data.get("instagramId", "").strip()
+                    if instagram_id:
+                        # "@" 기호 제거
+                        username = instagram_id[1:] if instagram_id.startswith("@") else instagram_id
+                        
+                        logger.info(f"📥 카카오 인스타그램 저장 시도: user_id={new_user.user_id}, username={username}")
+                        
+                        try:
+                            insta = InstagramToken(
+                                user_id=new_user.user_id,
+                                username=username,
+                                access_token=access_token,  # 실제 구글/카카오 토큰 사용
+                                refresh_token=refresh_token or "",
+                                graph_id=""
+                            )
+                            db.add(insta)
+                            db.commit()
+                            logger.info("✅ 카카오 인스타그램 저장 완료")
+                        except Exception as e:
+                            logger.error(f"❌ 카카오 인스타그램 저장 실패: {e}")
+                            import traceback
+                            logger.error(f"스택 트레이스: {traceback.format_exc()}")
+                            db.rollback()
+                    
+                    user_data_response = {
+                        "user_id": new_user.user_id,
+                        "provider": provider,
+                        "email": new_user.email or "",
+                        "username": final_nickname
+                    }
                     
                     # 🔍 생성 후 확인
                     logger.info(f"카카오 새 사용자 생성 완료:")
@@ -647,7 +731,29 @@ async def social_login(req: SocialLoginRequest):
                     business_type=req.business_type,
                     experience=req.experience
                 )
-                
+
+                # ✅ 인스타그램 아이디가 있을 경우 저장
+                if req.instagram_id and req.instagram_id.strip():
+
+                    
+                    # "@" 기호 제거
+                    username = req.instagram_id.strip()
+                    if username.startswith("@"):
+                        username = username[1:]
+
+                    logger.info(f"📥 저장 시도: {username}")
+                    insta = InstagramToken(
+                        user_id=user.user_id,
+                        username=username,
+                        access_token="",  # 실제 구글/카카오 토큰 사용
+                        refresh_token= "",
+                        graph_id=""
+                    )
+                    db.add(insta)
+                    db.commit()
+                    logger.info("✅ 인스타그램 저장 완료")
+
+                            
                 # 🔍 생성 후 확인
                 logger.info(f"새 사용자 생성 완료:")
                 logger.info(f"  - user_id: {user.user_id}")
@@ -1533,6 +1639,65 @@ async def submit_feedback(req: FeedbackRequest):
         logger.error(f"피드백 전송 오류: {e}")
         return create_error_response("피드백 전송 실패", 
         "FEEDBACK_ERROR")
+    
+# Mental Health Agent의 포트 설정
+MENTAL_HEALTH_PORT = getattr(config, 'MENTAL_HEALTH_PORT', 8004)
+
+@app.get("/mental/conversation/{conversation_id}/phq9/status")
+async def get_phq9_status_proxy(conversation_id: int):
+    """PHQ-9 상태 조회 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/status"
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 상태 조회 프록시 실패: {e}")
+        return create_error_response("PHQ-9 상태 조회 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/mental/conversation/{conversation_id}/phq9/response")
+async def submit_phq9_response_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 응답 제출 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/response",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 응답 제출 프록시 실패: {e}")
+        return create_error_response("PHQ-9 응답 제출 실패", "PHQ9_PROXY_ERROR")
+
+@app.post("/mental/conversation/{conversation_id}/phq9/start")
+async def start_phq9_proxy(conversation_id: int, data: dict = Body(...)):
+    """PHQ-9 시작 프록시 - 올바른 경로로 수정"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/conversation/{conversation_id}/phq9/start",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"PHQ-9 시작 프록시 실패: {e}")
+        return create_error_response("PHQ-9 시작 실패", "PHQ9_PROXY_ERROR")
+
+# Mental Health Agent의 일반 쿼리도 프록시
+@app.post("/mental/agent/query")
+async def mental_health_query_proxy(data: dict = Body(...)):
+    """Mental Health Agent 쿼리 프록시"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{MENTAL_HEALTH_PORT}/agent/query",
+                json=data
+            )
+            return response.json()
+    except Exception as e:
+        logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
+        return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
     
 
 
