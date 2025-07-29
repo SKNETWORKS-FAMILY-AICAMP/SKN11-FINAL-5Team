@@ -18,7 +18,8 @@ import {
   Eye,
   Hash,
   Calendar,
-  Clock
+  Clock,
+  User
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
@@ -105,53 +106,70 @@ export function InstagramPostModal({
 
     setIsPosting(true)
     try {
-      // 이미지를 업로드하고 URL을 받아오는 로직 (필요한 경우)
-      let imageUrl = ''
+      let imageUrl = '';
       if (images.length > 0) {
-        // 첫 번째 이미지를 사용 (Instagram API는 보통 하나의 이미지 URL을 요구)
-        const formData = new FormData()
-        formData.append('image', images[0])
-        
-        // 이미지 업로드 API 호출 (이미지 호스팅 서비스 사용)
-        // 예: imgur, cloudinary 등의 서비스를 사용하거나 자체 서버에 업로드
-        // 여기서는 예시로 placeholder URL 사용
-        imageUrl = URL.createObjectURL(images[0]) // 실제로는 업로드된 이미지의 공개 URL이어야 함
-      }
+        // S3에 이미지 업로드
+        const formData = new FormData();
+        formData.append('file', images[0]); // instagram.py에서는 'file' 키를 사용함
 
-      // task_agent의 /instagram/post API 호출
-      const response = await fetch('http://localhost:8005/instagram/post', {
+        const uploadRes = await fetch('https://localhost:8005/s3/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          let uploadError: any = {};
+          try {
+            uploadError = await uploadRes.json();
+          } catch {
+            uploadError = { error: "S3 업로드 중 서버 에러" };
+          }
+          throw new Error(uploadError?.error || '이미지 업로드 실패');
+        }
+
+        const uploadData = await uploadRes.json();
+        imageUrl = uploadData.file_url;
+      }
+      
+      const userId = localStorage.getItem('user_id'); 
+
+      // Instagram 포스팅 API 호출
+      const response = await fetch('https://localhost:8005/instagram/post', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+        headers: { 
+          'Content-Type': 'application/json' 
         },
         body: JSON.stringify({
+          user_id: userId, // 반드시 user_id를 포함해야 함
           caption: content,
-          image_url: imageUrl
-        })
-      })
+          image_url: imageUrl,
+        }),
+      });
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || '포스팅 실패')
+        const errorData = await response.json();
+        throw new Error(errorData.error || '포스팅 실패');
       }
 
-      const result = await response.json()
-      
       toast({
-        title: "포스팅 완료",
-        description: "Instagram에 성공적으로 게시되었습니다.",
-      })
-      onClose()
+        title: '포스팅 완료',
+        description: 'Instagram에 성공적으로 게시되었습니다.',
+      });
+      onClose();
     } catch (error) {
-      console.error('Instagram 포스팅 오류:', error)
+      console.error('Instagram 포스팅 오류:', error);
       toast({
-        title: "포스팅 실패",
-        description: error instanceof Error ? error.message : "게시 중 오류가 발생했습니다. 다시 시도해주세요.",
-        variant: "destructive"
-      })
+        title: '포스팅 실패',
+        description:
+          error instanceof Error
+            ? error.message
+            : '게시 중 오류가 발생했습니다. 다시 시도해주세요.',
+        variant: 'destructive',
+      });
     } finally {
-      setIsPosting(false)
+      setIsPosting(false);
     }
+
   }
 
   const handleSchedule = async () => {

@@ -12,7 +12,7 @@ from sqlalchemy import desc
 INSTAGRAM_APP_ID = os.getenv("INSTAGRAM_APP_ID")
 INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET")
 REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI")
-S3_BUCKET = os.getenv("S3_BUCKET")
+S3_BUCKET = os.getenv("AWS_S3_BUCKET_NAME")
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from shared_modules.db_models import InstagramToken
@@ -116,7 +116,7 @@ async def instagram_post(body: InstagramPostRequest):
             return JSONResponse({"error": "Instagram 계정이 등록되지 않았습니다."}, status_code=400)
 
         # 1. 미디어 생성
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             create_res = await client.post(
                 f"https://graph.instagram.com/{account.graph_id}/media",
                 params={
@@ -161,7 +161,9 @@ async def upload_image_to_s3(file: UploadFile = File(...)):
         return {"file_url": file_url}
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e) or "S3 업로드 실패"}, status_code=500)
 
 @router.post("/instagram/refresh-token")
 async def refresh_instagram_token(user_id: int = 56):
