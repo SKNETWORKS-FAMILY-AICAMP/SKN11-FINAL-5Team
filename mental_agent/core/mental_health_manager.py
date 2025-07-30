@@ -71,6 +71,7 @@ class ConversationState:
         self.stage = ConversationStage.INITIAL
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
+        self.phq9_survey_requested = False 
         
         # 수집된 정보
         self.collected_info = {
@@ -653,35 +654,62 @@ class MentalHealthAgentManager:
             # 대화 세션 처리
             session_info = get_or_create_conversation_session(user_id, conversation_id)
             conversation_id = session_info["conversation_id"]
-            
-            # 대화 상태 조회/생성
             state = self.get_or_create_conversation_state(conversation_id, user_id)
-            
-            # 사용자 메시지 저장
+
+            if user_input.strip() in ["그만", "그만할래요", "그만하고 싶어요", "설문 종료", "멈춤"]:
+                if state.phq9_state["is_active"]:
+                    state.cancel_phq9()
+                    return {
+                        "response": "PHQ-9 설문이 중단되었습니다. 원하실 때 언제든 다시 시작하실 수 있어요.",
+                        "end_survey": True
+                    }
+
+
+            # 2. 사용자 메시지 저장
             with get_session_context() as db:
                 create_message(db, conversation_id, "user", "mental_health", user_input)
-            
-            # 사용자 상태 분석
+
+            # 3. 상태 분석
             analysis_result = self.analyze_user_state(user_input, state)
 
-            if user_input.strip() in ["네", "시작"] and not state.phq9_state["is_active"]:
-                return self.start_phq9_survey(conversation_id, user_id)
-            
-            if user_input.strip() in ["그만", "그만할래요", "그만하고 싶어요", "설문 종료","멈춤"]:
-                state.cancel_phq9()  # 상태 종료 메서드
+            # 4. 설문 강제 키워드 진입 처리 (모든 단계에서 동작)
+            phq9_keywords = [
+                "PHQ", "우울증", "우울증 테스트", "우울", "설문", "자가진단", 
+                "진단", "검사", "테스트",
+                "받고 싶어", "설문 다시", "다시 테스트", "테스트 하고 싶어요"
+            ]
+
+            # 1. 사용자가 설문 키워드를 말한 경우: 안내 메시지 먼저
+            if any(k in user_input for k in phq9_keywords) and not state.phq9_state["is_active"]:
+                state.phq9_survey_requested = True
                 return {
-                    "response": "PHQ-9 설문이 중단되었습니다. 언제든 다시 시작하실 수 있어요.",
-                    "end_survey": True
+                    "response": (
+                        "PHQ-9 우울증 자가진단 설문을 시작하시겠습니까?\n\n"
+                        "이 설문은 지난 2주간의 우울 증상을 평가하는 9개 문항으로 구성되어 있습니다.\n\n"
+                        "설문을 진행하려면 '네' 또는 '시작'이라고 말씀해 주세요.\n"
+                        "그만두고 싶으시면 '아니요' 또는 '취소'라고 말씀해 주세요."
+                    )
                 }
-            
-            # 현재 단계에 따른 처리
+
+            # 2. 사용자가 설문 시작을 수락한 경우
+            if user_input.strip() in ["네", "시작"] and state.phq9_survey_requested and not state.phq9_state["is_active"]:
+                state.phq9_survey_requested = False
+                return self.start_phq9_survey(conversation_id, user_id)
+
+            # 3. 사용자가 설문을 거절한 경우
+            if user_input.strip() in ["아니요", "취소"] and state.phq9_survey_requested:
+                state.phq9_survey_requested = False
+                return {
+                    "response": "알겠습니다. 언제든 원하시면 다시 하실 수 있어요..",
+                    "phq9_cancelled": True
+                }
+
+            # 6. 위기 상황 우선 처리
             if analysis_result.get("immediate_intervention_needed", False):
-                # 위기 상황 우선 처리
                 response_content = self.handle_crisis_situation(user_input, state)
-                
             elif state.stage == ConversationStage.INITIAL:
                 # 초기 접촉
-                if any(word in user_input for word in ["PHQ","우울증","우울증 테스트", "설문", "자가진단", "진단", "검사", "테스트", "하고싶", "받고싶"]):
+                if any(word in user_input for word in ["PHQ","우울증","우울증 테스트", "설문", "자가진단", "진단", "검사", "테스트"]):
                     response_content = (
                         "PHQ-9 우울증 자가진단 설문을 시작하시겠습니까?\n\n"
                         "이 설문은 지난 2주간의 우울 증상을 평가하는 9개 문항으로 구성되어 있습니다.\n\n"
@@ -694,19 +722,24 @@ class MentalHealthAgentManager:
                     persona = PERSONA_CONFIG.get(persona_key, PERSONA_CONFIG["common"])
                     
                     # 적절한 페르소나로 응답 생성
-                    counseling_prompt = f""""당신은 따뜻하고 전문적인 정신건강 상담사입니다.
+                    counseling_prompt = f""""당신은 **따뜻하고 전문적인 정신건강 상담사**입니다.
 
-                    사용자가 "{user_input}"라고 말했습니다.
+사용자가 "{user_input}"라고 말했습니다.
 
-                    다음과 같은 구조로 응답해주세요:
+다음과 같은 구조로 응답해주세요:
 
-                    1. 먼저 사용자의 감정에 공감하는 따뜻한 말을 건네주세요. 너무 정형적이지 않고 자연스럽게 표현해주세요.
+1. **감정 공감**: 먼저 사용자의 감정에 공감하는 따뜻한 말을 건네주세요. 너무 정형적이지 않고 자연스럽게 표현해주세요.
 
-                    2. 그 다음, 해결책이나 도움이 될 만한 조언을 **목록 형식이나 단락 형식 중 적절하게** 제안해주세요. 항목이 많을 경우에는 숫자나 점을 사용하거나, 연결어(예: 그리고, 또한, 혹은 한 가지 더) 등으로 자연스럽게 이어가 주세요.
+2. **실질적 조언 제시**: 그 다음, 도움이 될 만한 조언을 **목록 형식 또는 단락 형식 중 적절하게** 제안해주세요.  
+   항목이 많을 경우에는 숫자나 점을 사용하거나, **연결어**(예: 그리고, 또한, 혹은 한 가지 더) 등으로 자연스럽게 이어가 주세요.
 
-                    3. 마지막에는 따뜻하고 진심 어린 격려의 말로 마무리해주세요. 사용자가 스스로를 믿고 위로받을 수 있도록 말해주세요.
+3. **따뜻한 마무리**: 마지막에는 진심 어린 격려의 말을 건네주세요.  
+   사용자가 **스스로를 믿고 위로받을 수 있도록** 말해주세요.
 
-                    답변은 진정성 있고 인간적인 톤으로 작성하며, 각 아이디어는 줄바꿈으로 구분하고 완전한 문장으로 표현해주세요."""
+📝 **스타일 지침**:
+- 진정성 있고 인간적인 톤으로 작성해주세요.
+- 각 아이디어는 줄바꿈으로 구분하고 **완전한 문장**으로 표현해주세요.
+- 강조할 내용은 **마크다운 문법**(`**굵게**`, `- 리스트`)을 적극 활용해주세요."""
 
                     try:
                         from langchain.schema import SystemMessage, HumanMessage
@@ -735,19 +768,32 @@ class MentalHealthAgentManager:
                 persona = PERSONA_CONFIG.get(persona_key, PERSONA_CONFIG["common"])
                 
                 # 적절한 페르소나로 응답 생성
-                counseling_prompt = f"""당신은 따뜻하고 전문적인 정신건강 상담사입니다.
+                counseling_prompt = f"""당신은 **따뜻하고 전문적인 정신건강 상담사**입니다.
 
-                사용자가 "{user_input}"라고 말했습니다.
+사용자가 "**{user_input}**"라고 말했습니다.
 
-                다음과 같은 구조로 응답해주세요:
+다음과 같은 구조로 응답해주세요:
 
-                1. 먼저 사용자의 감정에 공감하는 따뜻한 말을 건네주세요. 너무 정형적이지 않고 자연스럽게 표현해주세요.
+1. **감정 공감**  
+   먼저 사용자의 감정에 공감하는 **따뜻한 말**을 건네주세요.  
+   너무 정형적이지 않고 **자연스럽게 표현**해주세요.
 
-                2. 그 다음, 해결책이나 도움이 될 만한 조언을 **목록 형식이나 단락 형식 중 적절하게** 제안해주세요. 항목이 많을 경우에는 숫자나 점을 사용하거나, 연결어(예: 그리고, 또한, 혹은 한 가지 더) 등으로 자연스럽게 이어가 주세요.
+2. **실질적인 조언 제안**  
+   그 다음, 해결책이나 도움이 될 만한 조언을 **목록 형식 또는 단락 형식 중 적절하게** 제안해주세요.  
+   항목이 많을 경우에는 숫자(1. 2. 3.)나 점(-)을 사용하거나,  
+   **연결어**(예: 그리고, 또한, 혹은 한 가지 더)를 활용해 자연스럽게 이어주세요.
 
-                3. 마지막에는 따뜻하고 진심 어린 격려의 말로 마무리해주세요. 사용자가 스스로를 믿고 위로받을 수 있도록 말해주세요.
+3. **진심 어린 격려로 마무리**  
+   마지막에는 따뜻하고 **진심 어린 격려의 말**로 마무리해주세요.  
+   사용자가 **스스로를 믿고 위로받을 수 있도록** 도와주세요.
 
-                답변은 진정성 있고 인간적인 톤으로 작성하며, 각 아이디어는 줄바꿈으로 구분하고 완전한 문장으로 표현해주세요."""
+📝 **스타일 가이드**  
+- 응답은 **진정성 있고 인간적인 톤**으로 작성합니다.  
+- 각 아이디어는 **줄바꿈으로 구분**하고 **완전한 문장**으로 표현합니다.  
+- 강조할 부분은 **마크다운 문법**(`**굵게**`, `- 리스트`)을 사용해 주세요.
+
+
+                """
 
 
                 try:

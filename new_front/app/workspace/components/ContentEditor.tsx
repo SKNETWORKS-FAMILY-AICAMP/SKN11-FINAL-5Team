@@ -57,7 +57,8 @@ export function ContentEditor({
     platform: "instagram",
     keywords: "",
   })
-  const [attachedImages, setAttachedImages] = useState<Array<{ id: string; name: string; url: string }>>([])
+  const [attachedImages, setAttachedImages] = useState<Array<{ id: string; name: string; url: string; s3Url?: string }>>([]) // s3Url 추가
+  const [isUploading, setIsUploading] = useState(false) // 업로드 상태 추가
 
   // Check if current platform is naver_blog
   const isNaverBlog = selectedTemplate?.task_data?.platform === "naver_blog"
@@ -80,22 +81,69 @@ export function ContentEditor({
     setLocalTags(tags)
   }, [tags])
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // S3 업로드 함수 추가
+  const uploadToS3 = async (file: File): Promise<string> => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('https://localhost:8005/s3/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('S3 업로드 실패')
+    }
+
+    const result = await response.json()
+    return result.file_url
+  }
+
+  // 수정된 handleImageUpload 함수
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (files) {
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          const imageUrl = e.target?.result as string
-          const newImage = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            name: file.name,
-            url: imageUrl,
+      setIsUploading(true)
+      try {
+        for (const file of Array.from(files)) {
+          // 로컬 미리보기용 URL 생성
+          const reader = new FileReader()
+          reader.onload = async (e) => {
+            const localUrl = e.target?.result as string
+            const tempImage = {
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              name: file.name,
+              url: localUrl,
+              s3Url: undefined
+            }
+            
+            // 임시로 이미지 추가 (업로드 중 표시)
+            setAttachedImages((prev) => [...prev, tempImage])
+            
+            try {
+              // S3에 업로드
+              const s3Url = await uploadToS3(file)
+              
+              // S3 URL로 업데이트
+              setAttachedImages((prev) => 
+                prev.map(img => 
+                  img.id === tempImage.id 
+                    ? { ...img, s3Url }
+                    : img
+                )
+              )
+            } catch (error) {
+              console.error('S3 업로드 실패:', error)
+              // 업로드 실패 시 해당 이미지 제거
+              setAttachedImages((prev) => prev.filter(img => img.id !== tempImage.id))
+              alert(`${file.name} 업로드에 실패했습니다.`)
+            }
           }
-          setAttachedImages((prev) => [...prev, newImage])
+          reader.readAsDataURL(file)
         }
-        reader.readAsDataURL(file)
-      })
+      } finally {
+        setIsUploading(false)
+      }
     }
     // Reset input
     event.target.value = ""
@@ -163,8 +211,55 @@ export function ContentEditor({
     setIsAccountModalOpen(false)
   }
 
-  const handlePublishConfirm = () => {
+  // 수정된 handlePublishConfirm 함수
+  const handlePublishConfirm = async () => {
     console.log("발행 설정:", publishSchedule)
+    
+    // 인스타그램 플랫폼인 경우 이미지 URL을 task_data에 포함
+    if (selectedTemplate?.task_data?.platform === "instagram") {
+      const imageUrls = attachedImages
+        .filter(img => img.s3Url) // S3 업로드가 완료된 이미지만
+        .map(img => img.s3Url!)
+      
+      if (imageUrls.length > 0) {
+        // task_data에 image_urls 추가
+        const updatedTaskData = {
+          ...selectedTemplate.task_data,
+          image_urls: imageUrls,
+          caption: contentForm.content,
+          title: contentForm.title
+        }
+        
+        try {
+          // Instagram 포스팅 API 호출
+          const response = await fetch('http://localhost:8000/instagram/post', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_id: 1, // 실제 user_id로 교체 필요
+              caption: contentForm.content,
+              image_url: imageUrls[0] // 첫 번째 이미지 사용
+            }),
+          })
+          
+          const result = await response.json()
+          if (response.ok) {
+            alert('인스타그램에 성공적으로 게시되었습니다!')
+          } else {
+            alert(`게시 실패: ${result.error || '알 수 없는 오류'}`)
+          }
+        } catch (error) {
+          console.error('Instagram 포스팅 실패:', error)
+          alert('게시 중 오류가 발생했습니다.')
+        }
+      } else {
+        alert('인스타그램 게시를 위해서는 이미지가 필요합니다.')
+        return
+      }
+    }
+    
     setIsPublishModalOpen(false)
     onPublish()
   }
@@ -431,6 +526,7 @@ export function ContentEditor({
                     accept="image/*"
                     onChange={handleImageUpload}
                     className="hidden"
+                    disabled={isUploading}
                   />
                   <Button
                     type="button"
@@ -438,9 +534,10 @@ export function ContentEditor({
                     size="sm"
                     onClick={() => document.getElementById("imageUpload")?.click()}
                     className="text-xs px-2 py-1 h-7"
+                    disabled={isUploading}
                   >
                     <FolderOpen className="h-3 w-3 mr-1" />
-                    폴더 열기
+                    {isUploading ? '업로드 중...' : '폴더 열기'}
                   </Button>
                 </div>
               </div>
@@ -461,13 +558,20 @@ export function ContentEditor({
                             className="w-6 h-6 object-cover rounded"
                           />
                           <span className="truncate">{image.name}</span>
+                          {/* S3 업로드 상태 표시 */}
+                          {!image.s3Url && (
+                            <span className="text-yellow-600 text-xs">업로드 중...</span>
+                          )}
+                          {image.s3Url && (
+                            <span className="text-green-600 text-xs">✓</span>
+                          )}
                         </div>
                         <div className="flex items-center space-x-1 flex-shrink-0">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => insertImageLink(image.url, image.name)}
+                            onClick={() => insertImageLink(image.s3Url || image.url, image.name)}
                             className="text-blue-600 hover:text-blue-800 p-0 h-auto text-xs"
                           >
                             삽입

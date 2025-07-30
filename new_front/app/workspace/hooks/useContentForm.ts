@@ -14,7 +14,7 @@ import {
 import axios from "axios"
 
 async function fetchEmailTemplates(userId: number) {
-  const res = await axios.get("http://localhost:8005/api/email/templates", {
+  const res = await axios.get("https://localhost:8005/api/email/templates", {
     params: { user_id: userId },
   })
   return {
@@ -73,7 +73,7 @@ export function useContentForm(userId: number | null) {
   console.log("📤 보낼 payload", payloadWithType)
 
   try {
-    const res = await axios.post("http://localhost:8005/api/email/templates", payloadWithType)
+    const res = await axios.post("https://localhost:8005/api/email/templates", payloadWithType)
     alert("콘텐츠가 저장되었습니다!")
 
     const { templates, contents } = await fetchEmailTemplates(userId)
@@ -183,7 +183,7 @@ export function useAiContents(userId: number | null) {
     }
 
     try {
-      const res = await axios.post("http://localhost:8005/workspace/automation/ai", payload)
+      const res = await axios.post("https://localhost:8005/workspace/automation/ai", payload)
       alert("✅ 자동 생성 콘텐츠가 저장되었습니다!")
       return res.data
     } catch (err) {
@@ -193,7 +193,7 @@ export function useAiContents(userId: number | null) {
   }
 
   const fetchGeneratedContents = async () => {
-  const res = await axios.get("http://localhost:8005/workspace/automation/contents", {
+  const res = await axios.get("https://localhost:8005/workspace/automation/contents", {
     params: { user_id: userId },
   });
   setAiGeneratedContents(res.data.data); // 기존 state에 넣기

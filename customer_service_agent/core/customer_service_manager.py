@@ -34,6 +34,7 @@ from customer_service_agent.config.persona_config import PERSONA_CONFIG, get_per
 from customer_service_agent.config.prompts_config import PROMPT_META
 from langchain.schema import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
+from shared_modules.queries import get_user_persona_info
 
 logger = logging.getLogger(__name__)
 
@@ -522,9 +523,9 @@ class CustomerServiceAgentManager:
         """싱글턴 대화 처리"""
         try:
             if any(keyword in user_input for keyword in ["템플릿", "메시지", "문구", "알림"]):
-                response_content = self._handle_single_turn_template_request(user_input)
+                response_content = self._handle_single_turn_template_request(user_input, user_id)
             else:
-                response_content = self._handle_single_turn_general_query(user_input)
+                response_content = self._handle_single_turn_general_query(user_input, user_id)
             
             return create_success_response({
                 "answer": response_content,
@@ -569,45 +570,79 @@ class CustomerServiceAgentManager:
         except Exception as e:
             logger.error(f"싱글턴 템플릿 요청 실패: {e}")
             return "템플릿 검색 중 오류가 발생했습니다."
-    
-    def _handle_single_turn_general_query(self, user_input: str) -> str:
-        """싱글턴 일반 쿼리 처리"""
+        
+    def get_user_persona_info(self, user_id: int) -> dict:
+        """사용자의 페르소나 정보 조회"""
         try:
+            with get_session_context() as db:
+                persona_info = get_user_persona_info(db, user_id)
+            
+            logger.info(f"페르소나 정보 조회 완료: {persona_info}")
+            return persona_info
+            
+        except Exception as e:
+            logger.error(f"페르소나 정보 조회 실패: {e}")
+            return {}
+        
+    def _handle_single_turn_general_query(self, user_input: str, user_id: int) -> str:
+        """싱글턴 일반 쿼리 처리 (페르소나 적용)"""
+        try:
+            # 🔥 페르소나 정보 가져오기
+            persona_info = self.get_user_persona_info(user_id)
+            
             topics = self.classify_customer_topic_with_llm(user_input)
             primary_topic = topics[0] if topics else "customer_service"
             
             knowledge_texts = self.get_relevant_knowledge(user_input, topics)
             
+            # 🔥 페르소나 기반 프롬프트 생성
+            persona_context = ""
+            if persona_info:
+                business_type = persona_info.get('business_type', '')
+                nickname = persona_info.get('nickname', '사장님')
+                experience = persona_info.get('experience', 0)
+                exp_level = "초보자" if experience == 0 else "경험자"
+                
+                persona_context = f"""
+    **상담 대상**: {nickname} ({business_type} 운영, {exp_level})
+
+    {business_type}을 운영하는 {exp_level} 입장에서 구체적이고 실용적인 조언을 해주세요.
+    업종 특성을 반영하고, {'기본 개념부터 쉽게 설명하며' if experience == 0 else '실무 중심의 고급 팁을 제공하고'} 실제 상황에서 바로 적용할 수 있는 방법을 제시하세요.
+    """
+            
             general_prompt = f"""당신은 고객 서비스 전문 컨설턴트입니다.
 
-사용자 질문: "{user_input}"
-주요 토픽: {primary_topic}
+    {persona_context}
 
-{"관련 전문 지식:" + chr(10) + chr(10).join(knowledge_texts) if knowledge_texts else ""}
+    사용자 질문: "{user_input}"
+    주요 토픽: {primary_topic}
 
-다음 지침에 따라 응답해주세요:
-1. 전문적이고 실용적인 조언 제공
-2. 구체적이고 실행 가능한 해결책 제시
-3. 친절하고 공감적인 어조 유지
-4. 필요시 단계별 안내 제공
+    {"관련 전문 지식:" + chr(10) + chr(10).join(knowledge_texts) if knowledge_texts else ""}
 
-응답:"""
+    💼 응답 지침:
+    1. 업종별 특성을 고려한 맞춤형 조언
+    2. 구체적이고 즉시 실행 가능한 해결책
+    3. 친근하고 공감적인 톤(과도한 인사나 축하는 생략)
+    4. 실제 상황 예시 포함
+    5. 경험 수준에 맞는 설명
+
+    응답:"""
             
             messages = [
-                SystemMessage(content="당신은 고객 서비스 전문 컨설턴트로서 실용적이고 전문적인 조언을 제공합니다."),
+                SystemMessage(content="당신은 고객 서비스 전문 컨설턴트로서 사용자의 업종과 경험 수준에 맞는 실용적인 조언을 제공합니다."),
                 HumanMessage(content=general_prompt)
             ]
             
-            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.7)
+            llm = ChatOpenAI(model_name="gpt-4o", temperature=0.8)  # 더 창의적으로
             raw_response = llm.invoke(messages)
             response = str(raw_response.content) if hasattr(raw_response, 'content') else str(raw_response)
             
-            return response if response else "고객 서비스 전문가로서 도움을 드리고 싶지만, 질문을 이해하지 못했습니다. 더 구체적으로 말씀해 주세요."
+            return response if response else "더 구체적인 상황을 말씀해 주시면 맞춤형 조언을 드릴 수 있어요."
             
         except Exception as e:
             logger.error(f"싱글턴 일반 쿼리 처리 실패: {e}")
             return "죄송합니다. 질문 처리 중 오류가 발생했습니다. 다시 시도해주세요."
-    
+        
     def _process_multi_turn_query(self, user_input: str, user_id: int, conversation_id: Optional[int] = None) -> Dict[str, Any]:
         """멀티턴 대화 처리 (수정된 버전)"""
         try:
@@ -779,6 +814,7 @@ class CustomerServiceAgentManager:
         """사용자 쿼리 처리 - 자동 멀티턴/싱글턴 대화 지원"""
         
         try:
+            single_turn=True
             # 1. 대화 모드 자동 판단 (single_turn이 명시되지 않은 경우)
             if single_turn is None:
                 single_turn = self._determine_conversation_mode_with_history(user_input, user_id, conversation_id)

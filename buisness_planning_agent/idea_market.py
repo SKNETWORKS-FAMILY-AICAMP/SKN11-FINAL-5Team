@@ -34,7 +34,7 @@ bright_data_url = (
 
 youtube_config = {
     "youtubeTranscriptLang": "ko",
-    "youtubeApiKey": google_api_key
+    "youtubeApiKey": os.getenv("YOUTUBE_API_KEY"),
 }
 youtube_config_b64 = base64.b64encode(json.dumps(youtube_config).encode()).decode()
 
@@ -292,7 +292,7 @@ async def get_persona_trend(persona: str, query: str):
     - return: 텍스트(string)
     """
     # e_commerce는 아마존 트렌딩 상품
-    if persona == "e_commerce":
+    if persona == "ecommerce":
         trend=await get_trending_amazon_products(amazon_url)
         mcp_source="smithery_ai/amazon-product-search"
         return trend,mcp_source

@@ -25,7 +25,7 @@ class InstagramExecutor:
     def __init__(self):
         """Instagram 실행기 초기화"""
         self.supported_platforms = ["instagram"]
-        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
+        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "https://localhost:8005")
         
         # Instagram API 설정
         self.instagram_app_id = os.getenv("INSTAGRAM_APP_ID")
@@ -160,6 +160,7 @@ class InstagramExecutor:
     async def _normalize_post_data(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """포스팅 데이터 정규화"""
         try:
+            post_content or content or full_content
             normalized = {
                 "post_content": task_data.get("post_content", "").strip(),
                 "image_url": task_data.get("image_url", "")

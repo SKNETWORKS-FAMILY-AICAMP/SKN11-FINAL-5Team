@@ -6,6 +6,8 @@ import asyncio
 import time
 import logging
 import httpx
+import certifi
+
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 from sqlalchemy.orm import Session
@@ -24,7 +26,10 @@ class BaseAgentWrapper(ABC):
     def __init__(self, agent_type: AgentType):
         self.agent_type = agent_type
         self.config = get_system_config().agents[agent_type]
-        self.client = httpx.AsyncClient(timeout=self.config.timeout)
+        self.client = httpx.AsyncClient(
+            timeout=self.config.timeout,
+            verify=False
+        )
         self.db_manager = DatabaseManager()
     
     def _get_user_persona(self, user_id: int) -> str:

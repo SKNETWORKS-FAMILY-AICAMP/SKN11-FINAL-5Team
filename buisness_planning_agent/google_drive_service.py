@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Optional
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.auth.transport.requests import Request as GoogleRequest
 
 from task_agent.automation_task.common import (
     get_auth_manager, get_oauth_http_client, get_config_manager,
@@ -118,6 +119,8 @@ class GoogleDriveService:
         token_data = self.get_token(user_id)
         if not token_data:
             raise ValueError("유저 인증 필요 (토큰 없음)")
+        
+        # Ensure all required fields are present for token refresh
         credentials = Credentials(
             token=token_data["access_token"],
             refresh_token=token_data.get("refresh_token"),
@@ -126,8 +129,26 @@ class GoogleDriveService:
             client_secret=self.config["client_secret"],
             scopes=SCOPES,
         )
+        
+        # Check if credentials are valid and refresh if needed
+        if not credentials.valid:
+            if credentials.expired and credentials.refresh_token:
+                try:
+                    credentials.refresh(GoogleRequest())
+                    # Update stored token with new access token
+                    new_token_data = {
+                        "access_token": credentials.token,
+                        "refresh_token": credentials.refresh_token
+                    }
+                    self.store_token(user_id, new_token_data)
+                except Exception as e:
+                    logger.error(f"Token refresh failed: {e}")
+                    raise ValueError("토큰 갱신 실패 - 재인증이 필요합니다")
+            else:
+                raise ValueError("유효하지 않은 토큰 - 재인증이 필요합니다")
+        
         return build("drive", "v3", credentials=credentials)
-    
+
     def upload_file(self, user_id: str, server_path: str, mime_type: str = "application/octet-stream"):
         try:
             safe_name = os.path.basename(server_path)
@@ -143,6 +164,9 @@ class GoogleDriveService:
                 "file_id": uploaded.get('id'),
                 "webViewLink": uploaded.get('webViewLink')
             }
+        except ValueError as ve:
+            # Handle authentication errors specifically
+            return {"success": False, "error": str(ve), "auth_required": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

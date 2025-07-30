@@ -69,7 +69,7 @@ def get_agent_configs() -> Dict[AgentType, AgentConfig]:
         AgentType.TASK_AUTOMATION: AgentConfig(
             name="Task Automation Agent",
             description="업무 자동화, 생산성 도구, 일정 관리 등을 지원하는 에이전트",
-            endpoint=f"{base_url}:8005/agent/query",
+            endpoint=f"https://localhost:8005/agent/query",
             keywords=[
                 "자동화", "업무", "태스크", "일정", "스케줄", "캘린더", "알림",
                 "생산성", "효율", "도구", "앱", "시스템", "프로세스", "워크플로우",

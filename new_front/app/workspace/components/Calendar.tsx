@@ -91,7 +91,7 @@ export function Calendar({
     }
     
     try {
-    const res = await axios.get("http://localhost:8005/google/tasks", {
+    const res = await axios.get("https://localhost:8005/google/tasks", {
       params: { user_id: userId },
     })
       console.log("✅ userId 전달됨:", userId)
@@ -109,7 +109,7 @@ export function Calendar({
     
     setIsLoadingUpcoming(true)
     try {
-      const res = await axios.get("http://localhost:8005/events/upcoming", {
+      const res = await axios.get("https://localhost:8005/events/upcoming", {
         params: { 
           user_id: userId,
           days: 7,
@@ -134,7 +134,7 @@ export function Calendar({
   const fetchTasksForList = async (tasklistId: string) => {
     setIsLoadingTasks(true)
     try {
-      const res = await axios.get(`http://localhost:8005/google/tasks/${tasklistId}`, {
+      const res = await axios.get(`https://localhost:8005/google/tasks/${tasklistId}`, {
         params: { user_id: userId },
       })
       setTasks(res.data.items || [])
@@ -152,7 +152,7 @@ export function Calendar({
     }
     try {
       const dueISO = dueDate ? new Date(dueDate).toISOString() : undefined
-      await axios.post("http://localhost:8005/google/tasks", null, {
+      await axios.post("https://localhost:8005/google/tasks", null, {
         params: {
           user_id: userId,
           tasklist_id: selectedTaskListId,
@@ -168,7 +168,7 @@ export function Calendar({
 
   const handleCreateTaskList = async (title: string) => {
     try {
-      await axios.post("http://localhost:8005/google/tasks/lists", null, {
+      await axios.post("https://localhost:8005/google/tasks/lists", null, {
         params: {
           user_id: userId,
           title,
@@ -201,7 +201,7 @@ export function Calendar({
     if (!newTaskListTitle.trim()) return
     
     try {
-      await axios.post("http://localhost:8005/google/tasks/lists", null, {
+      await axios.post("https://localhost:8005/google/tasks/lists", null, {
         params: {
           user_id: userId,
           title: newTaskListTitle,
@@ -220,7 +220,7 @@ export function Calendar({
     
     try {
       const dueISO = newTaskDue ? new Date(newTaskDue).toISOString() : undefined
-      await axios.post("http://localhost:8005/google/tasks", null, {
+      await axios.post("https://localhost:8005/google/tasks", null, {
         params: {
           user_id: userId,
           tasklist_id: selectedTaskListId,
@@ -244,7 +244,7 @@ export function Calendar({
       // // 현재 상태에 따라 새로운 상태 결정
       // const newStatus = currentStatus === "completed" ? "needsAction" : "completed"
       
-      // await axios.patch(`http://localhost:8005/google/tasks/${selectedTaskListId}/${taskId}`, null, {
+      // await axios.patch(`https://localhost:8005/google/tasks/${selectedTaskListId}/${taskId}`, null, {
       //   params: {
       //     user_id: userId,
       //     status: newStatus,

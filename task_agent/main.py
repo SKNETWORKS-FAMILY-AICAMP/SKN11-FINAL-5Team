@@ -2,7 +2,7 @@
 TinkerBell 업무지원 에이전트 v5 - 메인 애플리케이션
 리팩토링된 FastAPI 애플리케이션
 """
-
+import certifi
 import sys
 import os
 from datetime import datetime
@@ -25,9 +25,10 @@ from fastapi.responses import JSONResponse
 from models import (
     UserQuery, AutomationRequest, EmailRequest, 
     InstagramPostRequest, EventCreate, EventResponse, 
-    CalendarListResponse, QuickEventCreate, ManualContentRequest
+    CalendarListResponse, QuickEventCreate, ManualContentRequest, AutomationTaskType
 )
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 # 공통 모듈 import
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -236,22 +237,6 @@ async def get_user_automation_tasks(
         logger.error(f"사용자 자동화 작업 조회 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ===== 이메일 API =====
-
-@app.post("/email/send")
-async def send_email(
-    req: EmailRequest,
-    email_service: EmailService = Depends(get_email_service)
-):
-    """이메일 발송"""
-    try:
-        result = await email_service.send_email(req.dict())
-        if not result.get("success", False):
-            raise HTTPException(status_code=400, detail=result.get("error", "이메일 발송 실패"))
-        return create_success_response(result)
-    except Exception as e:
-        logger.error(f"이메일 발송 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ===== 시스템 API =====
 
@@ -305,25 +290,31 @@ async def get_system_status():
         }
 
 # ==== Email & Instagram API ====
-
 @app.post("/email/send")
-async def send_email(req: EmailRequest):
-    email_service = get_email_service()
-    result = await email_service.send_email(
-        to_emails=req.to_emails,
-        subject=req.subject,
-        body=req.body,
-        html_body=req.html_body,
-        attachments=req.attachments,
-        cc_emails=req.cc_emails,
-        bcc_emails=req.bcc_emails,
-        from_email=req.from_email,
-        from_name=req.from_name,
-        service=req.service,
-    )
-    if not result.get("success", False):
-        raise HTTPException(status_code=400, detail=result.get("error", "이메일 발송 실패"))
-    return result
+async def send_email(
+    req: EmailRequest,
+    email_service: EmailService = Depends(get_email_service)
+):
+    """이메일 발송"""
+    try:
+        result = await email_service.send_email(
+            to_emails=req.to_emails,
+            subject=req.subject,
+            body=req.body,
+            html_body=req.html_body,
+            attachments=req.attachments,
+            cc_emails=req.cc_emails,
+            bcc_emails=req.bcc_emails,
+            from_email=req.from_email,
+            from_name=req.from_name,
+            service=req.service
+        )
+        if not result.get("success", False):
+            raise HTTPException(status_code=400, detail=result.get("error", "이메일 발송 실패"))
+        return create_success_response(result)
+    except Exception as e:
+        logger.error(f"이메일 발송 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ===== 간단한 Google API 클라이언트 구현 =====
@@ -652,7 +643,7 @@ async def create_tasklist(
             headers = {"Authorization": f"Bearer {token_data['access_token']}"}
             payload = {"title": title}
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False, trust_env=False) as client:
                 res = await client.post(url, headers=headers, json=payload)
             return res.json()
     except Exception as e:
@@ -670,7 +661,7 @@ async def list_tasks(user_id: int = Query(..., description="사용자 ID")):
 
             url = f"{GOOGLE_TASKS_BASE}/users/@me/lists"
             headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False, trust_env=False) as client:
                 res = await client.get(url, headers=headers)
                 
             # Check if Google API returned an error
@@ -709,7 +700,7 @@ async def create_task(
             if due:
                 payload["due"] = due  # e.g., "2025-07-28T09:00:00Z" (UTC 시간)
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False, trust_env=False) as client:
                 res = await client.post(url, headers=headers, json=payload)
             return res.json()
     except Exception as e:
@@ -727,7 +718,7 @@ async def get_tasks_from_list(tasklist_id: str, user_id: int = Query(..., descri
 
             url = f"{GOOGLE_TASKS_BASE}/lists/{tasklist_id}/tasks"
             headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False, trust_env=False) as client:
                 res = await client.get(url, headers=headers)
                 
             if res.status_code != 200:
@@ -825,9 +816,6 @@ async def save_manual_content(
         
         # AutomationService를 통해 작업 생성
         response = await automation_service.create_task(automation_request)
-        
-        if response.status == AutomationStatus.FAILED:
-            raise HTTPException(status_code=400, detail=response.message)
         
         return {
             "success": True,

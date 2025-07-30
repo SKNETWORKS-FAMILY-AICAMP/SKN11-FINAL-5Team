@@ -38,9 +38,17 @@ interface ChatHistoryItem {
   displayNumber: number
 }
 
-interface ExtendedMessage extends Message {
+// interface ExtendedMessage extends Message {
+//   isTyping?: boolean
+//   isComplete?: boolean
+// }
+
+interface ExtendedMessage {
+  sender: "user" | "agent"
+  text: string
   isTyping?: boolean
   isComplete?: boolean
+  showBusinessPlanButton?: boolean // 새로운 속성 추가
 }
 
 // ===== 상수 =====
@@ -354,6 +362,32 @@ function escapeMarkdown(text: string): string {
     .replace(/>/g, '\\>');
 }
 
+function cleanMarkdownText(text: string): string {
+  return text
+    // 1. 순서 있는 리스트 번호 제거
+    .replace(/^\d+\.\s*/gm, '')
+    
+    // 2. 강조 텍스트 뒤의 콜론 제거하고 개행 추가
+    .replace(/\*\*([^*]+)\*\*\s*:?\s*/g, '**$1**\n')
+    
+    // 3. 문장 끝 다음에 바로 오는 강조 텍스트 앞에 개행
+    .replace(/\.\s*\*\*([^*]+)\*\*/g, '.\n\n**$1**')
+    
+    // 4. 아주 명확한 마무리 문구들만
+    .replace(/\.\s*(이러한 방법들을 통해|추가적으로 더 궁금한 사항이|도움이 되길 바라며|응원하겠습니다)/g, '.\n\n$1')
+    
+    // 5. 일반 텍스트 뒤의 콜론도 제거  
+    .replace(/^([가-힣\s]+):\s*/gm, '$1\n')
+    
+    // 6. 🔥 마지막에만 과도한 개행 정리 (5개 이상만)
+    .replace(/\n{5,}/g, '\n\n')
+    
+    .trim()
+}
+
+
+
+
 function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: string, speed?: number, onComplete?: () => void, onTextUpdate?: () => void }) {
   const [displayedText, setDisplayedText] = useState("")
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -384,23 +418,78 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
   }, [text])
 
   return (
-    <div className="whitespace-pre-wrap !leading-snug">
+    <div className="whitespace-pre-wrap leading-relaxed">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]} // GitHub Flavored Markdown 지원
+        remarkPlugins={[remarkGfm]}
         skipHtml={false}
-        // disallowedElements={['del']} // 줄긋기 <del> 제거
-        // unwrapDisallowed={true}      // 감싸진 요소 걷어냄
         components={{
-          p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
-          ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
-          ol: ({ children }) => <ol className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ol>,
-          li: ({ children }) => <li className="!m-0 !p-0 !leading-snug">{children}</li>,
-          h1: ({ children }) => <h1 className="!text-xl !font-bold !m-0 !p-0 !leading-snug">{children}</h1>,
-          h2: ({ children }) => <h2 className="!text-lg !font-bold !m-0 !p-0 !leading-snug">{children}</h2>,
-          h3: ({ children }) => <h3 className="!text-base !font-bold !m-0 !p-0 !leading-snug">{children}</h3>,
-          strong: ({ children }) => <strong className="!font-semibold !m-0 !p-0">{children}</strong>,
+          // 제목들
+          h1: ({ children }) => (
+            <h1 className="text-xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-green-500">
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-lg font-bold text-gray-800 mb-3 mt-6 flex items-center">
+              <span className="w-1 h-5 bg-green-500 rounded mr-2"></span>
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-base font-semibold text-gray-700 mb-2 mt-4 pl-2 border-l-2 border-green-300">
+              {children}
+            </h3>
+          ),
           
-          // 테이블 컴포넌트 추가
+          // 문단 - 여백 줄이기
+          p: ({ children }) => (
+            <p className="text-gray-700 leading-relaxed mb-2">  {/* mb-4 → mb-2로 변경 */}
+              {children}
+            </p>
+          ),
+          
+          // 인용구 - 체크박스 스타일
+          blockquote: ({ children }) => (
+            <div className="bg-green-50 border-l-4 border-green-400 p-3 my-4 rounded-r-lg">
+              <div className="flex items-start space-x-2">
+                <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                  <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="text-green-800 font-medium leading-relaxed">
+                  {children}
+                </div>
+              </div>
+            </div>
+          ),
+          
+          // 리스트 간격 줄이기
+          ul: ({ children }) => (
+            <ul className="space-y-1 mb-2">  {/* space-y-2 → space-y-1, mb-4 → mb-2 */}
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="space-y-1 mb-2">
+              {children}
+            </ol>
+          ),
+          
+          li: ({ children }) => (
+            <li className="text-gray-700 leading-relaxed mb-1">  {/* mb-2 → mb-1 */}
+              {children}
+            </li>
+          ),
+          
+          // 강조 텍스트 - 하이라이트 제거, 크게, 볼드
+          strong: ({ children }) => (
+            <strong className="font-bold text-gray-900 text-lg block mb-2">
+              {children}
+            </strong>
+          ),
+
+          // 테이블
           table: ({ children }) => (
             <div className="overflow-x-auto my-4">
               <table className="min-w-full border-collapse border border-gray-300 text-sm">
@@ -434,22 +523,20 @@ function TypingText({ text, speed = 30, onComplete, onTextUpdate }: { text: stri
             </td>
           ),
           
-          // 코드 블록 지원
-          code: ({ node, inline, className, children, ...props }: any) => 
-            inline ? (
-              <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
-                {children}
-              </code>
-            ) : (
-              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
-                <code className="text-sm font-mono" {...props}>
-                  {children}
-                </code>
-              </pre>
-            )
+          // 코드
+          code: ({ children, ...props }: any) => (
+            <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+              {children}
+            </code>
+          ),
+          pre: ({ children }: any) => (
+            <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
+              {children}
+            </pre>
+          )
         }}
       >
-        {escapeMarkdown(displayedText)}
+        {escapeMarkdown(cleanMarkdownText(displayedText))}
       </ReactMarkdown>
       {currentIndex < text.length && (
         <span className="inline-block w-0.5 h-4 bg-gray-400 ml-1 animate-pulse"></span>
@@ -1664,28 +1751,55 @@ export default function ChatRoomPage() {
           platform: 'instagram'  
         })
       }
-
-      // 사업기획서 여부 확인
+            // 사업기획서 여부 확인
       const isFinalBusinessPlan =
         result.data.metadata?.type === "final_business_plan" ||
         (result.data.answer.includes("## 1. 창업 아이디어 요약") &&
           result.data.answer.includes("## 2. 시장 조사 요약") &&
+          result.data.answer.includes("## 3. 비즈니스 모델"))||
+        (result.data.answer.includes("## 1. 사업 개요") &&
+          result.data.answer.includes("## 2. 시장 분석") &&
           result.data.answer.includes("## 3. 비즈니스 모델"))
 
+
+      // 사업기획서 여부 확인
       if (isFinalBusinessPlan) {
         setDraftContent(result.data.answer)
         localStorage.setItem("idea_validation_content", result.data.answer)
         localStorage.setItem("user_id", String(userId))
         localStorage.setItem("conversation_id", String(currentConversationId))
 
+        // 디버깅을 위한 로그 추가
+        console.log("[DEBUG] 사업기획서 감지됨:", {
+          type: result.data.metadata?.type,
+          hasRequiredSections: [
+            result.data.answer.includes("## 1. 창업 아이디어 요약"),
+            result.data.answer.includes("## 2. 시장 조사 요약"),
+            result.data.answer.includes("## 3. 비즈니스 모델")
+          ],
+          draftContentLength: result.data.answer.length
+        })
+
         // "답변 중입니다..." 메시지를 사업기획서 알림으로 교체
         setMessages((prev) => {
           const updated = [...prev]
           const idx = updated.findIndex((m) => m.isTyping)
           if (idx !== -1) {
-            updated[idx] = { sender: "agent", text: "📄 사업기획서가 도착했습니다. '사업 기획서 보기' 버튼을 눌러 확인하세요.", isTyping: false, isComplete: true }
+            updated[idx] = { 
+              sender: "agent", 
+              text: "📄 사업기획서가 도착했습니다. 아래 '사업 기획서 보기' 버튼을 눌러 확인하세요.", 
+              isTyping: false, 
+              isComplete: true,
+              showBusinessPlanButton: true // 버튼 표시 플래그 추가
+            }
           } else {
-            updated.push({ sender: "agent", text: "📄 사업기획서가 도착했습니다. '사업 기획서 보기' 버튼을 눌러 확인하세요.", isTyping: false, isComplete: true })
+            updated.push({ 
+              sender: "agent", 
+              text: "📄 사업기획서가 도착했습니다. 아래 '사업 기획서 보기' 버튼을 눌러 확인하세요.", 
+              isTyping: false, 
+              isComplete: true,
+              showBusinessPlanButton: true // 버튼 표시 플래그 추가
+            })
           }
           return updated
         })
@@ -1736,6 +1850,11 @@ export default function ChatRoomPage() {
         idx === messageIndex ? { ...msg, isComplete: true } : msg
       )
     )
+    setTimeout(() => {
+      setIsGenerating(false)
+      setIsSubmitting(false)
+      setIsLoading(false)
+    }, 100) // 100ms 후 확실히 정리
   }, [])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -2031,7 +2150,7 @@ export default function ChatRoomPage() {
     initializeUser()
   }, [initializeUser])
 
-// 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
+  // 사용자 ID가 설정된 후 초기화 (중복 실행 방지)
   useEffect(() => {
     if (userId && !initializeRef.current) {
       initializeRef.current = true
@@ -2105,6 +2224,23 @@ export default function ChatRoomPage() {
       }
     }
   }, [conversationId, messages.length])
+
+  // 📍 추가: 메시지 상태 변화 감지해서 버튼 상태 업데이트
+
+  useEffect(() => {
+    // 모든 메시지가 완료되었고, 타이핑 중인 메시지가 없으면 생성 상태 해제
+    const hasTypingMessage = messages.some(msg => 
+      msg.sender === "agent" && (msg.isTyping || !msg.isComplete)
+    )
+    
+    if (!hasTypingMessage && isGenerating && !isSubmitting) {
+      // 약간의 지연 후 상태 정리 (타이핑 애니메이션 완료 대기)
+      setTimeout(() => {
+        setIsGenerating(false)
+        setIsLoading(false)
+      }, 200)
+    }
+  }, [messages, isGenerating, isSubmitting])
 
   // ===== JSX 렌더링 =====
   return (
@@ -2228,19 +2364,72 @@ export default function ChatRoomPage() {
                                       <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         skipHtml={false}
-                                        // disallowedElements={['del']} // 줄긋기 <del> 제거
-                                        // unwrapDisallowed={true}      // 감싸진 요소 걷어냄
                                         components={{
-                                          p: ({ children }) => <p className="!m-0 !p-0 !leading-snug">{children}</p>,
-                                          ul: ({ children }) => <ul className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ul>,
-                                          ol: ({ children }) => <ol className="!m-0 !ml-4 !p-0 !leading-snug">{children}</ol>,
-                                          li: ({ children }) => <li className="!m-0 !p-0 !leading-snug">{children}</li>,
-                                          h1: ({ children }) => <h1 className="!text-xl !font-bold !m-0 !p-0 !leading-snug">{children}</h1>,
-                                          h2: ({ children }) => <h2 className="!text-lg !font-bold !m-0 !p-0 !leading-snug">{children}</h2>,
-                                          h3: ({ children }) => <h3 className="!text-base !font-bold !m-0 !p-0 !leading-snug">{children}</h3>,
-                                          strong: ({ children }) => <strong className="!font-semibold !m-0 !p-0">{children}</strong>,
-                                          blockquote: ({ children }) => <blockquote className="!border-l-4 !border-gray-300 !pl-3 !m-0 !italic !leading-snug">{children}</blockquote>,
+                                          h1: ({ children }) => (
+                                            <h1 className="text-xl font-bold text-gray-900 mb-3 pb-2 border-b-2 border-green-500">
+                                              {children}
+                                            </h1>
+                                          ),
+                                          h2: ({ children }) => (
+                                            <h2 className="text-lg font-bold text-gray-800 mb-2 mt-4 flex items-center">
+                                              <span className="w-1 h-5 bg-green-500 rounded mr-2"></span>
+                                              {children}
+                                            </h2>
+                                          ),
+                                          h3: ({ children }) => (
+                                            <h3 className="text-base font-semibold text-gray-700 mb-1 mt-3 pl-2 border-l-2 border-green-300">
+                                              {children}
+                                            </h3>
+                                          ),
+                                          
+                                          // 문단 간격 줄이기
+                                          p: ({ children }) => (
+                                            <p className="text-gray-700 leading-relaxed mb-2">
+                                              {children}
+                                            </p>
+                                          ),
+                                          
+                                          blockquote: ({ children }) => (
+                                            <div className="bg-green-50 border-l-4 border-green-400 p-3 my-3 rounded-r-lg">
+                                              <div className="flex items-start space-x-2">
+                                                <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                                                  <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                  </svg>
+                                                </div>
+                                                <div className="text-green-800 font-medium leading-relaxed">
+                                                  {children}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ),
+                                          
+                                          // 리스트 간격 줄이기
+                                          ul: ({ children }) => (
+                                            <ul className="space-y-1 mb-2">
+                                              {children}
+                                            </ul>
+                                          ),
+                                          ol: ({ children }) => (
+                                            <ol className="space-y-1 mb-2">
+                                              {children}
+                                            </ol>
+                                          ),
+                                          
+                                          li: ({ children }) => (
+                                            <li className="text-gray-700 leading-relaxed mb-1">
+                                              {children}
+                                            </li>
+                                          ),
+                                          
+                                          // 강조 텍스트 간격 줄이기
+                                          strong: ({ children }) => (
+                                            <strong className="font-bold text-gray-900 text-lg block mb-1">
+                                              {children}
+                                            </strong>
+                                          ),
 
+                                          // 테이블들은 그대로
                                           table: ({ children }) => (
                                             <div className="overflow-x-auto my-4">
                                               <table className="min-w-full border-collapse border border-gray-300 text-sm">
@@ -2274,22 +2463,19 @@ export default function ChatRoomPage() {
                                             </td>
                                           ),
                                           
-                                          // 코드 블록
-                                          code: ({ node, inline, className, children, ...props }: any) => 
-                                            inline ? (
-                                              <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
-                                                {children}
-                                              </code>
-                                            ) : (
-                                              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
-                                                <code className="text-sm font-mono" {...props}>
-                                                  {children}
-                                                </code>
-                                              </pre>
-                                            )
+                                          code: ({ children, ...props }: any) => (
+                                            <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                                              {children}
+                                            </code>
+                                          ),
+                                          pre: ({ children }: any) => (
+                                            <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto my-2">
+                                              {children}
+                                            </pre>
+                                          )
                                         }}
                                       >
-                                        {escapeMarkdown(phq9Parse.textWithoutPHQ9)}
+                                        {escapeMarkdown(cleanMarkdownText(phq9Parse.textWithoutPHQ9))}
                                       </ReactMarkdown>
                                     )}
                                     
@@ -2335,6 +2521,20 @@ export default function ChatRoomPage() {
                           </button>
                         </div>
                       )}
+                      {/* 사업 기획서 보기 버튼 - 메시지별로 표시 */}
+                      {msg.isComplete && !msg.isTyping && msg.showBusinessPlanButton && draftContent && (
+                        <div className="flex justify-center pl-[52px] mt-3">
+                          <Button
+                            onClick={() => {
+                              console.log("[DEBUG] 사업 기획서 보기 버튼 클릭")
+                              setShowDraftPreview(true)
+                            }}
+                            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium"
+                          >
+                            📄 사업 기획서 보기
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2344,7 +2544,7 @@ export default function ChatRoomPage() {
               <div ref={messagesEndRef} />
             </div>
           </div>
-
+{/* 
           {draftContent && (
             <div className="mt-4 flex justify-center">
               <Button
@@ -2354,7 +2554,7 @@ export default function ChatRoomPage() {
                 사업 기획서 보기
               </Button>
             </div>
-          )}
+          )} */}
 
           {/* 하단 입력창 */}
           <div className="w-full max-w-3xl mx-auto bg-white p-6">

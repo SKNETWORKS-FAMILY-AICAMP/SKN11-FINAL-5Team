@@ -264,7 +264,7 @@ class BusinessPlanningService:
         template = f"""{system_context}
 
     다음 지침을 따라 답변하세요:
-    {chr(10).join(merged_prompts)}
+    { " | ".join(merged_prompts) }
 
     최근 대화:
     {history}
@@ -278,9 +278,10 @@ class BusinessPlanningService:
     - 지나치게 기계적이지 않게, 컨설턴트처럼 자연스럽게 대화를 이어가세요.
     - 부족한 정보가 있다면 자연스럽게 그 내용을 **알려드릴까요?** 같은 톤으로 유도하세요.
     - 진행률이 높으면 다음 단계로 넘어가자는 제안을 해보세요.
+    - 응답은 문단을 최소화하고, 불필요한 줄바꿈 없이 연속적인 문장으로 작성하세요.
     {progress_hint}
     {missing_hint}
-    """
+    """.strip()
 
         return PromptTemplate(
             input_variables=["context"],
@@ -325,18 +326,27 @@ class BusinessPlanningService:
         try:
             if topic == "idea_recommendation":
                 logger.info(f"{get_data_func} 실행")
-                trend_data, mcp_source = await get_data_func(persona, user_input)
+                result = await get_data_func(persona, user_input)
+                # get_persona_trend는 튜플 (trend_data, mcp_source)를 반환
+                if isinstance(result, tuple) and len(result) == 2:
+                    trend_data, mcp_source = result
+                else:
+                    trend_data = str(result)
+                    mcp_source = "smithery_ai/persona-trend"
                 logger.info(f"{get_data_func} 실행완료")
             elif topic == "idea_validation":
                 logger.info(f"{get_data_func} 실행")
                 trend_data = await get_data_func(user_input)
+                # get_market_analysis는 단일 문자열을 반환
                 mcp_source = "smithery_ai/brightdata-search"
                 logger.info(f"{get_data_func} 실행완료")
             else:
                 raise ValueError("Unsupported topic")
         except Exception as e:
-            trend_data= "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
+            logger.error(f"데이터 수집 중 오류: {e}")
+            trend_data = "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
             mcp_source = "fallback"
+        
         logger.info(f"trend_data type: {type(trend_data)}, value: {trend_data}")
 
         # LLM 응답 생성 (answer)
@@ -363,7 +373,6 @@ class BusinessPlanningService:
                 "next_question": next_question
             }
         }
-
     
     async def run_rag_query(
         self, conversation_id: int, user_input: str, use_retriever: bool = True, persona: str = "common"
@@ -420,11 +429,11 @@ class BusinessPlanningService:
                                 
                                 # 저장 완료 메시지 추가
                                 save_message = f"\n\n📁 **자동 저장 완료**\n" \
-                                             f"• 프로젝트 제목: {save_result['title']}\n" \
-                                             f"• 파일명: {save_result['file_name']}\n" \
-                                             f"• 프로젝트 ID: {save_result['project_id']}\n" \
-                                             f"• 저장 시간: {get_current_timestamp()}\n\n" \
-                                             f"💡 마이페이지에서 저장된 사업기획서를 확인하실 수 있습니다."
+                                            f"• 프로젝트 제목: {save_result['title']}\n" \
+                                            f"• 파일명: {save_result['file_name']}\n" \
+                                            f"• 프로젝트 ID: {save_result['project_id']}\n" \
+                                            f"• 저장 시간: {get_current_timestamp()}\n\n" \
+                                            f"💡 마이페이지에서 저장된 사업기획서를 확인하실 수 있습니다."
                             else:
                                 logger.error(f"[AUTO_SAVE] 사업기획서 자동 저장 실패: {save_result.get('error')}")
                                 save_message = f"\n\n⚠️ **저장 실패**\n저장 중 오류가 발생했습니다: {save_result.get('error', '알 수 없는 오류')}"
@@ -458,6 +467,24 @@ class BusinessPlanningService:
 
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)
+
+            # 🔥 특별한 토픽 처리 추가
+            special_topics = ["idea_recommendation", "idea_validation"]
+            if any(topic in special_topics for topic in topics):
+                special_topic = next(topic for topic in topics if topic in special_topics)
+                next_stage = self.multi_turn.get_next_stage(current_stage)
+                
+                return await self._handle_special_topic(
+                    topic=special_topic,
+                    persona=persona,
+                    user_input=user_input,
+                    prompt=prompt,
+                    current_stage=current_stage,
+                    progress=progress,
+                    missing=missing,
+                    next_stage=next_stage,
+                    next_question=None
+                )
 
             # 5. RAG or Fallback
             if use_retriever and topics:
@@ -511,7 +538,6 @@ class BusinessPlanningService:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
             return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, "", "아이디어 탐색", 0.0, []))
 
-
     async def _generate_final_business_plan(self, conversation_id: int, history: str) -> str:
         """
         최종 사업기획서를 작성하기 위해 대화 히스토리를 요약하고 문서화
@@ -564,6 +590,7 @@ class BusinessPlanningService:
 - 장기 비전 (3-5년)
 
 실용적이고 구체적으로 작성해주세요.
+불필요한 개행 없이 자연스러운 문단 구성해주세요.
 """}
             ]
             result = await self.llm_manager.generate_response(messages=messages, provider="openai")

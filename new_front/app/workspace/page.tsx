@@ -68,7 +68,7 @@ export default function WorkspacePage() {
     const fetchTemplates = async () => {
       setWorkspaceLoading(true)
       try {
-        const res = await axios.get("http://localhost:8005/api/email/templates", {
+        const res = await axios.get("https://localhost:8005/api/email/templates", {
           params: { user_id: userId }
         })
         const templates: EmailTemplate[] = res.data.templates || []
@@ -175,7 +175,7 @@ export default function WorkspacePage() {
 
     try {
       console.log("📤 SNS 콘텐츠 저장 요청 payload:", payload)
-      await axios.post("http://localhost:8005/workspace/automation/manual", payload)
+      await axios.post("https://localhost:8005/workspace/automation/manual", payload)
       alert("SNS 콘텐츠가 저장되었습니다!")
     } catch (err) {
       console.error("SNS 콘텐츠 저장 실패:", err)
@@ -221,7 +221,7 @@ export default function WorkspacePage() {
 
     try {
       console.log("📤 SNS 콘텐츠 발행 요청 payload:", payload)
-      await axios.post("http://localhost:8005/workspace/automation/manual", payload)
+      await axios.post("https://localhost:8005/workspace/automation/manual", payload)
       alert("발행 요청이 완료되었습니다!")
     } catch (err) {
       console.error("SNS 콘텐츠 발행 실패:", err)
@@ -269,11 +269,11 @@ export default function WorkspacePage() {
     console.log("📧 이메일 발송 요청 payload:", payload)
 
     // 1. 이메일 자동화 task 저장
-    await axios.post("http://localhost:8005/workspace/automation/manual", payload)
+    await axios.post("https://localhost:8005/workspace/automation/manual", payload)
 
     // 2. 즉시 발송이면 바로 메일 API 호출
     if (type === "immediate") {
-      await axios.post("http://localhost:8005/email/send", {
+      await axios.post("https://localhost:8005/email/send", {
         to_emails: [toEmail],
         subject: title,
         body: content,

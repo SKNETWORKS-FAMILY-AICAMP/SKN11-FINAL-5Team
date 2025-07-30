@@ -48,7 +48,7 @@ class EnhancedMarketingEngine:
         self.model = config.OPENAI_MODEL
         self.temperature = 0.7
         self.state_manager = enhanced_state_manager
-        self.task_agent_url = "http://localhost:8005"  # task_agent API URL
+        self.task_agent_url = "https://localhost:8005"  # task_agent API URL
         
         # 🔥 핵심 개선: 컨텍스트 인식 프롬프트
         self._init_context_aware_prompts()
@@ -90,45 +90,46 @@ class EnhancedMarketingEngine:
 
         # 🔥 핵심 개선: 사용자 의도 파악 프롬프트
         self.intent_analysis_prompt = """
-        사용자의 메시지에서 마케팅 관련 의도와 핵심 정보를 추출하세요.
+    사용자의 메시지에서 마케팅 관련 의도와 핵심 정보를 추출하세요.
 
-        사용자 입력: "{user_input}"
+    사용자 입력: "{user_input}"
 
-        ### 추출 지침
-        1. intent는 아래 리스트 중 하나를 선택:
-        ["blog_marketing", "content_marketing", "conversion_optimization", 
-            "digital_advertising", "email_marketing", "influencer_marketing", 
-            "local_marketing", "marketing_fundamentals", "marketing_metrics", 
-            "personal_branding", "social_media_marketing", "viral_marketing"]
-        2. business_type은 ["카페", "온라인쇼핑몰", "뷰티샵", "요식업", "크리에이터", "앱/IT서비스", "교육", "기타"] 중 하나로 매칭.
-        3. product는 문장에서 언급된 서비스/제품명 추출 (없으면 null).
-        4. main_goal, target_audience는 문맥 기반으로 추론 (없으면 null).
-        5. channels는 "blog" 또는 "instagram" 중 하나만 선택 (명확하지 않으면 null).
-        6. 잘못된 추측은 하지 말고 불명확하면 null.
-        7. user_sentiment는 positive, neutral, negative 중 선택.
-        8. next_action은 continue_conversation, create_content, provide_advice, ask_question 중 선택.
-        9. 비즈니스 타입 추론 가이드:
-        - "앱", "어플", "서비스" → "앱/IT서비스"
-        - "인플루언서", "인스타그램", "틱톡", "유튜브" → "크리에이터"
-        - "카페", "커피" → "카페"
-        - "쇼핑몰", "온라인" → "온라인쇼핑몰"
-        - "뷰티", "미용", "코스메틱" → "뷰티샵"
-        
-        출력(JSON):
-        {{
-            "intent": "...",
-            "extracted_info": {{
-                "business_type": "...",
-                "product": "...",
-                "main_goal": "...",
-                "target_audience": "...",
-                "budget": "...",
-                "channels": "blog|instagram|null"
-            }},
-            "user_sentiment": "positive|neutral|negative",
-            "next_action": "continue_conversation|create_content|provide_advice|ask_question"
-        }}
-        """
+    ### 추출 지침
+    1. intent는 아래 리스트 중 하나를 선택:
+    ["blog_marketing", "content_marketing", "conversion_optimization", 
+        "digital_advertising", "email_marketing", "influencer_marketing", 
+        "local_marketing", "marketing_fundamentals", "marketing_metrics", 
+        "personal_branding", "social_media_marketing", "viral_marketing"]
+    2. business_type은 ["카페", "온라인쇼핑몰", "뷰티샵", "요식업", "크리에이터", "앱/IT서비스", "교육", "기타"] 중 하나로 매칭.
+    3. product는 문장에서 언급된 **서비스/제품명 또는 콘텐츠 주제**를 추출 (크리에이터의 경우 콘텐츠 주제가 product로 간주, 없으면 null).
+    4. main_goal, target_audience는 문맥 기반으로 추론 (없으면 null).
+    5. channels는 "blog" 또는 "instagram" 중 하나만 선택 (명확하지 않으면 null).
+    6. 잘못된 추측은 하지 말고 불명확하면 null.
+    7. user_sentiment는 positive, neutral, negative 중 선택.
+    8. next_action은 continue_conversation, create_content, provide_advice, ask_question 중 선택.
+    9. 비즈니스 타입 추론 가이드:
+       - "앱", "어플", "서비스" → "앱/IT서비스"
+       - "인플루언서", "인스타그램", "틱톡", "유튜브" → "크리에이터"
+       - "카페", "커피" → "카페"
+       - "쇼핑몰", "온라인" → "온라인쇼핑몰"
+       - "뷰티", "미용", "코스메틱" → "뷰티샵"
+    
+    출력(JSON):
+    {{
+        "intent": "...",
+        "extracted_info": {{
+            "business_type": "...",
+            "product": "...",
+            "main_goal": "...",
+            "target_audience": "...",
+            "budget": "...",
+            "channels": "blog|instagram|null"
+        }},
+        "user_sentiment": "positive|neutral|negative",
+        "next_action": "continue_conversation|create_content|provide_advice|ask_question"
+    }}
+"""
+
 
         # 🔥 핵심 개선: 콘텐츠 생성 프롬프트
         self.content_type_prompt = """
@@ -521,8 +522,8 @@ class EnhancedMarketingEngine:
    - 불필요한 개행 없이 자연스러운 문단 구성
 
 3. **후속 질문**
-   - 필요하다면 1개의 실용적인 질문만 던질 것
-   - 분석 및 조언과 자연스럽게 연결될 것
+   - 마지막에 후속 질문을 던질 때는, 부족한 정보가 있다면 그 중 하나를 자연스럽게 묻는 질문으로 연결하세요.
+   - 부족한 정보가 없으면 다음 단계 진행을 유도하는 질문을 하세요.
 
 응답 형식(마크다운 활용):
 - 일반 문장은 2~3문장씩 묶어 작성
@@ -534,6 +535,7 @@ class EnhancedMarketingEngine:
 - 전체 길이는 500~600자 내외
 - 전문가다운 자신감 있는 어조, 너무 포멀하지 않은 대화체
 - 중복된 표현이나 불필요한 개행은 피함
+- 고정 제목은 사용하지 마세요.
 """
         
         # _generate_contextual_questions 메서드 내부
@@ -636,9 +638,42 @@ class EnhancedMarketingEngine:
             # context를 재할당하지 말고 별도 변수 사용
             collected_info_dict = {k: v.value for k, v in context.collected_info.items()}
             
+            # from marketing_agent import mcp_marketing_tools
+            from mcp_marketing_tools import MarketingAnalysisTools
             if tool_type == "instagram_post":
-                generated_content = await marketing_tools.create_instagram_post(keywords, collected_info_dict)
-                generated_content = generated_content.get('full_content')
+                logger.info("1단계: 인스타그램 해시태그 분석")
+                # API 호출로 변경
+                async with httpx.AsyncClient() as client:
+                    hashtag_response = await client.post(
+                        "http://localhost:8003/marketing/api/v1/analysis/instagram-hashtags",
+                        json={
+                            "question": f"{','.join(keywords)} 마케팅",
+                            "hashtags": [f"#{kw}" for kw in keywords]
+                        }
+                    )
+                    hashtag_result = hashtag_response.json()
+                
+                # 3단계: 마케팅 템플릿 가져오기
+                logger.info("3단계: 마케팅 템플릿 생성")
+                # API 호출로 변경
+                async with httpx.AsyncClient() as client:
+                    template_response = await client.get(
+                        "http://localhost:8003/marketing/api/v1/templates/instagram"
+                    )
+                    template_result = template_response.json()
+                
+                # 4단계: 인스타그램 콘텐츠 생성
+                logger.info("4단계: 인스타그램 콘텐츠 생성")
+                marketing_analysis_tools = MarketingAnalysisTools()
+                generated_content = await marketing_analysis_tools._generate_instagram_content(
+                    ','.join(keywords), 
+                    keywords, 
+                    hashtag_result.get("popular_hashtags", []),
+                    template_result
+                )
+                # generated_content = await marketing_tools.create_instagram_post(keywords, collected_info_dict)
+                # generated_content = generated_content.get('full_content')
+                generated_content = generated_content.get('post_content')
                 
                 # 원본 context 객체의 flags에 접근
                 context.flags["generated_content"] = generated_content
@@ -648,9 +683,48 @@ class EnhancedMarketingEngine:
                 return generated_content
             
             elif tool_type == "blog_post":
-                generated_content = await marketing_tools.create_blog_post(keywords, collected_info_dict)
-                generated_content = generated_content.get('full_content')
-                return f"✨ 블로그 콘텐츠를 생성했습니다!\n\n{generated_content}\n\n이 콘텐츠가 마음에 드시나요? 수정이 필요하면 말씀해주세요!"
+                # 2단계: 네이버 검색어 트렌드 분석
+                logger.info("2단계: 네이버 검색어 트렌드 분석")
+                # API 호출로 변경
+                async with httpx.AsyncClient() as client:
+                    trend_response = await client.post(
+                        "http://localhost:8003/marketing/api/v1/analysis/naver-trends",
+                        json={
+                            "keywords": keywords,  # 최대 5개까지 분석
+                            "start_date": None,
+                            "end_date": None
+                        }
+                    )
+                    trend_result = trend_response.json()
+                
+                # 3단계: 트렌드 데이터 기반 상위 키워드 선별
+                top_keywords = []
+                if trend_result.get("success") and trend_result.get("data"):
+                    # 트렌드 데이터에서 평균값이 높은 순으로 정렬
+                    trend_scores = []
+                    for result in trend_result["data"]:
+                        if "data" in result:
+                            scores = [item["ratio"] for item in result["data"] if "ratio" in item]
+                            avg_score = sum(scores) / len(scores) if scores else 0
+                            trend_scores.append((result["title"], avg_score))
+                    
+                    # 점수순 정렬
+                    trend_scores.sort(key=lambda x: x[1], reverse=True)
+                    top_keywords = [keyword for keyword, score in trend_scores[:5]]
+                
+                # 백업: 트렌드 분석 실패시 원본 키워드 사용
+                if not top_keywords:
+                    top_keywords = keywords
+                
+                # 4단계: 블로그 콘텐츠 생성
+                logger.info("4단계: 블로그 콘텐츠 생성", keywords, top_keywords, trend_result)
+                marketing_analysis_tools = MarketingAnalysisTools()
+                blog_content = await marketing_analysis_tools._generate_blog_content(keywords, top_keywords, trend_result)
+                # generated_content = await marketing_tools.create_blog_post(keywords, collected_info_dict)
+                # generated_content = generated_content.get('full_content')
+                context.flags["show_posting_modal"]=False
+                return f"✨ 블로그 콘텐츠를 생성했습니다!\n\n{blog_content.get('full_content')}\n\n이 콘텐츠가 마음에 드시나요? 수정이 필요하면 말씀해주세요!"
+            
             elif tool_type == "strategy":
                 generated_content = await marketing_tools.create_strategy_content(collected_info_dict)
                 return f"✨ 마케팅 전략을 생성했습니다!\n\n{generated_content}\n\n이 콘텐츠가 마음에 드시나요? 수정이 필요하면 말씀해주세요!"

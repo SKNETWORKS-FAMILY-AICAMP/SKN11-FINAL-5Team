@@ -17,7 +17,7 @@ class EmailExecutor:
     
     def __init__(self):
         """이메일 실행기 초기화"""
-        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
+        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "https://localhost:8005")
         logger.info("EmailExecutor v2 초기화 완료 (실제 API 호출)")
 
     async def execute(self, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:

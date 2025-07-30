@@ -1108,3 +1108,23 @@ def check_user_token_exists(db: Session, user_id: int) -> bool:
         logger.error(f"[check_user_token_exists 오류] {e}", exc_info=True)
         return False
 
+def get_user_persona_info(db: Session, user_id: int) -> dict:
+    """사용자의 페르소나 정보 조회"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if not user:
+            logger.warning(f"사용자 ID {user_id}를 찾을 수 없습니다")
+            return {}
+        
+        persona_info = {
+            "business_type": user.business_type,
+            "experience": user.experience,
+            "nickname": user.nickname,
+            "email": user.email
+        }
+        logger.info(f"페르소나 정보 조회 완료: user_id={user_id}, business_type={persona_info.get('business_type')}")
+        return persona_info
+        
+    except Exception as e:
+        logger.error(f"[get_user_persona_info 오류] {e}", exc_info=True)
+        return {}

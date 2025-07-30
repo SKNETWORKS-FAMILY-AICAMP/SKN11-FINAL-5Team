@@ -35,7 +35,7 @@ export function useSchedule(userId: number | null) {
 
     const fetchAutomationTasks = async () => {
       try {
-        const res = await axios.get("http://localhost:8005/workspace/automation", {
+        const res = await axios.get("https://localhost:8005/workspace/automation", {
           params: { user_id: userId },
         })
         console.log("📦 자동화 작업 응답:", res.data)
@@ -81,7 +81,7 @@ export function useSchedule(userId: number | null) {
 
 const fetchUpcomingEvents = async () => {
   try {
-    const res = await axios.get("http://localhost:8005/events/upcoming", {
+    const res = await axios.get("https://localhost:8005/events/upcoming", {
       params: { user_id: userId, days: 7 }
     })
 
@@ -120,7 +120,7 @@ const fetchUpcomingEvents = async () => {
   }
   const deleteTask = async (taskId: number) => {
     try {
-      await axios.delete(`http://localhost:8005/workspace/automation/${taskId}`)
+      await axios.delete(`https://localhost:8005/workspace/automation/${taskId}`)
       setAutomationTasks((prev) => prev.filter((task) => task.task_id !== taskId))
     } catch (err) {
       console.error("업무 삭제 실패:", err)
@@ -129,7 +129,7 @@ const fetchUpcomingEvents = async () => {
 
   const updateTask = async (task: AutomationTask) => {
     try {
-      const res = await axios.put(`http://localhost:8005/workspace/automation/${task.task_id}`, task)
+      const res = await axios.put(`https://localhost:8005/workspace/automation/${task.task_id}`, task)
       console.log("업무 업데이트 완료:", res.data)
     } catch (err) {
       console.error("업무 업데이트 실패:", err)
@@ -155,7 +155,7 @@ const fetchUpcomingEvents = async () => {
 
       if (type === "email") {
         task_type = "send_email"
-        endpoint = "http://localhost:8005/workspace/automation/ai"
+        endpoint = "https://localhost:8005/workspace/automation/ai"
         task_data = {
           to_emails: [toEmail],
           subject: title,
@@ -165,7 +165,7 @@ const fetchUpcomingEvents = async () => {
         }
       } else if (type === "instagram") {
         task_type = "sns_publish_instagram"
-        endpoint = "http://localhost:8005/workspace/automation/ai"
+        endpoint = "https://localhost:8005/workspace/automation/ai"
         task_data = {
           ...task_data,
           platform: "instagram",
@@ -173,7 +173,7 @@ const fetchUpcomingEvents = async () => {
         }
       } else if (type === "naver") {
         task_type = "sns_publish_blog"
-        endpoint = "http://localhost:8005/workspace/automation/ai"
+        endpoint = "https://localhost:8005/workspace/automation/ai"
         task_data = {
           ...task_data,
           platform: "naver_blog",
@@ -217,7 +217,7 @@ const fetchUpcomingEvents = async () => {
         calendar_id: "all",
       })
 
-      const res = await axios.get("http://localhost:8005/events", {
+      const res = await axios.get("https://localhost:8005/events", {
         params: {
           user_id: userId,
           start_date: start,
@@ -268,7 +268,7 @@ const fetchUpcomingEvents = async () => {
       timezone: "Asia/Seoul",
     }
 
-    const res = await axios.post("http://localhost:8005/events", payload, {
+    const res = await axios.post("https://localhost:8005/events", payload, {
       params: { user_id: userId },
     })
 

@@ -129,22 +129,70 @@ export function useInstagramPosting() {
   const scheduleInstagramPost = useCallback(async (content: string, images: File[], scheduledTime: Date) => {
     setIsScheduling(true)
     try {
-      const formData = new FormData()
-      formData.append('content', content)
-      formData.append('scheduled_time', scheduledTime.toISOString())
-      images.forEach((image, index) => {
-        formData.append(`image_${index}`, image)
-      })
-
-      const response = await fetch('/api/instagram/schedule', {
+      // 사용자 ID 가져오기
+      const storedUser = localStorage.getItem('user')
+      if (!storedUser) {
+        throw new Error('로그인이 필요합니다.')
+      }
+      
+      let user_id: number
+      try {
+        const user = JSON.parse(storedUser)
+        user_id = user.user_id
+      } catch (error) {
+        throw new Error('사용자 정보를 불러올 수 없습니다.')
+      }
+  
+      // 이미지를 S3에 업로드하고 URL 받기
+      let image_url = ''
+      if (images.length > 0) {
+        const formData = new FormData()
+        formData.append('image', images[0]) // 첫 번째 이미지만 사용
+        
+        const uploadResponse = await fetch('/api/upload/s3', {
+          method: 'POST',
+          body: formData
+        })
+        
+        if (!uploadResponse.ok) {
+          throw new Error('이미지 업로드 실패')
+        }
+        
+        const uploadResult = await uploadResponse.json()
+        image_url = uploadResult.url // S3 업로드된 이미지 URL
+      }
+  
+      // 요청된 구조로 task_data 구성
+      const api_post_data = {
+        caption: content,
+        image_url: image_url
+      }
+  
+      const requestData = {
+        user_id: user_id,
+        task_type: "sns_publish_instagram",
+        title: "Instagram 포스트 예약",
+        task_data: {
+          user_id: user_id,
+          caption: api_post_data["caption"],
+          image_url: api_post_data["image_url"]
+        },
+        scheduled_at: scheduledTime.toISOString()
+      }
+  
+      // task_agent의 /automation/task 엔드포인트 호출
+      const response = await fetch('https://localhost:8005/automation/task', {
         method: 'POST',
-        body: formData
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
       })
-
+  
       if (!response.ok) {
         throw new Error('Instagram 예약 실패')
       }
-
+  
       const result = await response.json()
       return result
     } catch (error) {

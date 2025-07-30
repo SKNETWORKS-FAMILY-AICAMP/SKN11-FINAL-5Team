@@ -1,6 +1,6 @@
 import axios from "axios"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005"
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://localhost:8005"
 
 export const createEmailTemplate = async (userId: number, data: {
   title: string

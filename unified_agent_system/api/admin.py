@@ -23,7 +23,7 @@ AGENT_ENDPOINTS = {
     "marketing": "http://localhost:8003", 
     "customer_service": "http://localhost:8002",
     "mental_health": "http://localhost:8004",
-    "task_automation": "http://localhost:8005"
+    "task_automation": "https://localhost:8005"
 }
 
 async def check_agent_health(agent_name: str, base_url: str):
