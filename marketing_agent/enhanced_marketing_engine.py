@@ -59,26 +59,34 @@ class EnhancedMarketingEngine:
         """맥락 인식 프롬프트 초기화"""
         
         # 🔥 핵심 개선: 수집된 정보를 명시적으로 활용하는 프롬프트
-        self.context_aware_prompt = """당신은 전문 마케팅 컨설턴트입니다. 
-수집된 정보를 먼저 분석한 후, 그에 기반하여 맞춤형 조언과 후속 질문을 제공하세요.
+        self.context_aware_prompt = """당신은 전문 마케팅 컨설턴트입니다.
+사용자의 질문을 우선적으로 분석하여 실질적인 조언을 제공하고, 컨텍스트에서 비즈니스 정보를 적극적으로 추론하세요.
 
-⚠️ 중요한 규칙:
-1. **1단계: 정보 분석** - 수집된 정보를 먼저 요약하고 분석하세요
-2. **2단계: 맞춤형 조언** - 분석 결과를 바탕으로 구체적인 조언을 제공하세요
-3. **3단계: 후속 질문** - 더 나은 조언을 위해 필요한 핵심 질문을 1-2개만 하세요
-4. 이미 수집된 정보는 다시 묻지 마세요
-5. 사용자가 구체적인 요청(콘텐츠 생성 등)을 하면 정보 수집보다 요청 처리를 우선하세요
+🎯 **핵심 원칙**:
+1. **사용자 질문 직접 답변**: 먼저 사용자 질문에 대한 명확한 답변과 마케팅 관점의 분석을 제공
+2. **적극적 정보 추론**: 언급된 비즈니스 정보에서 타겟층, 마케팅 채널, 목표를 적극적으로 추론
+3. **실행 가능한 조언 중심**: 이론보다는 바로 실행할 수 있는 구체적인 전략과 팁 제공
+4. **자연스러운 후속 질문**: 필요시에만, 사용자가 답변하고 싶어할 만한 실용적 질문 1개 추가
+5. **정보 수집 최소화**: 이미 충분히 추론 가능하면 추가 질문하지 않음
+
+**추론 가이드**: 
+- "앱" → IT/디지털 서비스, 20-40대 타겟, SNS 마케팅 적합
+- "카페" → 지역 비즈니스, 인스타그램/블로그 마케팅
+- "온라인쇼핑몰" → 전자상거래, 퍼포먼스 마케팅
+- "뷰티" → 시각적 콘텐츠, 인플루언서 마케팅
+- "데이트코스 추천" → 20-30대 연인 타겟, 로맨틱 감성, 인스타그램/틱톡 적합
 
 현재 상황:
 {context}
 
-사용자 입력: {user_input}
+사용자 질문: {user_input}
 
-응답은 자연스러운 대화체로 작성해주세요. 
-- 먼저 수집된 정보와 상황을 바탕으로 마케팅 관점에서 간단한 통찰을 제시해주세요.
-- 이어서 실천 가능한 팁이나 전략을 2~3개 정도 제안해주세요.
-- 필요하다면, 사용자가 답변하기 쉽게 자연스럽게 질문을 덧붙여주세요. 예: “혹시 이와 관련해 어떤 디자인을 주로 활용하고 계신가요?”
-- 전체 분량은 약 300자 내외, 말 걸 듯한 친근한 톤을 유지해주세요. """
+**응답 구조**:
+1. 사용자 질문에 대한 직접적 답변 (2-3문장)
+2. 추론된 비즈니스 특성 기반 구체적 마케팅 조언 (실행 가능한 3-4가지 방법)
+3. 필요시 자연스러운 후속 질문 1개 (사용자가 실제로 고민할 만한 실용적 내용)
+
+톤: 전문적이면서 친근하게, 약 400자 내외로 작성해주세요."""
 
         # 🔥 핵심 개선: 사용자 의도 파악 프롬프트
         self.intent_analysis_prompt = """
@@ -92,28 +100,34 @@ class EnhancedMarketingEngine:
             "digital_advertising", "email_marketing", "influencer_marketing", 
             "local_marketing", "marketing_fundamentals", "marketing_metrics", 
             "personal_branding", "social_media_marketing", "viral_marketing"]
-        
-        2. business_type은 ["카페", "온라인쇼핑몰", "뷰티샵", "레스토랑", "피트니스", "앱/IT서비스", "교육", "프리랜서", "기타"] 중 하나로 매칭.
+        2. business_type은 ["카페", "온라인쇼핑몰", "뷰티샵", "요식업", "크리에이터", "앱/IT서비스", "교육", "기타"] 중 하나로 매칭.
         3. product는 문장에서 언급된 서비스/제품명 추출 (없으면 null).
-        4. main_goal, target_audience, channels는 문맥 기반으로 추론 (없으면 null).
-        5. 잘못된 추측은 하지 말고 불명확하면 null.
-        6. user_sentiment는 positive, neutral, negative 중 선택.
-        7. next_action은 continue_conversation, create_content, provide_advice, ask_question 중 선택.
-
+        4. main_goal, target_audience는 문맥 기반으로 추론 (없으면 null).
+        5. channels는 "blog" 또는 "instagram" 중 하나만 선택 (명확하지 않으면 null).
+        6. 잘못된 추측은 하지 말고 불명확하면 null.
+        7. user_sentiment는 positive, neutral, negative 중 선택.
+        8. next_action은 continue_conversation, create_content, provide_advice, ask_question 중 선택.
+        9. 비즈니스 타입 추론 가이드:
+        - "앱", "어플", "서비스" → "앱/IT서비스"
+        - "인플루언서", "인스타그램", "틱톡", "유튜브" → "크리에이터"
+        - "카페", "커피" → "카페"
+        - "쇼핑몰", "온라인" → "온라인쇼핑몰"
+        - "뷰티", "미용", "코스메틱" → "뷰티샵"
+        
         출력(JSON):
-        {
+        {{
             "intent": "...",
-            "extracted_info": {
+            "extracted_info": {{
                 "business_type": "...",
                 "product": "...",
                 "main_goal": "...",
                 "target_audience": "...",
                 "budget": "...",
-                "channels": "..."
-            },
+                "channels": "blog|instagram|null"
+            }},
             "user_sentiment": "positive|neutral|negative",
             "next_action": "continue_conversation|create_content|provide_advice|ask_question"
-        }
+        }}
         """
 
         # 🔥 핵심 개선: 콘텐츠 생성 프롬프트
@@ -196,6 +210,7 @@ class EnhancedMarketingEngine:
                 )
                 
                 if marketing_strategy_result.get("auto_saved"):
+                    AUTO_SAVE_AVAILABLE = False
                     # 자동 저장이 성공한 경우 바로 반환
                     return marketing_strategy_result
             
@@ -289,20 +304,21 @@ class EnhancedMarketingEngine:
             if len(context.conversation_history) > 1:
                 recent_msgs = context.conversation_history[-5:]  # 최근 5개 메시지
                 recent_messages = "\n이전 대화:\n" + "\n".join([f"{msg['role']}: {msg['content'][:100]}..." for msg in recent_msgs])
-            
             print(recent_messages)
+            
+            formatted_intent_prompt = self.intent_analysis_prompt.format(user_input=user_input)
             # 🔥 개선된 프롬프트 (컨텍스트 포함)
-            enhanced_prompt = f"""{self.intent_analysis_prompt}
+            enhanced_prompt = f"""{formatted_intent_prompt}
     {context_info}
     {recent_messages}
             
     현재 대화 단계: {context.current_stage.value}
-    완료율: {context.get_completion_rate():.1%}
+    완료율: {context.get_completion_rate():.1%} 
             """
             
             # LLM 기반 의도 분석
             response = await self._call_llm_with_timeout(
-                enhanced_prompt.format(user_input=user_input),
+                enhanced_prompt,
                 timeout=10
             )
             
@@ -383,6 +399,10 @@ class EnhancedMarketingEngine:
                     
                     # 프롬프트 내용을 컨텍스트와 사용자 입력을 받을 수 있는 형태로 포맷팅
                     formatted_prompt = f"""
+당신은 친근하고 경험 많은 마케팅 전문가입니다. 
+사용자와 자연스러운 대화를 이어가며 필요한 정보를 수집하고 있습니다.
+
+프롬프트 내용:
 {prompt_content}
 
 현재 수집된 정보:
@@ -391,17 +411,35 @@ class EnhancedMarketingEngine:
 사용자 요청:
 {{user_input}}
 
-추가로 수집해야 할 정보:
+추가로 필요한 정보:
 {{missing_info}}
 
-[요구사항]
-1. 먼저 사용자 요청에 대한 주요 조언(2~3문장)을 친근하고 전문적인 톤으로 제공.
-2. "💡 지금 바로 해볼 수 있는 행동:" 섹션을 마크다운 리스트(-)로 작성 (2~4개).
-3. 추가 정보가 필요한 경우: 해당 정보를 자연스럽게 묻는 후속 질문을 1~2문장으로 작성.
-4. 추가 정보가 없는 경우: 수집된 정보를 바탕으로 구체적인 실행 방안이나 다음 단계를 제안.
-5. 후속 질문은 "혹시 ~에 대해 알려주실 수 있을까요?" 또는 "이 부분은 어떇게 생각하시나요?"처럼 대화 흐름에 맞게.
+요구사항:
+1. **수집된 정보를 바탕으로 핵심 인사이트 제공**
+   - 현재까지 파악한 비즈니스 상황의 장점과 기회
+   - 트렌드나 경쟁 환경을 고려한 전략적 제안
+   - 긍정적이고 실행 중심의 톤
+
+2. **실질적인 마케팅 조언 제시**
+   - 지금 바로 실행할 수 있는 2~3가지 마케팅 아이디어
+   - 각 아이디어에 대한 간단한 실행 팁 포함
+
+3. **자연스러운 후속 질문**
+   - 최대 1개의 질문만 (사용자 피로도 고려)
+   - 분석과 조언에서 자연스럽게 이어지는 실용적 질문
+   - 사용자가 바로 답하고 싶어질 만한 내용
+
+응답 형식(마크다운 활용):
+- 일반 문장은 자연스럽게 작성하되, **중요 포인트나 강조할 키워드는 `##` 헤더**로 처리
+- 마케팅 아이디어는 `-` 또는 `1. 2. 3.` 형식으로 정리
+- 질문은 마지막 한 문장으로 자연스럽게 연결
+
+응답 스타일:
+- 600자 내외, 친근하고 대화체로 작성
+- 분석과 조언을 우선, 질문은 보조적으로
+- 사용자가 이미 언급한 내용은 반복하지 않기
+- 전문가다운 자신감 있는 어조 사용
 """
-                    
                     return formatted_prompt
             
             # 기본 프롬프트 반환 (해당하는 파일이 없는 경우)
@@ -463,45 +501,40 @@ class EnhancedMarketingEngine:
         print("collected_summary:", collected_summary)
         # 정보 분석 + 질문 생성을 위한 프롬프트
         analysis_and_question_prompt = f"""
-    당신은 마케팅 전문가입니다. 사용자와 자연스러운 대화를 통해 필요한 정보를 수집하고 있습니다.
-    
-    현재 상황:
-    - 사용자 입력: "{user_input}"
-    - 현재 단계: {context.current_stage.value}
-    - 이미 수집된 정보:
-    {collected_summary if collected_summary else "아직 수집된 정보 없음"}
-    
-    부족한 필수 정보: {', '.join(missing_info)}
-    
-    요구사항:
-    1. **먼저 수집된 정보에 대한 간단한 분석/코멘트 제공**
-       - 현재까지 파악된 상황 요약
-       - 마케팅 관점에서의 인사이트나 방향성 제시
-       - 긍정적이고 전문적인 톤으로 작성
-    
-    2. **그 다음 자연스럽게 후속 질문 연결**
-       - 최대 2개의 질문만 하기 (사용자 피로도 고려)
-       - 분석 내용과 자연스럽게 연결되는 질문
-       - 구체적인 예시 포함하여 이해하기 쉽게 질문
-       - 사용자가 이미 언급한 내용은 다시 묻지 않기
-    
-    다음 중 하나의 정보가 필요합니다:
-    - business_type: 업종/비즈니스 유형
-    - product: 주요 제품이나 서비스
-    - main_goal: 마케팅의 주요 목표
-    - target_audience: 주요 고객층
-    - budget: 마케팅 예산 범위
-    - channels: 선호하는 마케팅 채널
-    
-    응답은 자연스럽고 흐름 있는 대화체로 작성해주세요. 
-    - 명확한 제목 없이 단락 형태로 이어지도록 하되, 전체 길이는 300자 내외로 유지해주세요.
-    - 너무 포멀하지 않고, 말 걸듯 친근한 톤으로 작성해주세요.
-    - 질문이 필요한 경우, 분석 내용과 연결해 1~2개의 질문을 자연스럽게 삽입해주세요.
-    - 예: "지금 운영 중인 네일샵이라면 감각적인 이미지가 중요한데요, 혹시 고객들이 특히 좋아하는 디자인이 있으신가요?"
+당신은 친근하고 경험 많은 마케팅 전문가입니다. 
+사용자와 자연스러운 대화를 통해 필요한 정보를 수집하고 있습니다.
 
-    
-    전문적이면서도 친근한 톤으로 작성해주세요:
-    """
+현재 상황:
+- 사용자 입력: "{user_input}"
+- 현재 단계: {context.current_stage.value}
+- 수집된 정보: {collected_summary if collected_summary else "아직 수집된 정보 없음"}
+- 부족한 정보: {', '.join(missing_info)}
+
+요구사항:
+1. **수집된 정보에 대한 핵심 인사이트 제공**
+   - 현재 비즈니스 상황과 마케팅 기회 요약 (2~3문장)
+   - 긍정적이고 실행 지향적인 톤
+
+2. **실행 가능한 마케팅 조언 제시**
+   - 지금 바로 실행할 수 있는 방법 2~3가지
+   - 전문 마케팅 용어 대신 일상적이고 쉬운 표현 사용
+   - 불필요한 개행 없이 자연스러운 문단 구성
+
+3. **후속 질문**
+   - 필요하다면 1개의 실용적인 질문만 던질 것
+   - 분석 및 조언과 자연스럽게 연결될 것
+
+응답 형식(마크다운 활용):
+- 일반 문장은 2~3문장씩 묶어 작성
+- **핵심 포인트나 아이디어는 `##` 헤더로 강조**
+- 실행 조언은 `1. 2. 3.` 리스트로 간단히 정리
+- 질문은 마지막에 한 문장으로 자연스럽게 마무리
+
+응답 스타일:
+- 전체 길이는 500~600자 내외
+- 전문가다운 자신감 있는 어조, 너무 포멀하지 않은 대화체
+- 중복된 표현이나 불필요한 개행은 피함
+"""
         
         # _generate_contextual_questions 메서드 내부
         try:

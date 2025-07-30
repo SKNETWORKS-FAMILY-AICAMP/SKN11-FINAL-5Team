@@ -111,10 +111,10 @@ export function useAiContents(userId: number | null) {
     let taskType = ""
 
     if (platform === "instagram") {
-      url = "http://localhost:8000/api/v1/content/instagram"
+      url = "http://localhost:8003/marketing/api/v1/content/instagram"
       taskType = "sns_publish_instagram"
     } else if (platform === "naver") {
-      url = "http://localhost:8000/api/v1/content/blog"
+      url = "http://localhost:8003/marketing/api/v1/content/blog"
       taskType = "sns_publish_blog"
     } else {
       throw new Error("지원되지 않는 플랫폼입니다.")

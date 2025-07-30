@@ -420,6 +420,9 @@ async def health_check():
         logger.error(f"헬스체크 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from api.marketing_api import router as marketing_router
+app.include_router(marketing_router, prefix="/marketing", tags=["Marketing API"])
+
 @app.get("/")
 async def root():
     """루트 엔드포인트"""

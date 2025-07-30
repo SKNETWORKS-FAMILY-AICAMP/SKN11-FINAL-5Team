@@ -214,7 +214,7 @@ const fetchUpcomingEvents = async () => {
         user_id: userId,
         start_date: start,
         end_date: end,
-        calendar_id: "primary",
+        calendar_id: "all",
       })
 
       const res = await axios.get("http://localhost:8005/events", {
@@ -222,7 +222,7 @@ const fetchUpcomingEvents = async () => {
           user_id: userId,
           start_date: start,
           end_date: end,
-          calendar_id: "primary",
+          calendar_id: "all",
         },
       })
 
