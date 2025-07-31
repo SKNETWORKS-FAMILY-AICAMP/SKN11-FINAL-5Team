@@ -275,10 +275,18 @@ class BusinessPlanningService:
     사용자 질문: "{user_input}"
 
     [응답 지침]
-    - 지나치게 기계적이지 않게, 컨설턴트처럼 자연스럽게 대화를 이어가세요.
-    - 부족한 정보가 있다면 자연스럽게 그 내용을 **알려드릴까요?** 같은 톤으로 유도하세요.
-    - 진행률이 높으면 다음 단계로 넘어가자는 제안을 해보세요.
-    - 응답은 문단을 최소화하고, 불필요한 줄바꿈 없이 연속적인 문장으로 작성하세요.
+    **문단 구성 및 가독성:**
+    - 핵심 포인트를 먼저 간단히 요약하여 시작하세요
+    - 내용을 논리적인 순서로 2-4개 문단으로 나누어 구성하세요
+    - 각 문단은 하나의 주제만 다루고, 문단 간 자연스러운 연결을 유지하세요
+    - 중요한 키워드는 **굵게** 표시하고, 필요시 번호나 불릿 포인트를 활용하세요
+    - 마지막에는 구체적인 다음 단계나 질문을 제시하세요
+    
+    **톤앤매너:**
+    - 전문적이지만 친근한 1인 창업 컨설턴트 어조 유지
+    - 복잡한 내용도 쉽게 이해할 수 있도록 설명
+    - 부족한 정보가 있다면 "추가로 알아보실까요?" 같은 자연스러운 톤으로 제안
+    - 진행률이 높으면 다음 단계로의 전환을 부드럽게 제안
     {progress_hint}
     {missing_hint}
     """.strip()
@@ -326,7 +334,13 @@ class BusinessPlanningService:
         try:
             if topic == "idea_recommendation":
                 logger.info(f"{get_data_func} 실행")
-                trend_data, mcp_source = await get_data_func(persona, user_input)
+                result = await get_data_func(persona, user_input)
+                # get_persona_trend는 튜플 (trend_data, mcp_source)를 반환
+                if isinstance(result, tuple) and len(result) == 2:
+                    trend_data, mcp_source = result
+                else:
+                    trend_data = str(result)
+                    mcp_source = "smithery_ai/persona-trend"
                 logger.info(f"{get_data_func} 실행완료")
             elif topic == "idea_validation":
                 logger.info(f"{get_data_func} 실행")
@@ -337,8 +351,10 @@ class BusinessPlanningService:
             else:
                 raise ValueError("Unsupported topic")
         except Exception as e:
-            trend_data= "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
+            logger.error(f"데이터 수집 중 오류: {e}")
+            trend_data = "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
             mcp_source = "fallback"
+        
         logger.info(f"trend_data type: {type(trend_data)}, value: {trend_data}")
 
         # LLM 응답 생성 (answer)
@@ -365,7 +381,6 @@ class BusinessPlanningService:
                 "next_question": next_question
             }
         }
-
     
     async def run_rag_query(
         self, conversation_id: int, user_input: str, use_retriever: bool = True, persona: str = "common"
@@ -461,6 +476,24 @@ class BusinessPlanningService:
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)
 
+            # 🔥 특별한 토픽 처리 추가
+            special_topics = ["idea_recommendation", "idea_validation"]
+            if any(topic in special_topics for topic in topics):
+                special_topic = next(topic for topic in topics if topic in special_topics)
+                next_stage = self.multi_turn.get_next_stage(current_stage)
+                
+                return await self._handle_special_topic(
+                    topic=special_topic,
+                    persona=persona,
+                    user_input=user_input,
+                    prompt=prompt,
+                    current_stage=current_stage,
+                    progress=progress,
+                    missing=missing,
+                    next_stage=next_stage,
+                    next_question=None
+                )
+
             # 5. RAG or Fallback
             if use_retriever and topics:
                 try:
@@ -512,7 +545,6 @@ class BusinessPlanningService:
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
             return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, "", "아이디어 탐색", 0.0, []))
-
 
     async def _generate_final_business_plan(self, conversation_id: int, history: str) -> str:
         """

@@ -305,6 +305,8 @@ async def get_persona_trend(persona: str, query: str):
     
     # creator는 유튜브 인기 트렌드
     elif persona == "creator":
+        smithery_api_key = "056f88d0-aa2e-4ea9-8f2d-382ba74dcb07"
+        youtube_url = f"https://server.smithery.ai/@icraft2170/youtube-data-mcp-server/mcp?api_key={smithery_api_key}&profile=realistic-possum-fgq4Y7"
         trend= await get_trending_youtube_videos(youtube_url)
         mcp_source = "smithery_ai/youtube-data-mcp-server"
         return trend,mcp_source
