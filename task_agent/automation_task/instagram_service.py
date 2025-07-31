@@ -27,7 +27,7 @@ class InstagramPostingService:
         # Instagram OAuth 설정
         self.instagram_app_id = os.getenv('INSTAGRAM_APP_ID')
         self.instagram_app_secret = os.getenv('INSTAGRAM_APP_SECRET')
-        self.redirect_uri = os.getenv('INSTAGRAM_REDIRECT_URI', 'http://localhost:8080/auth/instagram/callback')
+        self.redirect_uri = os.getenv('INSTAGRAM_REDIRECT_URI', 'https://localhost:8005/auth/instagram/callback')
         # 토큰 저장 파일 경로
         self.token_file = Path("instagram_tokens.json")
 

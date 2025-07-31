@@ -3,7 +3,11 @@
 네이버 트렌드 분석, 인스타그램 해시태그 분석 등 MCP 기반 마케팅 도구
 """
 
+import sys
 import os
+
+# shared_modules가 있는 상위 경로를 프로젝트에 맞게 설정
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import json
 import base64
 import asyncio
@@ -13,6 +17,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import logging
 from collections import Counter
+
 
 logger = logging.getLogger(__name__)
 

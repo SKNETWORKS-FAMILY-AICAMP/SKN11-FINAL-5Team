@@ -1699,7 +1699,6 @@ async def mental_health_query_proxy(data: dict = Body(...)):
     except Exception as e:
         logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
         return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
-    
 
 
 if __name__ == "__main__":

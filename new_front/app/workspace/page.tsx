@@ -43,25 +43,39 @@ export default function WorkspacePage() {
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | EmailContent | null>(null)
   const [selectedContent, setSelectedContent] = useState<AutomationTask | null>(null)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
+  // 헤더 관련 state 추가
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [user, setUser] = useState<any>(null)
 
+  // 사용자 정보 로드 - 다른 페이지와 동일한 방식
   useEffect(() => {
-    const stored = localStorage.getItem("user")
-    if (!stored) {
+    const storedUser = localStorage.getItem("user")
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser)
+        console.log("워크스페이스 - 저장된 사용자 정보:", parsedUser)
+        
+        if (!parsedUser.user_id) {
+          console.error("user_id가 없습니다.")
+          alert("로그인 정보가 올바르지 않습니다. 다시 로그인해주세요.")
+          router.replace("/login")
+          return
+        }
+        
+        setUserId(parsedUser.user_id)
+        setUser(parsedUser)
+      } catch (e) {
+        console.error("사용자 정보 파싱 오류:", e)
+        localStorage.removeItem("user")
+        alert("로그인 정보가 손상되었습니다. 다시 로그인해주세요.")
+        router.replace("/login")
+      }
+    } else {
       alert("로그인이 필요합니다.")
-      router.replace("/login")
-      return
-    }
-    try {
-      const parsed = JSON.parse(stored)
-      if (!parsed.user_id) throw new Error("user_id 없음")
-      setUserId(parsed.user_id)
-    } catch (e) {
-      console.error("user 정보 파싱 실패", e)
-      localStorage.removeItem("user")
       router.replace("/login")
     }
   }, [router])
-
+  
   useEffect(() => {
     if (!userId) return
 
@@ -102,6 +116,12 @@ export default function WorkspacePage() {
   const handleTabChange = () => {
     setSelectedTemplate(null)
     email.setContentForm({ title: "", content: "" })
+  }
+
+  // 로그아웃 처리 함수
+  const handleLogout = () => {
+    localStorage.clear()
+    window.location.href = "/login"
   }
 
   const handleTaskClick = (task: AutomationTask) => {
@@ -411,16 +431,67 @@ export default function WorkspacePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
-      <nav className="px-4 py-3 bg-white/90 backdrop-blur-sm border-b border-gray-200">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <Link href="/" className="flex items-center space-x-2">
-            <span className="text-lg font-bold text-gray-900">TinkerBell</span>
+      {/* 업데이트된 헤더 - 마이페이지와 동일한 구조 */}
+      <nav className="px-6 py-4 sticky top-0 bg-white/90 backdrop-blur-sm border-b border-gray-200 z-50">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <Link href="/" className="flex items-center space-x-3">
+            <Image
+              src="/3D_고양이.png?height=40&width=40"
+              alt="TinkerBell Logo"
+              width={40}
+              height={40}
+              className="rounded-full"
+            />
+            <span className="text-2xl font-bold text-gray-900">TinkerBell</span>
+            <span className="text-sm text-gray-500 font-medium">Business</span>
           </Link>
-          <div className="flex items-center space-x-3">
-            <span className="text-sm text-gray-600">솔로프리너 워크스페이스</span>
-            <div className="w-7 h-7 bg-green-100 rounded-full flex items-center justify-center">
-              <User className="w-3 h-3 text-green-600" />
-            </div>
+
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/#service" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              서비스 소개
+            </Link>
+            <Link href="/chat" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              상담하기
+            </Link>
+            <Link href="/faq" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+              FAQ
+            </Link>
+            {user ? (
+              <div className="relative flex items-center space-x-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowProfileMenu(!showProfileMenu)}
+                    className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center focus:outline-none"
+                  >
+                    <User className="h-4 w-4 text-green-600" />
+                  </button>
+
+                  {showProfileMenu && (
+                    <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                      <Link href="/chat" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
+                        상담으로 돌아가기
+                      </Link>
+                      <Link href="/mypage" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onClick={() => setShowProfileMenu(false)}>
+                        마이페이지
+                      </Link>
+                      <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                        로그아웃
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {(user?.username || user?.name) && (
+                  <span className="text-base text-gray-600">
+                    {user.username || user.name} 님
+                  </span>
+                )}
+              </div>
+            ) : (
+              <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">
+                로그인
+              </Link>
+            )}
           </div>
         </div>
       </nav>
@@ -436,6 +507,14 @@ export default function WorkspacePage() {
           onSave={handleSaveTaskData}
         />
       </div>
+
+      {/* 프로필 메뉴 외부 클릭 감지 */}
+      {showProfileMenu && (
+        <div 
+          className="fixed inset-0 z-30 pointer-events-none" 
+          onClick={() => setShowProfileMenu(false)}
+        />
+      )}
     </div>
   )
 }

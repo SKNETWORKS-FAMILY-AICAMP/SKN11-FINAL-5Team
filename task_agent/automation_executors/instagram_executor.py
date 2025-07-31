@@ -32,7 +32,7 @@ class InstagramExecutor:
         self.instagram_app_secret = os.getenv("INSTAGRAM_APP_SECRET")
         self.redirect_uri = os.getenv("INSTAGRAM_REDIRECT_URI")
         
-        logger.info("InstagramExecutor v1 초기화 완료 (실제 API 호출)")
+        logger.info("InstagramExecutor v1 초기화 완료 (실제 API 호  출)")
 
     async def execute(self, task_data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
         """Instagram 포스팅 실행 - 실제 API 호출"""
