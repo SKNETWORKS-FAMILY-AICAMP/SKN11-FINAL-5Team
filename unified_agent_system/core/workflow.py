@@ -27,6 +27,10 @@ class UnifiedAgentWorkflow:
         self.router = QueryRouter()
         self.agent_manager = AgentManager()
         self.workflow = self._create_workflow()
+        
+        # 대화 히스토리 관리
+        self.conversation_histories: Dict[int, List[Dict[str, Any]]] = {}
+        self.enable_context_routing = True  # 컨텍스트 라우팅 활성화
     
     def _create_workflow(self) -> CompiledStateGraph:
         """LangGraph 워크플로우 생성"""
@@ -119,11 +123,21 @@ class UnifiedAgentWorkflow:
             logger.info(f"라우팅 시작: {state.request.message[:50]}...")
             state.step = "routing"
             
-            # 라우팅 실행
-            routing_decision = await self.router.route_query(state.request)
+            # 대화 히스토리 가져오기
+            conversation_id = state.request.conversation_id or 0
+            conversation_history = self.conversation_histories.get(conversation_id, [])
+            
+            # 향상된 컨텍스트 라우팅 실행
+            routing_decision = await self.router.route_query(
+                state.request, 
+                conversation_history, 
+                enable_context_routing=self.enable_context_routing
+            )
+            
             state.routing_decision = routing_decision
             
             logger.info(f"라우팅 완료: {routing_decision.agent_type} (신뢰도: {routing_decision.confidence})")
+            logger.info(f"라우팅 이유: {routing_decision.reasoning}")
             
             return {"routing_decision": routing_decision, "step": "routing_complete"}
             
@@ -237,6 +251,36 @@ class UnifiedAgentWorkflow:
             
             state.final_response = final_response
             
+            # 대화 히스토리에 추가
+            if conversation_id not in self.conversation_histories:
+                self.conversation_histories[conversation_id] = []
+            
+            self.conversation_histories[conversation_id].append({
+                "role": "user",
+                "content": state.request.message,
+                "timestamp": time.time()
+            })
+            
+            self.conversation_histories[conversation_id].append({
+                "role": "assistant", 
+                "content": state.primary_response.response,
+                "agent_type": state.routing_decision.agent_type.value,
+                "confidence": state.primary_response.confidence,
+                "timestamp": time.time()
+            })
+            
+            # 라우터의 대화 흐름 업데이트
+            self.router.update_conversation_flow(
+                user_message=state.request.message,
+                agent_type=state.routing_decision.agent_type,
+                agent_response=state.primary_response.response,
+                routing_reasoning=state.routing_decision.reasoning
+            )
+            
+            # 히스토리 길이 제한 (최대 20개 메시지)
+            if len(self.conversation_histories[conversation_id]) > 20:
+                self.conversation_histories[conversation_id] = self.conversation_histories[conversation_id][-20:]
+            
             logger.info(f"최종 응답 생성 완료: {state.routing_decision.agent_type}")
             
             return {"final_response": final_response, "step": "complete"}
@@ -279,12 +323,44 @@ class UnifiedAgentWorkflow:
                 "routing_confidence_threshold": self.config.routing_confidence_threshold,
                 "enable_multi_agent": self.config.enable_multi_agent,
                 "max_alternative_responses": self.config.max_alternative_responses,
-                "default_agent": self.config.default_agent.value
+                "default_agent": self.config.default_agent.value,
+                "enable_context_routing": self.enable_context_routing
             },
             "agent_health": {agent.value: status for agent, status in agent_health.items()},
             "total_agents": len(self.config.agents),
-            "active_agents": sum(1 for config in self.config.agents.values() if config.enabled)
+            "active_agents": sum(1 for config in self.config.agents.values() if config.enabled),
+            "conversation_insights": self.router.get_conversation_insights(),
+            "active_conversations": len(self.conversation_histories)
         }
+    
+    # 컨텍스트 라우팅 관리 메서드들
+    def enable_context_routing_mode(self, enabled: bool = True):
+        """컨텍스트 라우팅 활성화/비활성화"""
+        self.enable_context_routing = enabled
+        logger.info(f"컨텍스트 라우팅 {'활성화' if enabled else '비활성화'}")
+    
+    def get_conversation_history(self, conversation_id: int) -> List[Dict[str, Any]]:
+        """특정 대화의 히스토리 되돌리기"""
+        return self.conversation_histories.get(conversation_id, [])
+    
+    def clear_conversation_history(self, conversation_id: int = None):
+        """대화 히스토리 삭제"""
+        if conversation_id is None:
+            # 모든 대화 히스토리 삭제
+            self.conversation_histories.clear()
+            self.router.reset_context()
+            logger.info("모든 대화 히스토리 삭제")
+        else:
+            # 특정 대화 히스토리만 삭제
+            if conversation_id in self.conversation_histories:
+                del self.conversation_histories[conversation_id]
+                # 해당 대화의 라우터 컨텍스트도 초기화 (실제로는 대화별로 관리되어야 함)
+                logger.info(f"대화 {conversation_id} 히스토리 삭제")
+    
+    def configure_routing_settings(self, **kwargs):
+        """라우팅 설정 변경 (새로운 라우터는 자동으로 최적화됨)"""
+        # 새로운 라우터는 대화 흐름 기반으로 자동 최적화되므로 별도 설정 불필요
+        logger.info("새로운 라우터는 자동으로 대화 흐름을 최적화합니다")
     
     async def cleanup(self):
         """리소스 정리"""

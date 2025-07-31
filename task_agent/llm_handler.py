@@ -30,34 +30,54 @@ class TaskAgentLLMHandler:
         self.llm_manager = get_llm_manager()
         
         # Task Agent 전용 설정
-        self.default_provider = "gemini" if self.llm_manager.models.get("gemini") else "openai"
+        self.default_provider = "openai"
         
         logger.info(f"Task Agent LLM 핸들러 초기화 완료 (기본 프로바이더: {self.default_provider})")
 
-    async def analyze_intent(self, message: str, persona: PersonaType, 
-                           conversation_history: List[Dict] = None) -> Dict[str, Any]:
+    from typing import Union
+
+    async def analyze_intent(self, message: str, persona: Union[str, PersonaType], 
+                       conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """사용자 의도 분석"""
         try:
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
+            # persona를 문자열로 변환
+            persona_str = persona.value if hasattr(persona, 'value') else str(persona)
+            
+            # 직접 LangChain으로 LLM 호출
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import SystemMessage, HumanMessage
+            from langchain_core.output_parsers import JsonOutputParser
+            from shared_modules.env_config import get_config
+            
+            config = get_config()
+            
+            # ChatOpenAI 인스턴스 생성
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0.1,
+                api_key=config.OPENAI_API_KEY
+            )
+            
+            # JSON 파서 설정
+            json_parser = JsonOutputParser()
+            
             # 메시지 구성
             messages = [
-                {"role": "system", "content": prompt_manager.get_intent_analysis_prompt()},
-                {"role": "user", "content": f"""
-                페르소나: {persona.value}
+                SystemMessage(content=prompt_manager.get_intent_analysis_prompt()),
+                HumanMessage(content=f"""
+                페르소나: {persona_str}
                 대화 히스토리: {history_context}
                 현재 메시지: {message}
-                """}
+                """)
             ]
-
-            # 공통 LLM 매니저를 통한 응답 생성
-            result = await self.llm_manager.generate_response(
-                messages=messages,
-                provider=self.default_provider,
-                output_format="json"
-            )
-
+            
+            # 체인 구성 및 실행
+            chain = llm | json_parser
+            result = await chain.ainvoke(messages)
+            
             # 결과 검증 및 기본값 설정
             if isinstance(result, dict):
                 return {
@@ -66,7 +86,7 @@ class TaskAgentLLMHandler:
                     "confidence": result.get("confidence", 0.5)
                 }
             
-            # JSON 파싱 시도
+            # JSON 파싱 시도 (결과가 문자열인 경우)
             try:
                 parsed_result = json.loads(str(result))
                 return {
@@ -155,45 +175,120 @@ class TaskAgentLLMHandler:
 
 
     async def extract_information(self, message: str, extraction_type: str, 
-                                conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
-        """정보 추출 (일정, 이메일, SNS 등)"""
+                        conversation_history: List[Dict] = None) -> Optional[Dict[str, Any]]:
+        """정보 추출 (일정, 이메일, SNS 등) - 단일/다중 지원"""
         try:
             # 히스토리 컨텍스트 구성
             history_context = self._format_history(conversation_history) if conversation_history else ""
             
-            messages = [
-                {"role": "system", "content": prompt_manager.get_information_extraction_prompt(extraction_type)},
-                {"role": "user", "content": f"""
-                대화 히스토리: {history_context}
-                현재 메시지: {message}
-                현재 시간: {self._get_current_time()}
-                """}
-            ]
+            # 시스템 프롬프트 가져오기
+            system_prompt = prompt_manager.get_information_extraction_prompt(extraction_type)
+            
+            # 명확한 JSON 응답 지시 추가
+            enhanced_system_prompt = f"""{system_prompt}
 
-            result = await self.llm_manager.generate_response(
-                messages=messages,
-                provider=self.default_provider,
-                output_format="json"
+    중요: 반드시 유효한 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.
+    정보가 부족하거나 추출할 수 없는 경우 null을 반환하세요."""
+            
+            # 사용자 메시지 구성 (system_prompt 중복 제거)
+            user_content = f"""
+            대화 히스토리: {history_context}
+            현재 메시지: {message}
+            현재 시간: {self._get_current_time()}
+
+            위 정보를 바탕으로 {extraction_type} 정보를 추출해주세요.
+            """
+            
+            # OpenAI API 직접 호출
+            import openai
+            from shared_modules.env_config import get_config
+            
+            config = get_config()
+            
+            # API 키 확인
+            if not config.OPENAI_API_KEY:
+                logger.error("OpenAI API 키가 설정되지 않았습니다.")
+                return None
+                
+            client = openai.AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": enhanced_system_prompt},
+                    {"role": "user", "content": user_content.strip()}
+                ],
+                temperature=0.1,
+                max_tokens=1000,
+                response_format={"type": "json_object"}  # JSON 응답 강제
             )
-
-            # 결과 검증
-            if isinstance(result, dict):
-                if self._validate_extraction(result, extraction_type):
-                    return result
             
-            # JSON 파싱 시도
+            # 응답 검증
+            if not response or not response.choices:
+                logger.error("OpenAI API 응답이 비어있습니다.")
+                return None
+                
+            if not response.choices[0] or not response.choices[0].message:
+                logger.error("OpenAI API 응답 구조가 올바르지 않습니다.")
+                return None
+                
+            result_content = response.choices[0].message.content
+            
+            # content가 None인 경우 처리
+            if result_content is None:
+                logger.error("OpenAI API에서 content가 None을 반환했습니다.")
+                return None
+                
+            # 빈 문자열 처리
+            if not result_content.strip():
+                logger.error("OpenAI API에서 빈 응답을 반환했습니다.")
+                return None
+            
+            # JSON 파싱
             try:
-                parsed_result = json.loads(str(result))
-                if self._validate_extraction(parsed_result, extraction_type):
-                    return parsed_result
-            except json.JSONDecodeError:
-                pass
+                import json
+                parsed_result = json.loads(result_content)
+                return parsed_result
+                # 검증
+                # if self._validate_multiple_extraction(parsed_result, extraction_type):
+                #     return parsed_result
+                # else:
+                #     logger.warning(f"추출된 정보가 검증을 통과하지 못했습니다: {parsed_result}")
+                #     return None
+                    
+            except json.JSONDecodeError as json_error:
+                logger.error(f"JSON 파싱 실패: {json_error}, 응답: {result_content}")
+                return None
             
+        except openai.APIError as api_error:
+            logger.error(f"OpenAI API 오류: {api_error}")
             return None
-
+        except openai.RateLimitError as rate_error:
+            logger.error(f"OpenAI API 요청 한도 초과: {rate_error}")
+            return None
         except Exception as e:
             logger.error(f"정보 추출 실패 ({extraction_type}): {e}")
             return None
+
+    def _validate_multiple_extraction(self, data: Dict[str, Any], extraction_type: str) -> bool:
+        """다중 추출된 정보 검증"""
+        if extraction_type == "schedule":
+            schedules = data.get("schedules", [])
+            if not isinstance(schedules, list) or not schedules:
+                return False
+            # 각 일정이 필수 필드를 가지고 있는지 확인
+            return all(schedule.get("title") and schedule.get("start_time") for schedule in schedules)
+        elif extraction_type == "email":
+            emails = data.get("emails", [])
+            if not isinstance(emails, list) or not emails:
+                return False
+            return all(email.get("to_emails") and email.get("subject") and email.get("body") for email in emails)
+        elif extraction_type == "sns":
+            posts = data.get("posts", [])
+            if not isinstance(posts, list) or not posts:
+                return False
+            return all(post.get("platform") and post.get("content") for post in posts)
+        return True
 
     def _format_history(self, conversation_history: List[Dict]) -> str:
         """대화 히스토리 포맷팅"""
@@ -244,9 +339,11 @@ class TaskAgentLLMHandler:
             "confidence": 0.3
         }
 
-    def _fallback_response(self, persona: PersonaType) -> str:
+    def _fallback_response(self, persona) -> str:
         """백업 응답"""
-        return f"{persona.value}를 위한 맞춤 조언을 준비하고 있습니다. 좀 더 구체적으로 말씀해주시면 더 정확한 도움을 드릴 수 있습니다."
+        # persona를 안전하게 문자열로 변환
+        persona_str = persona.value if hasattr(persona, 'value') else str(persona)
+        return f"{persona_str}를 위한 맞춤 조언을 준비하고 있습니다. 좀 더 구체적으로 말씀해주시면 더 정확한 도움을 드릴 수 있습니다."
 
     def get_status(self) -> Dict[str, Any]:
         """LLM 핸들러 상태 반환"""
@@ -264,6 +361,3 @@ class TaskAgentLLMHandler:
         """LLM 연결 테스트"""
         return self.llm_manager.test_connection()
 
-
-# 기존 코드와의 호환성을 위한 클래스 별칭
-LLMHandler = TaskAgentLLMHandler

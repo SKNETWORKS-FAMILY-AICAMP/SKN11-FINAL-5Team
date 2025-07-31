@@ -36,13 +36,14 @@ class TaskAgentRAGManager:
         
         logger.info("Task Agent RAG 매니저 초기화 완료")
         
-    async def search_knowledge(self, query: str, persona: PersonaType, 
+    async def search_knowledge(self, query: str, persona, 
                              topic: Optional[str] = None) -> SearchResult:
         """지식 베이스 검색"""
         try:
             # 메타데이터 필터 구성
+            persona_str = persona.value if hasattr(persona, 'value') else str(persona)
             filter_dict = {
-                "persona": persona.value
+                "persona": persona_str
             }
             
             if topic:
@@ -167,10 +168,12 @@ class TaskAgentRAGManager:
             logger.error(f"자동화 예제 검색 실패: {e}")
             return []
     
-    async def add_knowledge(self, content: str, persona: PersonaType, 
-                          topic: str, source: str = "manual") -> bool:
+    async def add_knowledge(self, content: str, persona, 
+                      topic: str, source: str = "manual") -> bool:
         """지식 추가"""
         try:
+            persona_str = persona.value if hasattr(persona, 'value') else str(persona)
+            
             # 문서를 청크로 분할
             chunks = self._split_content(content)
             
@@ -195,7 +198,7 @@ class TaskAgentRAGManager:
             )
             
             if success:
-                logger.info(f"지식 추가 완료: {len(chunks)} chunks, 페르소나: {persona.value}, 주제: {topic}")
+                logger.info(f"지식 추가 완료: {len(chunks)} chunks, 페르소나: {persona_str}, 주제: {topic}")
             
             return success
             
@@ -312,6 +315,3 @@ class TaskAgentRAGManager:
             "collection_stats": self.get_collection_stats()
         }
 
-
-# 기존 코드와의 호환성을 위한 클래스 별칭
-RAGManager = TaskAgentRAGManager

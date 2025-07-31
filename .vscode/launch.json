@@ -2,13 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/unified_agent_system/.env"
+    },
+    {
       "name": "🧠 Unified Agent System",
       "type": "debugpy",
       "request": "launch",
       "module": "main",
       "cwd": "${workspaceFolder}/unified_agent_system",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "💼 Business Planning Agent (8001)",
@@ -17,13 +26,20 @@
       "module": "uvicorn",
       "args": [
         "business_planning:app",
-        "--host", "0.0.0.0",
-        "--port", "8001",
-        "--reload"
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/buisness_planning_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "🤝 Customer Service Agent (8002)",
@@ -32,13 +48,20 @@
       "module": "uvicorn",
       "args": [
         "main:app",
-        "--host", "0.0.0.0",
-        "--port", "8002",
-        "--reload"
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002",
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/customer_service_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "📢 Marketing Agent (8003)",
@@ -46,14 +69,21 @@
       "request": "launch",
       "module": "uvicorn",
       "args": [
-        "rag:app",
-        "--host", "0.0.0.0",
-        "--port", "8003",
-        "--reload"
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8003",
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/marketing_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "🧠 Mental Agent (8004)",
@@ -61,14 +91,21 @@
       "request": "launch",
       "module": "uvicorn",
       "args": [
-        "main:app",
-        "--host", "0.0.0.0",
-        "--port", "8004",
-        "--reload"
+        "mental_agent.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8004",
+        "--reload",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
-      "cwd": "${workspaceFolder}/mental_agent",
+      "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     },
     {
       "name": "⚡ Task Automation Agent (8005)",
@@ -77,13 +114,22 @@
       "module": "uvicorn",
       "args": [
         "main:app",
-        "--host", "0.0.0.0",
-        "--port", "8005",
-        "--reload"
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8005",
+        "--reload",
+        "--ssl-keyfile", "./localhost-key.pem",
+        "--ssl-certfile", "./localhost.pem",
+        "--log-level",
+        "debug",
+        "--access-log",
+        "--use-colors"
       ],
       "cwd": "${workspaceFolder}/task_agent",
       "envFile": "${workspaceFolder}/unified_agent_system/.env",
-      "justMyCode": false
+      "justMyCode": false,
+      "console": "integratedTerminal"
     }
   ],
   "compounds": [

@@ -12,6 +12,8 @@ from .queries import *
 from .logging_utils import *  # 추가
 from .utils import *          # 추가
 from .standard_responses import *  # 표준 응답 구조 추가
+from .project_utils import *  # 🔥 프로젝트 자동 저장 유틸리티 추가
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "SKN Team"
+__description__ = "공통 모듈 - 프로젝트 자동 저장 기능 포함"

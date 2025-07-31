@@ -77,7 +77,7 @@ export const agentApi = {
     }
   },
 
-  sendQuery: async (userId: number, conversationId: number, message: string, agentType: string = 'unified_agent') => {
+  sendQuery: async (userId: number, conversationId: number, message: string, agentType: string = 'unified_agent',projectId: number | null) => {
     try {
       const response = await fetch(`${API_BASE_URL}/query`, {
         method: 'POST',

@@ -6,11 +6,16 @@ import asyncio
 import time
 import logging
 import httpx
+import certifi
+
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
+from sqlalchemy.orm import Session
 
 from .models import AgentType, AgentResponse, UnifiedRequest
 from .config import get_system_config
+from shared_modules.database import DatabaseManager
+from shared_modules.queries import get_user_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +26,23 @@ class BaseAgentWrapper(ABC):
     def __init__(self, agent_type: AgentType):
         self.agent_type = agent_type
         self.config = get_system_config().agents[agent_type]
-        self.client = httpx.AsyncClient(timeout=self.config.timeout)
+        self.client = httpx.AsyncClient(
+            timeout=self.config.timeout,
+            verify=False
+        )
+        self.db_manager = DatabaseManager()
+    
+    def _get_user_persona(self, user_id: int) -> str:
+        """사용자 ID로부터 persona(business_type) 가져오기"""
+        try:
+            with self.db_manager.get_session() as db:
+                user = get_user_by_id(db, user_id)
+                if user and user.business_type:
+                    return user.business_type
+                return "common"  # 기본값
+        except Exception as e:
+            logger.warning(f"사용자 persona 조회 실패 (user_id: {user_id}): {e}")
+            return "common"  # 에러 시 기본값
     
     @abstractmethod
     async def process_request(self, request: UnifiedRequest) -> AgentResponse:
@@ -94,12 +115,15 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 사용자별 persona 가져오기
+            user_persona = self._get_user_persona(request.user_id)
+            
             # 비즈니스 플래닝 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "common"  # 기본 페르소나 설정
+                "persona": user_persona  # DB에서 가져온 persona 사용
             }
             
             result = await self._make_request(payload)
@@ -115,7 +139,8 @@ class BusinessPlanningAgentWrapper(BaseAgentWrapper):
                     "topics": result.get("topics", []),
                     "type": result.get("type", "general"),
                     "title": result.get("title", ""),
-                    "content": result.get("content", "")
+                    "content": result.get("content", ""),
+                    "persona": user_persona  # 사용된 persona 정보 추가
                 },
                 processing_time=processing_time
             )
@@ -140,12 +165,15 @@ class CustomerServiceAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 사용자별 persona 가져오기
+            user_persona = self._get_user_persona(request.user_id)
+            
             # 고객 서비스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "common"  # 기본 페르소나 설정
+                "persona": user_persona  # DB에서 가져온 persona 사용
             }
             
             result = await self._make_request(payload)
@@ -184,12 +212,15 @@ class MarketingAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 사용자별 persona 가져오기
+            user_persona = self._get_user_persona(request.user_id)
+            
             # 마케팅 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "common"  # 기본 페르소나 설정
+                "persona": user_persona
             }
             
             result = await self._make_request(payload)
@@ -205,7 +236,8 @@ class MarketingAgentWrapper(BaseAgentWrapper):
                     "topics": result.get("topics", []),
                     "conversation_id": result.get("conversation_id"),
                     "templates": result.get("templates", []),
-                    "debug_info": result.get("debug_info", {})
+                    "debug_info": result.get("debug_info", {}),
+                    "show_posting_modal": result.get("metadata", {}).get("show_posting_modal", False)
                 },
                 processing_time=processing_time
             )
@@ -230,12 +262,15 @@ class MentalHealthAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 사용자별 persona 가져오기
+            user_persona = self._get_user_persona(request.user_id)
+            
             # 멘탈 헬스 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "common"  # 기본 페르소나 설정
+                "persona": user_persona  # DB에서 가져온 persona 사용
             }
             
             result = await self._make_request(payload)
@@ -276,12 +311,15 @@ class TaskAutomationAgentWrapper(BaseAgentWrapper):
         start_time = time.time()
         
         try:
+            # 사용자별 persona 가져오기
+            user_persona = self._get_user_persona(request.user_id)
+            
             # 업무 자동화 에이전트 API 형식에 맞게 변환
             payload = {
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": "common"  # 기본 페르소나 설정
+                "persona": user_persona  # DB에서 가져온 persona 사용
             }
             
             result = await self._make_request(payload)

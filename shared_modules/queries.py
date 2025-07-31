@@ -9,6 +9,9 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import bindparam, text
 from shared_modules.database import DatabaseManager
+from typing import Optional, List
+from sqlalchemy import or_
+from task_agent.models import TaskTypeEnum
 
 # SQLAlchemy 충돌 방지를 위해 fully qualified import 사용
 import shared_modules.db_models as db_models
@@ -19,11 +22,26 @@ logger = logging.getLogger(__name__)
 # -------------------
 # User 관련 함수 (새 DDL 스키마 적용)
 # -------------------
+# queries.py의 create_user_social 함수를 다음과 같이 수정하세요:
+
 def create_user_social(db: Session, provider: str, social_id: str, email: str, 
-                      nickname: str = "", access_token: str = "", refresh_token: str = None,
-                      admin: bool = False, experience: bool = False, business_type: str = None):
-    """소셜 로그인 사용자 생성 (새 DDL 스키마)"""
+                      nickname: str = "", 
+                      access_token: str = "", 
+                      refresh_token: str = None,
+                      business_type: str = None,
+                      experience: int =None,
+                      admin: bool = False):
+    """소셜 로그인 사용자 생성 (새 DDL 스키마) - 파라미터 순서 수정"""
     try:
+        # 🔍 디버깅 로그 추가
+        logger.info(f"create_user_social 함수 호출:")
+        logger.info(f"  - provider: {provider}")
+        logger.info(f"  - social_id: {social_id}")
+        logger.info(f"  - email: {email}")
+        logger.info(f"  - nickname: {nickname}")
+        logger.info(f"  - business_type: {business_type}")
+        logger.info(f"  - experience: {experience}")
+        
         user = db_models.User(
             email=email,
             nickname=nickname or email.split('@')[0],
@@ -31,14 +49,24 @@ def create_user_social(db: Session, provider: str, social_id: str, email: str,
             provider=provider,
             social_id=social_id,
             admin=admin,
-            experience=experience,
+            experience=experience,  # 🔧 이 필드가 제대로 설정되도록 수정
             access_token=access_token,
             refresh_token=refresh_token
         )
+        
         db.add(user)
         db.commit()
         db.refresh(user)
+        
+        # 🔍 생성 후 확인 로그
+        logger.info(f"사용자 생성 완료:")
+        logger.info(f"  - user_id: {user.user_id}")
+        logger.info(f"  - nickname: {user.nickname}")
+        logger.info(f"  - business_type: {user.business_type}")
+        logger.info(f"  - experience: {user.experience}")
+        
         return user
+        
     except Exception as e:
         logger.error(f"[create_user_social 오류] {e}", exc_info=True)
         db.rollback()
@@ -84,7 +112,7 @@ def update_user_tokens(db: Session, user_id: int, access_token: str, refresh_tok
         db.rollback()
         return False
 
-def update_user_experience(db: Session, user_id: int, experience: bool) -> bool:
+def update_user_experience(db: Session, user_id: int, experience: int) -> bool:
     """사용자 경험 여부 업데이트"""
     try:
         user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
@@ -171,6 +199,13 @@ def ensure_test_user(db: Session, user_id: int):
         if user:
             logger.info(f"[ensure_test_user] 사용자 존재: {user.email}")
             return user
+            
+        # 이메일로 조회
+        email = f"test_user_{user_id}@example.com"
+        user = db.query(db_models.User).filter(db_models.User.email == email).first()
+        if user:
+            logger.info(f"[ensure_test_user] 이메일로 사용자 찾음: {email}")
+            return user
         
         # 테스트 사용자 생성
         logger.warning(f"[ensure_test_user] 사용자 ID {user_id} 없음. 테스트 사용자 생성 중...")
@@ -182,7 +217,7 @@ def ensure_test_user(db: Session, user_id: int):
             provider="local",
             social_id=f"test_{user_id}",
             admin=False,
-            experience=False,
+            experience=0,
             access_token=f"test_token_{user_id}",
             refresh_token=None
         )
@@ -288,14 +323,26 @@ def end_conversation(db: Session, conversation_id: int) -> bool:
 # Message 관련 함수 (DDL sender_type 제약조건 적용)
 # -------------------
 def create_message(db: Session, conversation_id: int, sender_type: str, agent_type: str, content: str):
-    """메시지 생성 (DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
+    """메시지 생성 (중복 방지 + DDL 제약조건: sender_type은 'USER' 또는 'AGENT')"""
     try:
         # sender_type을 DDL 제약조건에 맞게 변환
         if sender_type.lower() == 'user':
             sender_type = 'USER'
         elif sender_type.lower() == 'agent':
             sender_type = 'AGENT'
-        
+
+        # **중복 메시지 방지 로직**
+        last_msg = (
+            db.query(db_models.Message)
+            .filter(db_models.Message.conversation_id == conversation_id)
+            .order_by(db_models.Message.created_at.desc())
+            .first()
+        )
+        if last_msg and last_msg.content == content and last_msg.sender_type == sender_type:
+            logger.info(f"[create_message] 중복 메시지 감지: {content[:30]}...")
+            return last_msg
+
+        # 새로운 메시지 생성
         msg = db_models.Message(
             conversation_id=conversation_id,
             sender_type=sender_type,
@@ -310,6 +357,7 @@ def create_message(db: Session, conversation_id: int, sender_type: str, agent_ty
         logger.error(f"[create_message 오류] {e}", exc_info=True)
         db.rollback()
         return None
+
 
 def get_conversation_messages(db: Session, conversation_id: int, limit: int = 100, offset: int = 0):
     try:
@@ -472,6 +520,14 @@ def get_user_reports(db: Session, user_id: int, report_type: str = None, limit: 
         logger.error(f"[get_user_reports 오류] {e}", exc_info=True)
         return []
 
+def get_report_by_id(db: Session, report_id: int):
+    """단일 리포트 조회"""
+    try:
+        return db.query(db_models.Report).filter(db_models.Report.report_id == report_id).first()
+    except Exception as e:
+        logger.error(f"[get_report_by_id 오류] {e}", exc_info=True)
+        return None
+    
 # -------------------
 # Subscription 관련 함수 (새로 추가)
 # -------------------
@@ -557,18 +613,23 @@ def create_template_message(db: Session, user_id: int, template_type: str, chann
         db.rollback()
         return None
 
-def get_templates_by_user(db: Session, user_id: int, template_type: str = None, channel_type: str = None):
-    """사용자별 템플릿 조회"""
-    try:
-        query = db.query(db_models.TemplateMessage).filter(db_models.TemplateMessage.user_id == user_id)
-        if template_type:
-            query = query.filter(db_models.TemplateMessage.template_type == template_type)
-        if channel_type:
-            query = query.filter(db_models.TemplateMessage.channel_type == channel_type)
-        return query.order_by(db_models.TemplateMessage.created_at.desc()).all()
-    except Exception as e:
-        logger.error(f"[get_templates_by_user 오류] {e}", exc_info=True)
-        return []
+def get_templates_by_user_and_type(db: Session,user_id: int,template_type: Optional[str] = None,
+include_public_user_id: int = 3,
+) -> List[db_models.TemplateMessage]:
+    """
+    지정 user_id + 공용 템플릿(user_id=include_public_user_id)을 함께 조회.
+    template_type == "전체" 또는 None 이면 타입 필터 없음.
+    """
+    query = db.query(db_models.TemplateMessage).filter(
+        or_(
+            db_models.TemplateMessage.user_id == include_public_user_id,
+            db_models.TemplateMessage.user_id == user_id,
+        )
+    )
+    if template_type and template_type != "전체":
+        query = query.filter(db_models.TemplateMessage.template_type == template_type)
+
+    return query.order_by(db_models.TemplateMessage.created_at.desc()).all()
 
 def get_template_by_id(db: Session, template_id: int):
     """템플릿 ID로 조회"""
@@ -618,33 +679,128 @@ def delete_template_message(db: Session, template_id: int) -> bool:
         db.rollback()
         return False
 
+        return templates[:limit]
+    
+    except Exception as e:
+        print(f"❌ 템플릿 추천 오류: {e}")
+        return []
+    
+def extract_template_keyword(text: str) -> str:
+    text_lower = text.lower()
+    mapping = {
+        "생일": "생일/기념일", 
+        "기념일": "생일/기념일",
+        "축하": "생일/기념일",
+        "리뷰": "리뷰 요청", 
+        "후기": "리뷰 요청",
+        "평가": "리뷰 요청",
+        "예약": "예약",
+        "설문": "설문 요청",
+        "감사": "구매 후 안내", 
+        "출고": "구매 후 안내", 
+        "배송": "구매 후 안내",
+        "발송": "구매 후 안내",
+        "재구매": "재구매 유도", 
+        "재방문": "재방문",
+        "다시": "재구매 유도",
+        "VIP": "고객 맞춤 메시지", 
+        "맞춤": "고객 맞춤 메시지",
+        "특별": "고객 맞춤 메시지",
+        "이벤트": "이벤트 안내", 
+        "할인": "이벤트 안내", 
+        "프로모션": "이벤트 안내",
+        "세일": "이벤트 안내"
+    }
+    for keyword, template_type in mapping.items():
+        if keyword in text_lower:
+            print(f"🎯 키워드 '{keyword}' → 템플릿 타입 '{template_type}'")
+            return template_type
+    
+    print("🔍 특정 키워드 없음 → '전체' 템플릿")
+    return "전체"
+
+# 템플릿 감지 함수
+def is_template_query(text: str) -> bool:
+    template_keywords = [
+        "템플릿", "문자", "메시지", "문구", "추천", "예시", 
+        "샘플", "양식", "포맷", "멘트", "말", "텍스트"
+    ]
+    text_lower = text.lower()
+    is_template = any(keyword in text_lower for keyword in template_keywords)
+    
+    print(f"📝 템플릿 쿼리 감지: {is_template} (입력: '{text}')")
+    return is_template
+
+# 템플릿 추천 로직
+def recommend_templates_core(query: str, limit: int = 5) -> list:
+    """템플릿 추천 로직 (공통 모듈 사용)"""
+    try:
+        keyword = extract_template_keyword(query)
+        print(f"📌 추출된 템플릿 키워드: {keyword}")
+        
+        # DB에서 템플릿 조회 (공통 모듈 사용)
+        templates = get_templates_by_type(keyword)
+        print(f"📋 조회된 템플릿 수: {len(templates)}")
+        
+        # 템플릿이 없으면 전체 템플릿에서 검색
+        if not templates and keyword != "전체":
+            print("⚠️ 특정 타입 템플릿 없음, 전체에서 검색...")
+            templates = get_templates_by_type("전체")
+        
+        # 디버깅을 위한 템플릿 정보 출력
+        for i, template in enumerate(templates[:3]):  # 처음 3개만
+            print(f"템플릿 {i+1}: {template.get('title', 'No Title')}")
+        
+        return templates[:limit]
+        
+    except Exception as e:
+        print(f"❌ 템플릿 추천 오류: {e}")
+        return []
+    
+def get_user_template_by_title(db: Session, user_id: int, title: str):
+    """사용자의 템플릿 중 제목이 일치하는 템플릿을 조회"""
+    try:
+        return db.query(db_models.TemplateMessage).filter(
+            db_models.TemplateMessage.user_id == user_id,
+            db_models.TemplateMessage.title == title
+        ).first()
+    except Exception as e:
+        logger.error(f"[get_user_template_by_title 오류] {e}", exc_info=True)
+        return None
 # -------------------
 # AutomationTask 관련 함수 (template_id FK 추가)
 # -------------------
 def create_automation_task(db: Session, user_id: int, task_type: str, title: str,
                           template_id: int = None, task_data: dict = None, 
-                          conversation_id: int = None, scheduled_at: datetime = None):
+                          conversation_id: int = None, scheduled_at: datetime = None,
+                          status: str = "PENDING"):
     """자동화 작업 생성 (status: PENDING, RUNNING, COMPLETED, FAILED)"""
     try:
+        # ✅ 문자열을 Enum으로 변환 시도
+        task_type_enum = TaskTypeEnum(task_type)
+
         task = db_models.AutomationTask(
             user_id=user_id,
             conversation_id=conversation_id,
-            task_type=task_type,
+            task_type=task_type_enum,  # ✅ Enum 인스턴스로 전달
             title=title,
             template_id=template_id,
             task_data=task_data,
-            status='PENDING',
+            status=status,
             scheduled_at=scheduled_at
         )
         db.add(task)
         db.commit()
         db.refresh(task)
         return task
+    except ValueError as ve:
+        logger.error(f"[create_automation_task Enum 변환 실패] '{task_type}'는 유효하지 않은 TaskTypeEnum 값입니다.", exc_info=True)
+        db.rollback()
+        return None
     except Exception as e:
         logger.error(f"[create_automation_task 오류] {e}", exc_info=True)
         db.rollback()
         return None
-
 def get_user_tasks(db: Session, user_id: int, status: str = None, limit: int = 50):
     try:
         query = db.query(db_models.AutomationTask).filter(db_models.AutomationTask.user_id == user_id)
@@ -700,7 +856,7 @@ def handle_db_error(e: Exception, operation: str):
 # Raw SQL 함수들 (기존 코드 호환성용)
 # -------------------
 def insert_user_raw(email: str, nickname: str, provider: str, social_id: str, 
-                   access_token: str, admin: bool = False, experience: bool = False,
+                   access_token: str, experience: int, admin: bool = False,
                    business_type: str = None, refresh_token: str = None) -> int:
     """Raw SQL을 사용한 사용자 삽입 (새 DDL 스키마)"""
     try:
@@ -925,3 +1081,50 @@ def delete_template(template_id: int) -> bool:
     except Exception as e:
         return handle_db_error(e, "delete_template") or False
 
+def get_user_tokens(db: Session, user_id: int) -> Optional[dict]:
+    """사용자 ID로 토큰 정보 조회"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user:
+            return {
+                'access_token': user.access_token,
+                'refresh_token': user.refresh_token,
+                'user_id': user.user_id,
+                'email': user.email
+            }
+        return None
+    except Exception as e:
+        logger.error(f"[get_user_tokens 오류] {e}", exc_info=True)
+        return None
+
+def check_user_token_exists(db: Session, user_id: int) -> bool:
+    """사용자의 토큰 존재 여부 확인"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if user and user.access_token:
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"[check_user_token_exists 오류] {e}", exc_info=True)
+        return False
+
+def get_user_persona_info(db: Session, user_id: int) -> dict:
+    """사용자의 페르소나 정보 조회"""
+    try:
+        user = db.query(db_models.User).filter(db_models.User.user_id == user_id).first()
+        if not user:
+            logger.warning(f"사용자 ID {user_id}를 찾을 수 없습니다")
+            return {}
+        
+        persona_info = {
+            "business_type": user.business_type,
+            "experience": user.experience,
+            "nickname": user.nickname,
+            "email": user.email
+        }
+        logger.info(f"페르소나 정보 조회 완료: user_id={user_id}, business_type={persona_info.get('business_type')}")
+        return persona_info
+        
+    except Exception as e:
+        logger.error(f"[get_user_persona_info 오류] {e}", exc_info=True)
+        return {}

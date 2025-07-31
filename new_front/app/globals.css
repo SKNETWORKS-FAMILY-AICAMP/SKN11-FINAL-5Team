@@ -92,3 +92,17 @@ body {
     @apply bg-background text-foreground;
   }
 }
+.scrollbar-hide {
+  -ms-overflow-style: none; /* IE 10+ */
+  scrollbar-width: none; /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none !important; /* Chrome, Safari */
+}
+
+/* ✅ 포커스 아웃라인 제거 */
+textarea:focus,
+textarea:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}

@@ -92,7 +92,7 @@ class AgentConfig(BaseModel):
     name: str
     description: str
     endpoint: str
-    timeout: int = Field(default=30, description="타임아웃 (초)")
+    timeout: int = Field(default=120, description="타임아웃 (초)")
     enabled: bool = Field(default=True, description="활성화 여부")
     keywords: List[str] = Field(default_factory=list, description="관련 키워드")
     confidence_threshold: float = Field(default=0.7, description="신뢰도 임계값")
@@ -113,3 +113,65 @@ class HealthCheck(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     agents: Dict[AgentType, bool] = Field(description="각 에이전트 상태")
     system_info: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TemplateUpdateRequest(BaseModel):
+    title: str
+    content: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    user_id: Optional[int] = None  # ✅ 이거 추가
+
+# ===== 공통 요청/응답 모델 =====
+
+class ConversationCreate(BaseModel):
+    user_id: int
+    title: Optional[str] = None
+    agent_type: Optional[str] = None  # ✅ 프론트에서 넘겨줌
+    
+
+class SocialLoginRequest(BaseModel):
+    provider: str
+    social_id: str
+    username: str
+    email: str
+    business_type: Optional[str] = None  # 추가
+    experience: Optional[bool] = None    # 추가
+    instagram_id: Optional[str] = None   # 이미 있지만 확실히 하기 위해
+
+class PHQ9StartRequest(BaseModel):
+    user_id: int
+    conversation_id: int
+
+class PHQ9SubmitRequest(BaseModel):
+    user_id: int
+    conversation_id: int
+    scores: List[int]
+
+class EmergencyRequest(BaseModel):
+    user_id: int
+    conversation_id: int
+    message: str
+
+class AutomationRequest(BaseModel):
+    user_id: int
+    task_type: str
+    parameters: Dict[str, Any] = {}
+
+
+class TemplateCreateRequest(BaseModel):
+    user_id: int
+    title: str
+    content: str
+    template_type: str
+    channel_type: str
+    content_type: Optional[str] = "text"
+    is_custom: bool
+    description: Optional[str] = None
+    conversation_id: Optional[int] = None
+
+class ProjectCreate(BaseModel):
+    user_id: int
+    title: str
+    description: str = ""
+    category: str = "general"

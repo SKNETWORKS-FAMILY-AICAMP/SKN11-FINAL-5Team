@@ -905,25 +905,64 @@ class PromptManager:
 
     def get_automation_classification_prompt(self) -> str:
         """자동화 분류용 프롬프트"""
-        return """
-메시지를 분석하여 자동화 작업 유형을 분류하세요.
+        return """메시지를 분석하여 자동화 작업 유형을 분류하세요.
 
-자동화 유형:
-- schedule_calendar: 일정/캘린더 등록 (미팅, 약속, 이벤트 스케줄링)
-- publish_sns: SNS 게시물 발행 (인스타그램, 페이스북, 트위터 등)
-- send_email: 이메일 발송 (자동 이메일, 마케팅 메일, 알림 메일)
-- send_reminder: 리마인더 설정 (알림, 기념일, 할 일 알림)
-- send_message: 메시지 전송 (SMS, 카카오톡, 슬랙 등)
+⚠️ 중요: 다음은 자동화가 아닙니다:
+- 단순 일정 조회/확인 요청 ("일정 알려줘", "언제 미팅이야?")
+- 일정 계획/추천 요청 ("일정짜줘", "스케줄 추천해줘")
+- 정보 제공 요청 ("어떻게 해야 해?", "방법 알려줘")
+- 상담/조언 요청 ("어떤 앱이 좋아?", "추천해줘")
+
+✅ 자동화 유형 (구체적인 실행 요청만):
+- calendar_sync: 특정 일정을 캘린더에 자동 등록
+  예: "내일 오후 2시 팀미팅 캘린더에 등록해줘", "매주 월요일 9시 회의 일정 추가해줘"
+
+- send_email: 이메일을 자동 발송
+  예: "이 내용으로 김대리에게 메일 보내줘", "고객들에게 공지메일 발송해줘"
+  
+- todo_list: Google Tasks에 할 일 등록
+  예: "할 일 목록에 '보고서 작성' 추가해줘", "내일 오전에 메모 등록해줘"
 
 자동화와 관련이 없으면 "none"을 반환하세요.
-유형명만 반환하세요 (예: "schedule_calendar" 또는 "none")
+유형명만 반환하세요 (예: "calendar_sync" 또는 "none").
 """
 
     def get_information_extraction_prompt(self, extraction_type: str) -> str:
         """정보 추출용 프롬프트"""
         prompts = {
             "schedule": """
-일정 정보를 추출하여 JSON 형태로 반환하세요:
+일정 정보를 추출하여 JSON 형태로 반환하세요 :
+단일 일정의 경우:
+{
+  "title": "일정 제목",
+  "start_time": "YYYY-MM-DDTHH:MM:SS",
+  "end_time": "YYYY-MM-DDTHH:MM:SS",
+  "description": "상세 설명",
+  "location": "장소",
+  "timezone": "Asia/Seoul",
+  "all_day": false,
+  "calendar_id": "primary",
+  "reminders": [{"method": "popup", "minutes": 15}],
+  "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO"]
+}
+
+여러 일정의 경우 schedules 배열로 반환:
+[
+  {
+    "title": "첫 번째 일정",
+    "start_time": "2024-03-15T14:00:00",
+    "end_time": "2024-03-15T15:00:00",
+    "description": "첫 번째 일정 설명",
+    "location": "회의실 A"
+  },
+  {
+    "title": "두 번째 일정",
+    "start_time": "2024-03-16T10:00:00",
+    "end_time": "2024-03-16T11:00:00",
+    "description": "두 번째 일정 설명",
+    "location": "회의실 B"
+  }
+]
 
 필수 정보:
 - title: 일정 제목 (간단명료하게)
@@ -933,94 +972,90 @@ class PromptManager:
 - end_time: 종료시간 (없으면 start_time + 1시간으로 설정)
 - description: 상세 설명 (추가 정보, 준비사항 등)
 - location: 장소 (주소, 건물명, 온라인 링크 등)
-- reminders: 알림 설정 (분 단위, 예: [15, 30, 60])
-- attendees: 참석자 (이메일 주소 배열)
-- recurring: 반복 설정 (daily, weekly, monthly, yearly)
+- timezone: 시간대 (기본값: "Asia/Seoul")
+- all_day: 종일 이벤트 여부 (true/false, 기본값: false)
+- calendar_id: 캘린더 ID (기본값: "primary")
+- reminders: 알림 설정 (배열 형태, 예: [{"method": "popup", "minutes": 15}])
+- recurrence: 반복 설정 (배열 형태, 예: ["RRULE:FREQ=WEEKLY;BYDAY=MO"])
 
 정보가 부족하거나 애매하면 null을 반환하세요.
-예시: {"title": "팀 미팅", "start_time": "2024-03-15T14:00:00", "end_time": "2024-03-15T15:00:00", "location": "회의실 A", "reminders": [15]}
 """,
             
             "email": """
-이메일 정보를 추출하여 JSON 형태로 반환하세요:
+이메일 정보를 추출하여 JSON 형태로 반환하세요 :
 
 필수 정보:
 - to_emails: 받는사람 이메일 주소 (배열 형태)
 - subject: 제목 (명확하고 간결하게)
-- body: 본문 (HTML 또는 텍스트)
+- body: 본문 (텍스트 형태)
 
 선택 정보:
-- scheduled_time: 예약 발송 시간 (YYYY-MM-DDTHH:MM:SS)
+- html_body: HTML 형태의 본문
+- attachments: 첨부파일 경로 (배열 형태)
 - cc_emails: 참조 이메일 주소 (배열 형태)
 - bcc_emails: 숨은참조 이메일 주소 (배열 형태)
-- attachments: 첨부파일 경로 (배열 형태)
-- priority: 우선순위 (high, normal, low)
-- reply_to: 답장 받을 이메일 주소
+- from_email: 발신자 이메일 주소
+- from_name: 발신자 이름
+- service: 이메일 서비스 (예: "gmail", "outlook")
 
 정보가 부족하면 null을 반환하세요.
 예시: {"to_emails": ["user@example.com"], "subject": "안녕하세요", "body": "메일 내용입니다."}
 """,
-            
-            "sns": """
-SNS 발행 정보를 추출하여 JSON 형태로 반환하세요:
+      "todo_list": """
+작업 목록 정보를 추출하여 JSON 형태로 반환하세요:
+
+기본 구조:
+{
+  "title": "작업 목록 제목",
+  "tasks": [
+    {
+      "title": "작업 제목",
+      "notes": "작업 상세 설명",
+      "due": "2024-03-20T17:00:00Z"
+    }
+  ]
+}
+
+단일 작업만 있는 경우:
+{
+  "title": "새 작업 목록",
+  "tasks": [
+    {
+      "title": "작업 제목",
+      "notes": "작업 상세 설명",
+      "due": "2024-03-20T17:00:00Z"
+    }
+  ]
+}
+
+여러 작업이 있는 경우:
+{
+  "title": "프로젝트 작업 목록",
+  "tasks": [
+    {
+      "title": "첫 번째 작업",
+      "notes": "첫 번째 작업 설명",
+      "due": "2024-03-20T17:00:00Z"
+    },
+    {
+      "title": "두 번째 작업",
+      "notes": "두 번째 작업 설명",
+      "due": "2024-03-21T17:00:00Z"
+    }
+  ]
+}
 
 필수 정보:
-- platform: SNS 플랫폼 (instagram, facebook, twitter, linkedin, youtube 등)
-- content: 게시물 내용 (텍스트, 캡션)
+- title: 작업 목록 제목 (사용자 입력 내용을 분석하여 적절한 제목을 자동 생성하세요. 예: "회의 준비 작업", "프로젝트 마무리", "일일 업무" 등)
+- tasks: 작업 배열
+  - title: 각 작업의 제목 (필수)
 
 선택 정보:
-- scheduled_time: 예약 발행 시간 (YYYY-MM-DDTHH:MM:SS)
-- hashtags: 해시태그 (# 없이 배열로, 예: ["마케팅", "소셜미디어"])
-- image_urls: 이미지 URL (배열 형태)
-- video_url: 동영상 URL
-- link_url: 링크 URL
-- target_audience: 타겟 오디언스 설정
-- location: 위치 태그
+- tasks 내 각 작업의:
+  - notes: 작업 상세 설명
+  - due: 마감일 (ISO 8601 형식: YYYY-MM-DDTHH:MM:SSZ)
 
-정보가 부족하면 null을 반환하세요.
-예시: {"platform": "instagram", "content": "새로운 제품 출시!", "hashtags": ["신제품", "런칭"], "scheduled_time": "2024-03-15T10:00:00"}
-""",
-            
-            "reminder": """
-리마인더 정보를 추출하여 JSON 형태로 반환하세요:
-
-필수 정보:
-- title: 리마인더 제목
-- remind_time: 알림 시간 (YYYY-MM-DDTHH:MM:SS)
-
-선택 정보:
-- description: 상세 설명
-- repeat: 반복 설정 (once, daily, weekly, monthly, yearly)
-- priority: 우선순위 (high, medium, low)
-- category: 카테고리 (work, personal, health, finance 등)
-- action_required: 필요한 조치사항
-- contact_info: 관련 연락처
-
-정보가 부족하면 null을 반환하세요.
-예시: {"title": "의사 예약", "remind_time": "2024-03-15T09:00:00", "description": "정기 검진 예약", "category": "health"}
-""",
-            
-            "message": """
-메시지 발송 정보를 추출하여 JSON 형태로 반환하세요:
-
-필수 정보:
-- platform: 메시지 플랫폼 (sms, kakao, slack, telegram, whatsapp 등)
-- recipients: 받는사람 (전화번호, ID, 이메일 등)
-- message: 메시지 내용
-
-선택 정보:
-- scheduled_time: 예약 발송 시간 (YYYY-MM-DDTHH:MM:SS)
-- message_type: 메시지 유형 (text, image, file, location)
-- attachments: 첨부파일 (이미지, 파일 등)
-- group_name: 그룹 대화명 (그룹 메시지인 경우)
-- urgent: 긴급 여부 (true/false)
-
-정보가 부족하면 null을 반환하세요.
-예시: {"platform": "sms", "recipients": ["010-1234-5678"], "message": "안녕하세요! 확인 부탁드립니다."}
-"""
-        }
-        
-        return prompts.get(extraction_type, "정보를 추출하여 JSON 형태로 반환하세요.")
-
+정보가 부족하면 null을 반환하세요."""}
+        return prompts.get(extraction_type, "")
 # 전역 인스턴스
 prompt_manager = PromptManager()

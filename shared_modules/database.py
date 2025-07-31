@@ -16,6 +16,21 @@ from shared_modules.env_config import get_config
 
 logger = logging.getLogger(__name__)
 
+# 환경 변수에서 MySQL 접속 URL 가져오기
+config = get_config()
+DATABASE_URL = config.get_mysql_url()
+
+# SQLAlchemy DB 엔진 생성
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # 연결 살아있는지 체크
+    pool_recycle=3600,   # 1시간마다 연결 재사용
+    echo=False           # SQL 로그 안 찍음 (True로 하면 콘솔에 쿼리 출력됨)
+)
+
+# 세션 팩토리
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 # SQLAlchemy Base 클래스
 Base = declarative_base()
 
@@ -280,3 +295,5 @@ engine, SessionLocal = get_engine_and_session()
 
 # 기존 코드와의 호환성을 위한 함수 별칭
 get_session = get_db_session  # get_session -> get_db_session 별칭
+
+

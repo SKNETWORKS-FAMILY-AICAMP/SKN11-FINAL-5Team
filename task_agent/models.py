@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
+from pydantic import BaseModel, EmailStr, Field
+from typing import Union
 
 # 공통 모듈 경로 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
@@ -18,7 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 class PersonaType(str, Enum):
     CREATOR = "creator"
     BEAUTYSHOP = "beautyshop"
-    E_COMMERCE = "e_commerce"
+    E_COMMERCE = "ecommerce"
     SELF_EMPLOYMENT = "self_employment" 
     DEVELOPER = "developer"
     COMMON = "common"
@@ -35,11 +37,13 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 class AutomationTaskType(str, Enum):
-    SCHEDULE_CALENDAR = "schedule_calendar"
+    POST_INSTAGRAM = "sns_publish_instagram"
+    SCHEDULE_CALENDAR = "calendar_sync"
     PUBLISH_SNS = "publish_sns"
     SEND_EMAIL = "send_email"
     SEND_REMINDER = "send_reminder"
     SEND_MESSAGE = "send_message"
+    TODO_LIST = "todo_list"
 
 class AutomationStatus(str, Enum):
     PENDING = "pending"
@@ -64,16 +68,16 @@ class UrgencyLevel(str, Enum):
 
 class UserQuery(BaseModel):
     """사용자 쿼리 요청"""
-    user_id: Optional[int] = Field(..., description="사용자 ID")
+    user_id: int = Field(..., description="사용자 ID")  # Optional 제거
     conversation_id: Optional[int] = Field(None, description="대화 ID")
     message: str = Field(..., description="사용자 메시지")
-    persona: PersonaType = Field(PersonaType.COMMON, description="페르소나 타입")
+    persona: str = Field("common", description="페르소나 타입")  # str로 변경하거나 PersonaType 유지
     
     class Config:
         json_schema_extra = {
             "example": {
-                "user_id": "user123",
-                "conversation_id": "conv_abc123",
+                "user_id": 123,  # int로 변경
+                "conversation_id": 456,
                 "message": "내일 회의 일정을 예약해줘",
                 "persona": "developer"
             }
@@ -139,7 +143,7 @@ class AutomationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "user_id": 123,
-                "task_type": "schedule_calendar",
+                "task_type": "calendar_sync",
                 "title": "팀 회의 예약",
                 "task_data": {
                     "title": "개발팀 주간 회의",
@@ -282,16 +286,134 @@ class ErrorResponse(BaseModel):
             }
         }
 
-# ===== 기존 코드와의 호환성을 위한 별칭들 =====
+class EmailRequest(BaseModel):
+    to_emails: List[EmailStr]
+    subject: str
+    body: str
+    html_body: Optional[str] = None
+    attachments: Optional[List[str]] = None
+    cc_emails: Optional[List[EmailStr]] = None
+    bcc_emails: Optional[List[EmailStr]] = None
+    from_email: Optional[EmailStr] = None
+    from_name: Optional[str] = None
+    service: Optional[str] = None
 
-# # 데이터베이스 모델 별칭 (fully qualified path 사용)
-# DBUser = db_models.User
-# DBConversation = db_models.Conversation
-# DBMessage = db_models.Message
-# DBAutomationTask = db_models.AutomationTask
-# DBPHQ9Result = db_models.PHQ9Result
-# DBReport = db_models.Report
-# DBTemplateMessage = db_models.TemplateMessage
-# DBFAQ = db_models.FAQ
-# DBFeedback = db_models.Feedback
-# DBSubscription = db_models.Subscription
+
+class InstagramPostRequest(BaseModel):
+    instagram_id: str
+    access_token: str
+    image_url: str
+    caption: Optional[str] = None
+    
+# ===== Pydantic 모델들 =====
+
+class EventBase(BaseModel):
+    title: str = Field(..., description="이벤트 제목")
+    description: Optional[str] = Field("", description="이벤트 설명")
+    location: Optional[str] = Field("", description="이벤트 위치")
+    start_time: str = Field(..., description="시작 시간 (ISO 형식)")
+    end_time: Optional[str] = Field(None, description="종료 시간 (ISO 형식)")
+    timezone: Optional[str] = Field("Asia/Seoul", description="시간대")
+    all_day: Optional[bool] = Field(False, description="종일 이벤트 여부")
+
+
+class EventCreate(EventBase):
+    calendar_id: Optional[str] = Field("primary", description="캘린더 ID")
+    reminders: Optional[List[Dict[str, Any]]] = Field(
+        [{"method": "popup", "minutes": 15}], 
+        description="리마인더 설정"
+    )
+    recurrence: Optional[List[str]] = Field(None, description="반복 설정")
+
+
+class EventUpdate(EventBase):
+    title: Optional[str] = None
+    start_time: Optional[str] = None
+
+
+class EventResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str]
+    location: Optional[str]
+    start_time: str
+    end_time: str
+    calendar_id: str
+    html_link: str
+    creator: Optional[Dict[str, Any]]
+    attendees: Optional[List[Dict[str, Any]]]
+
+
+class CalendarListResponse(BaseModel):
+    calendars: List[Dict[str, Any]]
+    count: int
+
+
+class QuickEventCreate(BaseModel):
+    text: str = Field(..., description="빠른 이벤트 텍스트 (예: '내일 오후 2시에 회의')")
+    calendar_id: Optional[str] = Field("primary", description="캘린더 ID")
+    
+    
+from sqlalchemy import Column, Integer, String, Enum, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
+import enum
+from datetime import datetime
+
+Base = declarative_base()
+
+
+class TaskTypeEnum(str, enum.Enum):
+    calendar_sync = "calendar_sync"
+    reminder_notify = "reminder_notify"
+    content_generate = "content_generate"
+    sns_publish_instagram = "sns_publish_instagram"
+    sns_publish_blog = "sns_publish_blog"
+    send_email = "send_email"
+    mcp_insta = "mcp_insta"
+    mcp_blog = "mcp_blog"
+    todo_list = "todo_list"
+
+class AutomationTask(Base):
+    __tablename__ = "automation_task"
+
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    conversation_id = Column(Integer)
+    task_type = Column(Enum(TaskTypeEnum), nullable=False)
+    title = Column(String(200), nullable=False)
+    template_id = Column(Integer)
+    task_data = Column(JSON)  
+    status = Column(String(20))
+    scheduled_at = Column(DateTime)
+    executed_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AiContentSaveRequest(BaseModel):
+    user_id: int
+    task_type: TaskTypeEnum
+    title: str
+    task_data: Dict[str, Union[str, List[str], Dict]]  # ✅ 필수!
+    status: str = "PENDING"
+
+# 공통 필드 포함 모델
+class BaseContentRequest(BaseModel):
+    user_id: int
+    title: str
+    task_type: TaskTypeEnum
+    task_data: Dict[str, Union[str, List[str], Dict]]  # 해시태그나 키워드 포함
+    status: str = "PENDING"
+
+
+# 수동 작성 콘텐츠는 content 필드가 필수
+class ManualContentRequest(BaseModel):
+    user_id: int
+    title: str
+    task_type: str
+    content: str
+    platform: str
+    task_data: dict
+    status: str
+    scheduled_at: Optional[datetime] = None
+
+class GenerateContentRequest(BaseModel):
+    keyword: str

@@ -5,6 +5,13 @@
 from typing import Dict, List, Any, Optional
 import logging
 
+import os
+import sys
+
+# Add project root to Python path
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+
+# Use relative import for local modules
 from .common import get_email_manager, get_config_manager, ValidationUtils
 
 logger = logging.getLogger(__name__)
@@ -193,7 +200,7 @@ async def example_usage():
     
     # 2. 기본 이메일 발송
     result = await email_service.send_email(
-        to_emails=["user@example.com"],
+        to_emails=["hs981120@naver.com"],
         subject="테스트 이메일",
         body="안녕하세요, 테스트 이메일입니다.",
         html_body="<h1>안녕하세요</h1><p>테스트 이메일입니다.</p>"

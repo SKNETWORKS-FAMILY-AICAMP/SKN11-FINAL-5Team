@@ -42,7 +42,7 @@ class TaskAgentConfig:
         
         # 서버 설정
         self.HOST = self.base_config.HOST
-        self.PORT = 8003  # Task Agent 전용 포트
+        self.PORT = 8005  # Task Agent 전용 포트
         self.LOG_LEVEL = self.base_config.LOG_LEVEL
         
         # 캐시 설정

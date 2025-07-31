@@ -146,7 +146,7 @@ class AutomationValidationUtils:
                 elif not AutomationValidationUtils.is_valid_teams_webhook(task_data["webhook_url"]):
                     warnings.append("Teams 웹훅 URL 형식을 확인해주세요")
                     
-        elif task_type == "schedule_calendar":
+        elif task_type == "calendar_sync":
             # 캘린더 일정 데이터 검증
             if not task_data.get("title"):
                 errors.append("일정 제목이 필요합니다")
@@ -161,24 +161,7 @@ class AutomationValidationUtils:
                         AutomationDateTimeUtils.parse_datetime(start_time)
                     except:
                         errors.append("시작 시간 형식이 올바르지 않습니다")
-        
-        elif task_type == "publish_sns":
-            # SNS 게시 데이터 검증
-            if not task_data.get("platform"):
-                errors.append("SNS 플랫폼이 필요합니다")
-            
-            if not task_data.get("content"):
-                errors.append("게시 내용이 필요합니다")
-            
-            # 플랫폼별 글자 수 제한 확인
-            platform = task_data.get("platform", "").lower()
-            content = task_data.get("content", "")
-            
-            if platform == "twitter" and len(content) > 280:
-                warnings.append("Twitter 게시글은 280자를 초과할 수 없습니다")
-            elif platform == "instagram" and len(content) > 2200:
-                warnings.append("Instagram 게시글은 2200자를 초과하지 않는 것이 좋습니다")
-        
+
         return {
             "is_valid": len(errors) == 0,
             "errors": errors,
@@ -192,10 +175,18 @@ class AutomationDateTimeUtils:
     @staticmethod
     def parse_datetime(date_string: str) -> Optional[datetime]:
         """다양한 형식의 날짜 문자열을 datetime으로 변환"""
+        if not date_string:
+            return None
+            
+        # If it's already a datetime object, return it
+        if isinstance(date_string, datetime):
+            return date_string
+            
         formats = [
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S.%fZ",  # Added microseconds support
             "%Y-%m-%d %H:%M",
             "%Y-%m-%dT%H:%M",
             "%Y-%m-%d",
@@ -208,6 +199,14 @@ class AutomationDateTimeUtils:
             "%Y년 %m월 %d일 %H시 %M분",
             "%Y년 %m월 %d일"
         ]
+        
+        # Try ISO format parsing first
+        try:
+            # Handle ISO format with timezone
+            if 'T' in date_string:
+                return datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            pass
         
         for fmt in formats:
             try:
@@ -227,6 +226,11 @@ class AutomationDateTimeUtils:
     def format_datetime_iso(dt: datetime) -> str:
         """ISO 형식으로 날짜시간 포맷"""
         return dt.isoformat()
+    
+    @staticmethod
+    def add_time_delta(dt: datetime, **kwargs) -> datetime:
+        """datetime에 시간 간격 추가"""
+        return dt + timedelta(**kwargs)
     
     @staticmethod
     def is_business_hour(dt: datetime, start_hour: int = 9, end_hour: int = 18) -> bool:

@@ -308,7 +308,3 @@ task_cache = TaskAgentCacheManager()
 # Task Agent 전용 로거 설정
 task_logger = TaskAgentLogger.setup()
 
-# 기존 코드와의 호환성을 위한 별칭들
-Logger = TaskAgentLogger
-ResponseFormatter = TaskAgentResponseFormatter
-CacheManager = TaskAgentCacheManager

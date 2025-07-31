@@ -87,16 +87,18 @@ class EmailManager:
             sender_email = from_email or smtp_user
             sender_name = from_name or "자동 이메일 시스템"
             
-            # 메시지 생성
+            # 메시지 생성 (한글 지원)
+            from email.header import Header
+            
             message = MIMEMultipart('alternative')
-            message['From'] = formataddr((sender_name, sender_email))
+            message['From'] = formataddr((str(Header(sender_name, 'utf-8')), sender_email))
             message['To'] = ', '.join(to_emails)
-            message['Subject'] = subject
+            message['Subject'] = str(Header(subject, 'utf-8'))
             
             if cc_emails:
                 message['Cc'] = ', '.join(cc_emails)
             
-            # 본문 추가
+            # 본문 추가 (UTF-8 인코딩 명시)
             if body:
                 text_part = MIMEText(body, 'plain', 'utf-8')
                 message.attach(text_part)

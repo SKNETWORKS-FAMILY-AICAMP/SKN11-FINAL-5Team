@@ -41,6 +41,10 @@ class EnvironmentConfig:
         self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         
+        # Naver API 설정
+        self.NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+        self.NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+        
         # 벡터 데이터베이스 설정
         self.CHROMA_DIR = os.getenv("CHROMA_DIR", "/Users/comet39/SKN_PJT/SKN11-FINAL-5Team/unified_agent_system/vector_db")
         self.CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/Users/comet39/SKN_PJT/SKN11-FINAL-5Team/unified_agent_system/vector_db")
@@ -131,6 +135,10 @@ class EnvironmentConfig:
         # 필수 API 키 검증
         if not self.OPENAI_API_KEY and not self.GOOGLE_API_KEY:
             issues.append("OpenAI 또는 Google API 키가 필요합니다")
+            
+        # Naver API 설정 검증
+        if not self.NAVER_CLIENT_ID or not self.NAVER_CLIENT_SECRET:
+            warnings.append("Naver API 설정이 불완전합니다")
         
         # 데이터베이스 설정 검증
         if not self.get_mysql_url():
@@ -147,6 +155,7 @@ class EnvironmentConfig:
             "config_summary": {
                 "openai_available": bool(self.OPENAI_API_KEY),
                 "google_available": bool(self.GOOGLE_API_KEY),
+                "naver_available": bool(self.NAVER_CLIENT_ID and self.NAVER_CLIENT_SECRET),
                 "mysql_available": bool(self.get_mysql_url()),
                 "smtp_available": bool(self.SMTP_USER and self.SMTP_PASSWORD),
                 "chroma_dir": self.CHROMA_DIR
@@ -161,6 +170,7 @@ class EnvironmentConfig:
             "mysql_db": self.MYSQL_DB,
             "openai_available": bool(self.OPENAI_API_KEY),
             "google_available": bool(self.GOOGLE_API_KEY),
+            "naver_available": bool(self.NAVER_CLIENT_ID and self.NAVER_CLIENT_SECRET),
             "chroma_dir": self.CHROMA_DIR,
             "smtp_host": self.SMTP_HOST,
             "smtp_port": self.SMTP_PORT,
