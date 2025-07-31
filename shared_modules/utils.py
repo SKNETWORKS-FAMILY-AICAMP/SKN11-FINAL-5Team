@@ -6,7 +6,7 @@
 import logging
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
 from shared_modules import (
@@ -15,6 +15,13 @@ from shared_modules import (
     get_session_context
 )
 from shared_modules.db_models import TemplateMessage
+
+def utc_to_kst(utc_dt: datetime) -> datetime:
+    if utc_dt.tzinfo is None:
+        # UTC 정보가 없는 naive datetime이면 UTC로 간주
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+    kst = timezone(timedelta(hours=9))
+    return utc_dt.astimezone(kst)
 
 def get_or_create_conversation_session(user_id: int, conversation_id: int = None) -> Dict[str, Any]:
     """통일된 대화 세션 조회 또는 생성 로직"""

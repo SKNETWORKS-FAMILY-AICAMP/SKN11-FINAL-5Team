@@ -131,24 +131,48 @@ export function InstagramPostModal({
         imageUrl = uploadData.file_url;
       }
       
-      const userId = localStorage.getItem('user_id'); 
+      try {
+        const storedUser = localStorage.getItem('user');
+        const userId = storedUser ? JSON.parse(storedUser).user_id : 0;
+        if (!userId) {
+          throw new Error('로그인이 필요합니다. user_id가 없습니다.');
+        }
 
-      // Instagram 포스팅 API 호출
-      const response = await fetch('https://localhost:8005/instagram/post', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({
-          user_id: userId, // 반드시 user_id를 포함해야 함
-          caption: content,
-          image_url: imageUrl,
-        }),
-      });
+        const response = await fetch('https://localhost:8005/instagram/post', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            caption: content,
+            image_url: imageUrl,
+          }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '포스팅 실패');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || '포스팅 실패');
+        }
+
+        toast({
+          title: '포스팅 완료',
+          description: 'Instagram에 성공적으로 게시되었습니다.',
+        });
+        onClose();
+
+      } catch (error) {
+        console.error('Instagram 포스팅 오류:', error);
+        toast({
+          title: '포스팅 실패',
+          description:
+            error instanceof Error
+              ? error.message
+              : '게시 중 오류가 발생했습니다. 다시 시도해주세요.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsPosting(false);
       }
 
       toast({
@@ -156,6 +180,7 @@ export function InstagramPostModal({
         description: 'Instagram에 성공적으로 게시되었습니다.',
       });
       onClose();
+      
     } catch (error) {
       console.error('Instagram 포스팅 오류:', error);
       toast({

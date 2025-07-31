@@ -272,7 +272,7 @@ class TaskAgent:
     async def _create_google_tasklist(self, user_id: int, title: str) -> Optional[str]:
         """Google Tasks 작업 목록 생성"""
         try:
-            api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
+            api_base_url = os.getenv("TASK_AGENT_API_URL", "https://localhost:8005")
             url = f"{api_base_url}/google/tasks/lists"
             
             async with httpx.AsyncClient() as client:
@@ -300,7 +300,7 @@ class TaskAgent:
                                  notes: Optional[str] = None, due: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Google Tasks 작업 생성"""
         try:
-            api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
+            api_base_url = os.getenv("TASK_AGENT_API_URL", "https://localhost:8005")
             url = f"{api_base_url}/google/tasks"
             
             params = {

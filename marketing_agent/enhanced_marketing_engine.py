@@ -35,7 +35,7 @@ class EnhancedMarketingEngine:
         self.model = config.OPENAI_MODEL
         self.temperature = 0.7
         self.state_manager = enhanced_state_manager
-        self.task_agent_url = "http://localhost:8005"  # task_agent API URL
+        self.task_agent_url = "https://localhost:8005"  # task_agent API URL
         
         # 🔥 핵심 개선: 컨텍스트 인식 프롬프트
         self._init_context_aware_prompts()

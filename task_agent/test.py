@@ -22,7 +22,7 @@ from dataclasses import dataclass
 @dataclass
 class TestConfig:
     """테스트 설정"""
-    base_url: str = "http://localhost:8005"
+    base_url: str = "https://localhost:8005"
     user_id: int = 2
     test_calendar_id: str = "primary"
     timeout: int = 30

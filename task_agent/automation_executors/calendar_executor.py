@@ -19,7 +19,7 @@ class CalendarExecutor:
         """캘린더 실행기 초기화"""
         self.supported_providers = ["google", "outlook", "apple"]
         self.default_timezone = "Asia/Seoul"
-        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "http://localhost:8005")
+        self.api_base_url = os.getenv("TASK_AGENT_API_URL", "https://localhost:8005")
         
         logger.info("CalendarExecutor v2 초기화 완료 (실제 API 호출)")
 

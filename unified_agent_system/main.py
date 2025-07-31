@@ -1699,7 +1699,8 @@ async def mental_health_query_proxy(data: dict = Body(...)):
         logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
         return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
     
-
+from regular_subscription import router as subscription_router
+app.include_router(subscription_router, prefix="/subscription", tags=["Subscription"])
 
 if __name__ == "__main__":
     uvicorn.run(
