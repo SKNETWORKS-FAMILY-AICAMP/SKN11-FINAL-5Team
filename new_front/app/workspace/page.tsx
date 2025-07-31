@@ -414,7 +414,6 @@ export default function WorkspacePage() {
       <nav className="px-4 py-3 bg-white/90 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <Link href="/" className="flex items-center space-x-2">
-            <Image src="/placeholder.svg?height=24&width=24" alt="TinkerBell Logo" width={24} height={24} className="rounded-full" />
             <span className="text-lg font-bold text-gray-900">TinkerBell</span>
           </Link>
           <div className="flex items-center space-x-3">

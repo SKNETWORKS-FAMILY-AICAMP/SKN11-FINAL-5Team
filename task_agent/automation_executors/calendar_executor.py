@@ -9,6 +9,7 @@ import aiohttp
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import os
+import ssl
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,15 @@ class CalendarExecutor:
                         attendees_list.append(attendee)
                 api_event_data["attendees"] = attendees_list
             
+            # SSL 검증을 비활성화한 커넥터 생성
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            
             # HTTP 클라이언트로 API 호출
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=connector) as session:
                 url = f"{self.api_base_url}/events"
                 params = {"user_id": user_id}
                 

@@ -20,7 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../shared_modules"))
 class PersonaType(str, Enum):
     CREATOR = "creator"
     BEAUTYSHOP = "beautyshop"
-    E_COMMERCE = "e_commerce"
+    E_COMMERCE = "ecommerce"
     SELF_EMPLOYMENT = "self_employment" 
     DEVELOPER = "developer"
     COMMON = "common"

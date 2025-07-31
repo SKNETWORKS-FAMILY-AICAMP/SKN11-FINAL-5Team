@@ -46,9 +46,9 @@ export function useSchedule(userId: number | null) {
     }
 
     const fetchGoogleCalendarEvents = async () => {
-      const start = new Date()
-      const end = new Date()
-      end.setDate(end.getDate() + 30)
+      const now = new Date()
+      const start = new Date(now.getFullYear(), now.getMonth(), 1) // 이번 달 첫째 날
+      const end = new Date(now.getFullYear(), now.getMonth() + 3, 0) // 이번 달 마지막 날
 
       const startDate = start.toISOString().split("T")[0]
       const endDate = end.toISOString().split("T")[0]

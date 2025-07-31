@@ -220,7 +220,7 @@ class MarketingAgentWrapper(BaseAgentWrapper):
                 "user_id": request.user_id,
                 "conversation_id": request.conversation_id,
                 "message": request.message,
-                "persona": user_persona  # DB에서 가져온 persona 사용
+                "persona": user_persona
             }
             
             result = await self._make_request(payload)

@@ -210,10 +210,10 @@ class EnhancedMarketingEngine:
                     context, user_id, conversation_id, user_input
                 )
                 
-                if marketing_strategy_result.get("auto_saved"):
-                    AUTO_SAVE_AVAILABLE = False
+                # if marketing_strategy_result.get("auto_saved"):
+                #     AUTO_SAVE_AVAILABLE = False
                     # 자동 저장이 성공한 경우 바로 반환
-                    return marketing_strategy_result
+                    # return marketing_strategy_result
             
             if next_action == "create_content":
                 business_type = context.get_info_value("business_type")
@@ -426,9 +426,7 @@ class EnhancedMarketingEngine:
    - 각 아이디어에 대한 간단한 실행 팁 포함
 
 3. **자연스러운 후속 질문**
-   - 최대 1개의 질문만 (사용자 피로도 고려)
-   - 분석과 조언에서 자연스럽게 이어지는 실용적 질문
-   - 사용자가 바로 답하고 싶어질 만한 내용
+   - 추가로 필요한 정보가 있을 시 후속 질문 하나만 하기
 
 응답 형식(마크다운 활용):
 - 일반 문장은 자연스럽게 작성하되, **중요 포인트나 강조할 키워드는 `##` 헤더**로 처리
@@ -637,50 +635,80 @@ class EnhancedMarketingEngine:
             logger.info(f"마케팅 툴 실행: {tool_type}, 키워드: {keywords}")
             # context를 재할당하지 말고 별도 변수 사용
             collected_info_dict = {k: v.value for k, v in context.collected_info.items()}
-            
+            context.flags["show_posting_modal"]=False
             # from marketing_agent import mcp_marketing_tools
             from mcp_marketing_tools import MarketingAnalysisTools
             if tool_type == "instagram_post":
                 logger.info("1단계: 인스타그램 해시태그 분석")
-                # API 호출로 변경
-                async with httpx.AsyncClient() as client:
-                    hashtag_response = await client.post(
-                        "http://localhost:8003/marketing/api/v1/analysis/instagram-hashtags",
-                        json={
-                            "question": f"{','.join(keywords)} 마케팅",
-                            "hashtags": [f"#{kw}" for kw in keywords]
-                        }
-                    )
-                    hashtag_result = hashtag_response.json()
-                
-                # 3단계: 마케팅 템플릿 가져오기
-                logger.info("3단계: 마케팅 템플릿 생성")
-                # API 호출로 변경
-                async with httpx.AsyncClient() as client:
-                    template_response = await client.get(
-                        "http://localhost:8003/marketing/api/v1/templates/instagram"
-                    )
-                    template_result = template_response.json()
-                
-                # 4단계: 인스타그램 콘텐츠 생성
-                logger.info("4단계: 인스타그램 콘텐츠 생성")
-                marketing_analysis_tools = MarketingAnalysisTools()
-                generated_content = await marketing_analysis_tools._generate_instagram_content(
-                    ','.join(keywords), 
-                    keywords, 
-                    hashtag_result.get("popular_hashtags", []),
-                    template_result
-                )
-                # generated_content = await marketing_tools.create_instagram_post(keywords, collected_info_dict)
-                # generated_content = generated_content.get('full_content')
-                generated_content = generated_content.get('post_content')
-                
-                # 원본 context 객체의 flags에 접근
-                context.flags["generated_content"] = generated_content
-                context.flags["content_type"] = tool_type
-                context.flags["awaiting_instagram_post_decision"] = True
-                context.flags["show_posting_modal"] = True
-                return generated_content
+                try:
+                    # 🔥 타임아웃 설정 추가 (30초)
+                    timeout = httpx.Timeout(30.0, connect=10.0)
+                    
+                    # API 호출로 변경 - 해시태그 분석
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        logger.info("해시태그 분석 API 호출 중...")
+                        hashtag_response = await client.post(
+                            "http://localhost:8003/marketing/api/v1/analysis/instagram-hashtags",
+                            json={
+                                "question": f"{','.join(keywords)} 마케팅",
+                                "hashtags": [f"#{kw}" for kw in keywords]
+                            }
+                        )
+                        hashtag_result = hashtag_response.json()
+                        logger.info("해시태그 분석 완료")
+                    
+                    # 3단계: 마케팅 템플릿 가져오기
+                    logger.info("3단계: 마케팅 템플릿 생성")
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        logger.info("템플릿 API 호출 중...")
+                        template_response = await client.get(
+                            "http://localhost:8003/marketing/api/v1/templates/instagram"
+                        )
+                        template_result = template_response.json()
+                        logger.info("템플릿 생성 완료")
+                    
+                    # 4단계: 인스타그램 콘텐츠 생성
+                    logger.info("4단계: 인스타그램 콘텐츠 생성")
+                    marketing_analysis_tools = MarketingAnalysisTools()
+                    
+                    # 🔥 콘텐츠 생성도 타임아웃 적용
+                    try:
+                        generated_content = await asyncio.wait_for(
+                            marketing_analysis_tools._generate_instagram_content(
+                                ','.join(keywords),
+                                keywords,
+                                hashtag_result.get("popular_hashtags", []),
+                                template_result
+                            ),
+                            timeout=45.0  # 45초 타임아웃
+                        )
+                        
+                        generated_content = generated_content.get('post_content')
+                        logger.info("인스타그램 콘텐츠 생성 완료")
+                        
+                    except asyncio.TimeoutError:
+                        logger.warning("콘텐츠 생성 타임아웃, 기본 콘텐츠 사용")
+                        generated_content = f"📱 {','.join(keywords)} 마케팅 콘텐츠\n\n효과적인 마케팅 전략으로 고객과 소통해보세요!\n\n{' '.join([f'#{kw}' for kw in keywords])}"
+                    
+                    # 원본 context 객체의 flags에 접근
+                    context.flags["generated_content"] = generated_content
+                    context.flags["content_type"] = tool_type
+                    context.flags["awaiting_instagram_post_decision"] = True
+                    context.flags["show_posting_modal"] = True
+                    
+                    return generated_content
+                    
+                except httpx.TimeoutException:
+                    logger.error("API 호출 타임아웃 발생")
+                    return "⏰ 서비스가 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해주세요."
+                    
+                except httpx.RequestError as e:
+                    logger.error(f"API 호출 실패: {e}")
+                    return "🔧 서비스 연결에 문제가 발생했습니다. 네트워크 상태를 확인해주세요."
+                    
+                except Exception as e:
+                    logger.error(f"인스타그램 콘텐츠 생성 실패: {e}")
+                    return "❌ 콘텐츠 생성 중 오류가 발생했습니다. 다시 시도해주세요."
             
             elif tool_type == "blog_post":
                 # 2단계: 네이버 검색어 트렌드 분석
@@ -722,7 +750,6 @@ class EnhancedMarketingEngine:
                 blog_content = await marketing_analysis_tools._generate_blog_content(keywords, top_keywords, trend_result)
                 # generated_content = await marketing_tools.create_blog_post(keywords, collected_info_dict)
                 # generated_content = generated_content.get('full_content')
-                context.flags["show_posting_modal"]=False
                 return f"✨ 블로그 콘텐츠를 생성했습니다!\n\n{blog_content.get('full_content')}\n\n이 콘텐츠가 마음에 드시나요? 수정이 필요하면 말씀해주세요!"
             
             elif tool_type == "strategy":

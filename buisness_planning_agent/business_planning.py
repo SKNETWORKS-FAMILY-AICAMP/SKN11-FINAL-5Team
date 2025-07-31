@@ -326,13 +326,7 @@ class BusinessPlanningService:
         try:
             if topic == "idea_recommendation":
                 logger.info(f"{get_data_func} 실행")
-                result = await get_data_func(persona, user_input)
-                # get_persona_trend는 튜플 (trend_data, mcp_source)를 반환
-                if isinstance(result, tuple) and len(result) == 2:
-                    trend_data, mcp_source = result
-                else:
-                    trend_data = str(result)
-                    mcp_source = "smithery_ai/persona-trend"
+                trend_data, mcp_source = await get_data_func(persona, user_input)
                 logger.info(f"{get_data_func} 실행완료")
             elif topic == "idea_validation":
                 logger.info(f"{get_data_func} 실행")
@@ -343,10 +337,8 @@ class BusinessPlanningService:
             else:
                 raise ValueError("Unsupported topic")
         except Exception as e:
-            logger.error(f"데이터 수집 중 오류: {e}")
-            trend_data = "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
+            trend_data= "시장 데이터를 불러오지 못했습니다. 일반적인 창업 컨설팅 지식으로 답변해주세요."
             mcp_source = "fallback"
-        
         logger.info(f"trend_data type: {type(trend_data)}, value: {trend_data}")
 
         # LLM 응답 생성 (answer)
@@ -373,6 +365,7 @@ class BusinessPlanningService:
                 "next_question": next_question
             }
         }
+
     
     async def run_rag_query(
         self, conversation_id: int, user_input: str, use_retriever: bool = True, persona: str = "common"
@@ -468,24 +461,6 @@ class BusinessPlanningService:
             # 4. 프롬프트 생성
             prompt = self.build_agent_prompt(topics, user_input, persona, history, current_stage, progress, missing)
 
-            # 🔥 특별한 토픽 처리 추가
-            special_topics = ["idea_recommendation", "idea_validation"]
-            if any(topic in special_topics for topic in topics):
-                special_topic = next(topic for topic in topics if topic in special_topics)
-                next_stage = self.multi_turn.get_next_stage(current_stage)
-                
-                return await self._handle_special_topic(
-                    topic=special_topic,
-                    persona=persona,
-                    user_input=user_input,
-                    prompt=prompt,
-                    current_stage=current_stage,
-                    progress=progress,
-                    missing=missing,
-                    next_stage=next_stage,
-                    next_question=None
-                )
-
             # 5. RAG or Fallback
             if use_retriever and topics:
                 try:
@@ -537,6 +512,7 @@ class BusinessPlanningService:
         except Exception as e:
             logger.error(f"RAG 쿼리 실행 실패: {e}")
             return await self._generate_fallback_response([], user_input, self.build_agent_prompt([], user_input, persona, "", "아이디어 탐색", 0.0, []))
+
 
     async def _generate_final_business_plan(self, conversation_id: int, history: str) -> str:
         """
@@ -1131,7 +1107,57 @@ def get_report_list(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"리포트 조회 중 오류: {str(e)}")
+
+# ✅ MCP 페르소나 기반 트렌드 분석 요청 모델
+class McpPersonaTrendRequest(BaseModel):
+    persona: str = Field(..., description="사용자 페르소나 (e_commerce, developer, creator 등)")
+    query: str = Field(..., description="분석용 키워드 또는 질문")
+
+# ✅ MCP 시장 분석 요청 모델
+class McpMarketAnalysisRequest(BaseModel):
+    query: str = Field(..., description="시장 규모/경쟁사 등 자유 질문")
     
+# ✅ MCP 페르소나 트렌드 분석 API 엔드포인트
+@app.post("/mcp/persona-trend")
+async def get_mcp_persona_trend_api(request: McpPersonaTrendRequest):
+    """
+    MCP 기반 페르소나별 트렌드 데이터 조회
+    - 예: 아마존 인기 상품, 앱스토어 신규 앱, 유튜브 트렌드 등
+    """
+    try:
+        # 📡 idea_market.py의 MCP 함수 호출
+        trend, source = await get_persona_trend(request.persona, request.query)
+
+        return {
+            "success": True,
+            "trend": trend,
+            "source_type": source  # ex: "smithery_ai/amazon-product-search"
+        }
+    except Exception as e:
+        logger.error(f"[MCP PersonaTrend] 오류 발생: {e}")
+        return create_error_response("페르소나 트렌드 분석 실패", "MCP_ERROR")
+
+
+# ✅ MCP 시장 분석 API 엔드포인트
+@app.post("/mcp/market-analysis")
+async def get_mcp_market_analysis_api(request: McpMarketAnalysisRequest):
+    """
+    MCP 기반 시장 분석 API
+    - 브라이트데이터 기반 경쟁사/시장규모 분석용
+    """
+    try:
+        # 📡 idea_market.py의 get_market_analysis 호출
+        result = await get_market_analysis(request.query)
+
+        return {
+            "success": True,
+            "analysis": result,
+            "source_type": "smithery_ai/brightdata-search"
+        }
+    except Exception as e:
+        logger.error(f"[MCP MarketAnalysis] 오류 발생: {e}")
+        return create_error_response("시장 분석 실패", "MCP_ERROR")
+
 # 메인 실행
 if __name__ == "__main__":
     import uvicorn

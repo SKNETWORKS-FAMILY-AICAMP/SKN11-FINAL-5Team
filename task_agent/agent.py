@@ -209,20 +209,20 @@ class TaskAgent:
                                           conversation_history: List[Dict] = None) -> UnifiedResponse:
         """일반 상담 워크플로우 처리"""
         try:
-            # 지식 검색
-            search_result = await self.rag_service.search_knowledge(
-                query.message, query.persona, intent_analysis.get("intent")
-            )
+            # # 지식 검색
+            # search_result = await self.rag_service.search_knowledge(
+            #     query.message, query.persona, intent_analysis.get("intent")
+            # )
             
             # 응답 생성
             response_text = await self.llm_service.generate_response(
                 query.message, query.persona, intent_analysis["intent"], 
-                search_result.get("context", ""), conversation_history
+                "", conversation_history
             )
             
             # 응답 생성
             return self._create_consultation_response(
-                query, response_text, intent_analysis, search_result
+                query, response_text, intent_analysis, ""
             )
             
         except Exception as e:
@@ -915,7 +915,7 @@ class TaskAgent:
             response=response_text,
             confidence=intent_analysis.get("confidence", 0.8),
             routing_decision=routing_decision,
-            sources=search_result.get("sources", ""),
+            sources="",
             metadata={
                 "intent": intent_analysis["intent"],
                 "persona": query.persona.value if hasattr(query.persona, 'value') else str(query.persona),

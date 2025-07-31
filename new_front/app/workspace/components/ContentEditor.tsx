@@ -231,28 +231,72 @@ export function ContentEditor({
         }
         
         try {
+          // 첫 번째 이미지를 S3에 업로드 (InstagramPostModal 방식 참고)
+          let imageUrl = '';
+          if (attachedImages.length > 0) {
+            // 첫 번째 이미지의 S3 URL 사용 (이미 업로드된 상태)
+            imageUrl = attachedImages[0].s3Url || '';
+            
+            // 만약 S3 URL이 없다면 새로 업로드
+            if (!imageUrl && attachedImages[0].url) {
+              // File 객체로 변환하여 업로드 (필요시)
+              const response = await fetch(attachedImages[0].url);
+              const blob = await response.blob();
+              const file = new File([blob], attachedImages[0].name, { type: blob.type });
+              
+              const formData = new FormData();
+              formData.append('file', file);
+
+              const uploadRes = await fetch('https://localhost:8005/s3/upload', {
+                method: 'POST',
+                body: formData,
+              });
+
+              if (!uploadRes.ok) {
+                let uploadError: any = {};
+                try {
+                  uploadError = await uploadRes.json();
+                } catch {
+                  uploadError = { error: "S3 업로드 중 서버 에러" };
+                }
+                throw new Error(uploadError?.error || '이미지 업로드 실패');
+              }
+
+              const uploadData = await uploadRes.json();
+              imageUrl = uploadData.file_url;
+            }
+          }
+          
+          // 사용자 ID 가져오기 (InstagramPostModal 방식 참고)
+          const storedUser = localStorage.getItem('user');
+          const userId = storedUser ? JSON.parse(storedUser).user_id : 0;
+          if (!userId) {
+            throw new Error('로그인이 필요합니다. user_id가 없습니다.');
+          }
+          
           // Instagram 포스팅 API 호출
-          const response = await fetch('http://localhost:8000/instagram/post', {
+          const response = await fetch('https://localhost:8005/instagram/post', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              user_id: 1, // 실제 user_id로 교체 필요
+              user_id: userId,
               caption: contentForm.content,
-              image_url: imageUrls[0] // 첫 번째 이미지 사용
+              image_url: imageUrl
             }),
           })
           
-          const result = await response.json()
-          if (response.ok) {
-            alert('인스타그램에 성공적으로 게시되었습니다!')
-          } else {
-            alert(`게시 실패: ${result.error || '알 수 없는 오류'}`)
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '포스팅 실패');
           }
+          
+          alert('인스타그램에 성공적으로 게시되었습니다!')
         } catch (error) {
           console.error('Instagram 포스팅 실패:', error)
-          alert('게시 중 오류가 발생했습니다.')
+          alert(`게시 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
+          return
         }
       } else {
         alert('인스타그램 게시를 위해서는 이미지가 필요합니다.')

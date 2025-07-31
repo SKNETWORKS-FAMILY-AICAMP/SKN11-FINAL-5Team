@@ -602,13 +602,18 @@ class CustomerServiceAgentManager:
                 nickname = persona_info.get('nickname', '사장님')
                 experience = persona_info.get('experience', 0)
                 exp_level = "초보자" if experience == 0 else "경험자"
-                
-                persona_context = f"""
-    **상담 대상**: {nickname} ({business_type} 운영, {exp_level})
 
-    {business_type}을 운영하는 {exp_level} 입장에서 구체적이고 실용적인 조언을 해주세요.
-    업종 특성을 반영하고, {'기본 개념부터 쉽게 설명하며' if experience == 0 else '실무 중심의 고급 팁을 제공하고'} 실제 상황에서 바로 적용할 수 있는 방법을 제시하세요.
-    """
+
+                persona_context = ""
+                if persona_info:
+                    business_type = persona_info.get('business_type', '')
+                    experience = persona_info.get('experience', 0)
+                    
+                    persona_context = f"""
+        사용자는 {business_type} 업종에서 일하며, {'고객 관리가 처음인' if experience == 0 else '고객 관리 경험이 있는'} 상황입니다.
+        이 업종 특성에 맞는 구체적이고 실용적인 조언을 해주되, 업종을 직접적으로 언급하지 말고 자연스럽게 반영해주세요.
+        {'기본 개념부터 쉽게 설명하며' if experience == 0 else '실무 중심의 고급 팁을 제공하고'} 실제 상황에서 바로 적용할 수 있는 방법을 제시하세요.
+        """
             
             general_prompt = f"""당신은 고객 서비스 전문 컨설턴트입니다.
 
