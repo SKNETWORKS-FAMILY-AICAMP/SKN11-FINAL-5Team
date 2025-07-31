@@ -93,7 +93,7 @@ async def get_trending_amazon_products(url=amazon_url, max_results=20):
 async def get_trending_youtube_videos(
     youtube_url: str,
     region_code: str = "KR",
-    max_results: int = 10,
+    max_results: int = 15,
     category_id: int | None = None
 ) -> str:
   
@@ -299,6 +299,8 @@ async def get_persona_trend(persona: str, query: str):
     
     # developer는 한국 앱스토어 신규 인기 앱
     elif persona == "developer":
+        smithery_api_key = "056f88d0-aa2e-4ea9-8f2d-382ba74dcb07"
+        app_store_url = f"https://server.smithery.ai/@JiantaoFu/appinsightmcp/mcp?api_key={smithery_api_key}&profile=realistic-possum-fgq4Y7"
         trend=await get_trending_new_app(app_store_url)
         mcp_source="smithery_ai/appinsight"
         return trend,mcp_source

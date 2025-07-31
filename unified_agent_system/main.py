@@ -113,10 +113,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 from api.admin import router as admin_router
-
 app.include_router(admin_router, prefix="/admin")
-
 
 # ===== 공통 대화 관리 API =====
 
@@ -295,7 +294,7 @@ async def get_signup_auth_url(provider: str, request: Request, body: dict = Body
                 f"client_id={os.getenv('GOOGLE_CLIENT_ID')}&"
                 f"redirect_uri={os.getenv('GOOGLE_REDIRECT_URI')}&"
                 "response_type=code&"
-                "scope=openid email profile https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks&"
+                "scope=openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks&"
                 "access_type=offline&"
                 "prompt=consent&"
                 f"state={state}"
@@ -1700,7 +1699,8 @@ async def mental_health_query_proxy(data: dict = Body(...)):
         logger.error(f"Mental Health 쿼리 프록시 실패: {e}")
         return create_error_response("Mental Health 쿼리 실패", "MENTAL_HEALTH_PROXY_ERROR")
     
-
+from regular_subscription import router as subscription_router
+app.include_router(subscription_router, prefix="/subscription", tags=["Subscription"])
 
 if __name__ == "__main__":
     uvicorn.run(

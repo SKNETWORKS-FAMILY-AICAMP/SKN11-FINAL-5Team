@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
+# import pytz
 from shared_modules import (
     create_conversation,
     get_conversation_by_id,
@@ -435,3 +436,9 @@ class PromptTemplate:
         db.commit()
         return True
 
+# def utc_to_kst(utc_dt: datetime) -> datetime:
+#     if utc_dt.tzinfo is None:
+#         # UTC 정보가 없는 naive datetime이면 UTC로 간주
+#         utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+#     kst = timezone(timedelta(hours=9))
+#     return utc_dt.astimezone(kst)

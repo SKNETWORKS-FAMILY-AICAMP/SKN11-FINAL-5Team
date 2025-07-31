@@ -32,6 +32,7 @@ import {
   ChevronDown
 } from "lucide-react"
 
+
 interface Template {
   template_id: number
   user_id: number
@@ -54,6 +55,25 @@ export default function MyPage() {
     businessField: "",
     businessYears: "",
   })
+  const [activePlan, setActivePlan] = useState<"free" | "premium" | "enterprise">("free");
+
+  useEffect(() => {
+  const fetchPlan = async () => {
+    const storedUser = localStorage.getItem('user');
+    const userId = storedUser ? JSON.parse(storedUser).user_id : 0;
+    if (!userId) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscription/status?user_id=${userId}`);
+      const data = await res.json();
+      setActivePlan(data.plan_type || "free");
+    } catch (error) {
+      console.error("구독 상태 조회 실패:", error);
+    }
+  };
+
+  fetchPlan();
+}, []);
 
   const [templates, setTemplates] = useState<Template[]>([])
   const [filteredTemplates, setFilteredTemplates] = useState<Template[]>([])
@@ -336,6 +356,66 @@ export default function MyPage() {
       }
     }
   }, [])
+
+  const handleSubscribe = async () => {
+    const storedUser = localStorage.getItem('user');
+    const userId = storedUser ? JSON.parse(storedUser).user_id : 0;
+    if (userId == 0) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/subscription/ready`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: Number(userId),
+          plan_type: "premium",       // 선택한 플랜명
+          monthly_fee: 29000      // 요금
+        }), 
+      }); 
+
+      const data = await response.json();
+      if (data.redirect_url) {
+        window.location.href = data.redirect_url; // 카카오페이 결제 페이지로 이동
+      } else {
+        alert("결제 준비 실패: " + data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("서버 오류가 발생했습니다.");
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    const storedUser = localStorage.getItem('user');
+    const userId = storedUser ? JSON.parse(storedUser).user_id : 0;
+    if (!userId) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/subscription/cancel?user_id=${userId}`,
+        { method: "POST" }
+      );
+      const data = await response.json();
+      if (data.success) {
+        alert("구독이 취소되었습니다.");
+        setActivePlan("free");
+      } else {
+        alert("구독 취소 실패: " + data.detail);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("서버 오류가 발생했습니다.");
+    }
+  };
+
+
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-yellow-50 to-emerald-50">
@@ -715,14 +795,31 @@ export default function MyPage() {
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">현재 플랜</h3>
-                        <p className="text-sm text-gray-600">무료 플랜을 이용 중입니다</p>
+                        <p className="text-sm text-gray-600">
+                          {activePlan === "free"
+                            ? "무료 플랜을 이용 중입니다"
+                            : `${activePlan} 플랜을 이용 중입니다`}
+                        </p>
                       </div>
-                      <Badge variant="secondary">FREE</Badge>
+                      <Badge variant="secondary">
+                        {activePlan.toUpperCase()}
+                      </Badge>
                     </div>
                     <div className="space-y-2 text-sm text-gray-600">
-                      <p>• 기본 AI 상담 서비스</p>
-                      <p>• 월 10회 질문 제한</p>
-                      <p>• 커뮤니티 접근</p>
+                      {activePlan === "free" && (
+                        <>
+                          <p>• 기본 AI 상담 서비스</p>
+                          <p>• 월 10회 질문 제한</p>
+                          <p>• 커뮤니티 접근</p>
+                        </>
+                      )}
+                      {activePlan === "premium" && (
+                        <>
+                          <p>• 모든 프로 플랜 기능</p>
+                          <p>• 무제한 질문</p>
+                          <p>• 전담 컨설턴트 지원</p>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -744,8 +841,8 @@ export default function MyPage() {
                           <li>• 맞춤형 솔루션</li>
                           <li>• API 접근</li>
                         </ul>
-                        <Button variant="outline" className="w-full bg-transparent">
-                          업그레이드
+                        <Button variant="outline" className="w-full bg-transparent" onClick={activePlan === "premium" ? handleCancelSubscription : handleSubscribe}>
+                           {activePlan === "premium" ? "구독 취소" : "업그레이드"}
                         </Button>
                       </CardContent>
                     </Card>
