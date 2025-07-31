@@ -22,7 +22,7 @@ class PersonaType(str, Enum):
     BEAUTYSHOP = "beautyshop"
     E_COMMERCE = "ecommerce"
     SELF_EMPLOYMENT = "self_employment" 
-    DEVELOPER = "developer"
+    DEVELOPER = "programmer"
     COMMON = "common"
 
 class TaskPriority(str, Enum):
