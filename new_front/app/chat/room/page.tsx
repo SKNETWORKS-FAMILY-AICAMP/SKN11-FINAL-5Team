@@ -1670,6 +1670,38 @@ export default function ChatRoomPage() {
     }
   }, [agentType])
 
+
+
+  //
+   // 미리 정의된 질문-답변 매핑
+  const replies = {
+    "온라인 교육 플랫폼 사업을 시작하려고 하는데, 초기 투자비용은 얼마나 필요할까요?": `
+업로드해주신 사업기획서를 분석한 결과, 온라인 교육 플랫폼 구축을 위한 초기 투자비는 **약 500만원**으로 계획되어 있습니다.
+
+**초기 투자비 구성:**
+- 플랫폼 구축 비용 (노코드 솔루션 활용으로 비용 절감)
+- 초기 마케팅 비용
+- 강의 콘텐츠 제작 비용
+- 운영 비용
+
+노코드 플랫폼을 활용하여 개발 비용을 대폭 절감할 수 있어, 전통적인 개발 방식보다 훨씬 저렴하게 시작할 수 있습니다. 첫 해 예상 매출은 약 1억 원으로, 투자 대비 수익성이 좋은 편입니다.
+`,
+
+    "타겟 고객은 어떻게 설정했나요?": `
+사업기획서에 따르면 **20대 후반에서 40대 초반의 직장인 및 대학생**을 주요 타겟으로 설정했습니다.
+
+**타겟 고객의 특징:**
+- 직무 능력 향상에 관심이 높음
+- 자기 계발을 위한 학습 의욕이 강함
+- 온라인 강의를 선호하는 성향
+- 실용적이고 접근성이 높은 콘텐츠 수요
+- 시간적 제약으로 인한 온라인 학습 선호
+
+이 타겟층은 특히 팬데믹 이후 비대면 학습에 대한 수요가 급증한 그룹으로, 지속적인 성장 가능성이 높습니다.
+`
+  };
+  //
+
   // ===== 메시지 전송 핸들러 =====
   const handleSend = useCallback(async (e?: React.FormEvent, messageOverride?: string) => {
     if (e) e.preventDefault()
@@ -1677,6 +1709,7 @@ export default function ChatRoomPage() {
 
     const inputToSend = (messageOverride || userInput).trim()
     if (!inputToSend || !userId) return
+
 
     // 사업기획서 보기 버튼 숨기기
     setDraftContent(null)
@@ -1691,6 +1724,47 @@ export default function ChatRoomPage() {
       isComplete: true,
     }
     setMessages((prev) => [...prev, userMessage])
+
+
+    //
+    // ✅ 자동응답 처리
+    const matchedKey = Object.keys(replies).find((key) =>
+      inputToSend.includes(key.trim())
+    )
+
+    if (matchedKey) {
+      const replyText = replies[matchedKey]
+      const assistantMessage: ExtendedMessage = {
+        sender: "agent",
+        text: replyText,
+        isTyping: true,
+        isComplete: false,
+      }
+
+      setMessages((prev) => [...prev, typingMessage])
+
+      // 2. 3초 후 실제 응답으로 교체
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev.slice(0, -1), // 마지막 typing 메시지 제거
+          {
+            sender: "agent",
+            text: replyText,
+            isTyping: false,
+            isComplete: true,
+          },
+        ])
+        setIsSubmitting(false)
+        setIsLoading(false)
+        setIsGenerating(false)
+      }, 6000)
+
+      if (!messageOverride) setUserInput("")
+      return // ✅ 서버 요청 없이 종료
+    }
+
+    //
+
 
     setIsSubmitting(true)
     setIsLoading(true)
