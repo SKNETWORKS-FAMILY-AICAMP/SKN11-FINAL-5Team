@@ -1121,7 +1121,7 @@ function ChatSidebar({
   return (
     <div
       className={`${isExpanded ? "w-64" : "w-14"}
-        bg-green-50 border-r-2 border-gray-200 flex flex-col py-3 px-2
+        bg-green-50 flex flex-col py-3 px-2
         transition-all duration-300 shrink-0 fixed left-0 top-0 h-screen z-30`}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
@@ -1138,7 +1138,7 @@ function ChatSidebar({
             </h1>
             <button
               onClick={onNewChat}
-              className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-3 py-1.5 rounded-md text-sm shadow hover:shadow-lg transition"
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md text-sm shadow hover:shadow-lg transition"
             >
               새 채팅
             </button>
@@ -1148,7 +1148,7 @@ function ChatSidebar({
             <button
               onClick={onNewChat}
               title="새 채팅 시작하기"
-              className="w-9 h-9 rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 flex items-center justify-center shadow-md hover:scale-105"
+              className="w-9 h-9 rounded-lg bg-green-600 hover:bg-green-700 flex items-center justify-center shadow-md hover:scale-105"
             >
               <Image
                 src="/icons/3D_새채팅.png"
@@ -1751,7 +1751,8 @@ export default function ChatRoomPage() {
           platform: 'instagram'  
         })
       }
-            // 사업기획서 여부 확인
+
+      // 사업기획서 여부 확인
       const isFinalBusinessPlan =
         result.data.metadata?.type === "final_business_plan" ||
         (result.data.answer.includes("## 1. 창업 아이디어 요약") &&
@@ -1761,24 +1762,11 @@ export default function ChatRoomPage() {
           result.data.answer.includes("## 2. 시장 분석") &&
           result.data.answer.includes("## 3. 비즈니스 모델"))
 
-
-      // 사업기획서 여부 확인
       if (isFinalBusinessPlan) {
         setDraftContent(result.data.answer)
         localStorage.setItem("idea_validation_content", result.data.answer)
         localStorage.setItem("user_id", String(userId))
         localStorage.setItem("conversation_id", String(currentConversationId))
-
-        // 디버깅을 위한 로그 추가
-        console.log("[DEBUG] 사업기획서 감지됨:", {
-          type: result.data.metadata?.type,
-          hasRequiredSections: [
-            result.data.answer.includes("## 1. 창업 아이디어 요약"),
-            result.data.answer.includes("## 2. 시장 조사 요약"),
-            result.data.answer.includes("## 3. 비즈니스 모델")
-          ],
-          draftContentLength: result.data.answer.length
-        })
 
         // "답변 중입니다..." 메시지를 사업기획서 알림으로 교체
         setMessages((prev) => {
@@ -2327,7 +2315,7 @@ export default function ChatRoomPage() {
                 >
                   {/* 사용자 메시지 */}
                   {msg.sender === "user" ? (
-                    <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2 max-w-[80%]">
+                    <div className="flex flex-row-reverse items-end ml-auto space-x-reverse space-x-2 max-w-[80%] mr-6 ">
                       <div className="inline-block overflow-wrap-break-word p-0.5">
                         <div className="bg-green-50 px-4 py-2 rounded-2xl whitespace-pre-wrap leading-tight">
                           {msg.text}

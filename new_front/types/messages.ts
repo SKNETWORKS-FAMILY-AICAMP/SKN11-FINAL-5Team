@@ -3,13 +3,13 @@
 //   text: string
 // }
 
-// export interface ConversationMessage {
-//   message_id: number
-//   role: "user" | "assistant"
-//   content: string
-//   timestamp: string
-//   agent_type: string
-// }
+export interface ConversationMessage {
+  message_id: number
+  role: "user" | "assistant"
+  content: string
+  timestamp: string
+  agent_type: string
+}
 
 // 기존 Message 타입에 추가
 import type { MCPSourceType } from "@/components/ui/mcp-loading-indicator"
