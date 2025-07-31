@@ -1,5 +1,8 @@
 import { MCPLoadingIndicator, type MCPSourceType } from "./mcp-loading-indicator"
 
+// Re-export the type so it can be imported from this module
+export type { MCPSourceType }
+
 interface MCPChatLoadingProps {
   sourceType?: MCPSourceType
   message?: string

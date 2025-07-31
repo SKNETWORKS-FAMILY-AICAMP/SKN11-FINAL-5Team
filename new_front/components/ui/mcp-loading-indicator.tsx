@@ -4,42 +4,42 @@ import { Loader2 } from "lucide-react"
 // MCP 소스 타입별 설정
 const MCP_SOURCE_CONFIG = {
   appstore: {
-    icon: "/icons/app_store.png", // 로컬 이미지 경로로 변경
+    icon: "/icons/app_store.jpg", // App Store 아이콘이 없어서 돋보기 아이콘 사용
     label: "App Store 인기 앱 분석 중...",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
     borderColor: "border-blue-200",
   },
   amazon: {
-    icon: "/icons/amazon.png",
+    icon: "/icons/amazon.jpg", // 실제 파일 확장자로 수정
     label: "아마존 인기 상품 분석 중...",
     color: "text-orange-600",
     bgColor: "bg-orange-50",
     borderColor: "border-orange-200",
   },
   youtube: {
-    icon: "/icons/youtube.png",
+    icon: "/icons/youtube.jpg", // 실제 파일 확장자로 수정
     label: "유튜브 트렌드 분석 중...",
     color: "text-red-600",
     bgColor: "bg-red-50",
     borderColor: "border-red-200",
   },
   google_search: {
-    icon: "/icons/google.png",
+    icon: "/icons/google.jpg", // 실제 파일 확장자로 수정
     label: "구글 검색 트렌드 분석 중...",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
     borderColor: "border-blue-200",
   },
   naver_trend: {
-    icon: "/icons/naver.png",
+    icon: "/icons/naver.jpg", // 실제 파일 확장자로 수정
     label: "네이버 트렌드 분석 중...",
     color: "text-green-600",
     bgColor: "bg-green-50",
     borderColor: "border-green-200",
   },
   instagram_hashtag: {
-    icon: "/icons/instagram.png",
+    icon: "/icons/insta.jpg", // 실제 파일명으로 수정 (instagram.png → insta.jpg)
     label: "인스타그램 해시태그 분석 중...",
     color: "text-pink-600",
     bgColor: "bg-pink-50",
@@ -70,7 +70,7 @@ export function MCPLoadingIndicator({ sourceType, className = "" }: MCPLoadingIn
 
   return (
     <div
-      className={`inline-flex items-center gap-3 px-4 py-3 rounded-lg ${config.bgColor} border ${config.borderColor} w-fit ${className}`}
+      className={`inline-flex items-center gap-3 px-4 py-3 rounded-lg w-fit ${className}`}
     >
       <div className="w-6 h-6 rounded-full overflow-hidden bg-white shadow-sm flex-shrink-0">
         <Image

@@ -18,6 +18,7 @@ import remarkGfm from 'remark-gfm' // 이 패키지를 설치해야 합니다: n
 import rehypeRaw from "rehype-raw" // npm install rehype-raw --legacy-peer-deps
 import { InstagramPostModal } from "@/components/ui/InstagramPostModal"
 import { useInstagramPosting } from "@/hooks/useMarketing"
+import { MCPChatLoading, type MCPSourceType } from "@/components/ui/mcp-chat-loading"
 
 
 // ===== 타입 정의 =====
@@ -49,10 +50,53 @@ interface ExtendedMessage {
   isTyping?: boolean
   isComplete?: boolean
   showBusinessPlanButton?: boolean // 새로운 속성 추가
+  mcpSourceType?: MCPSourceType // MCP 소스 타입 추가
 }
 
 // ===== 상수 =====
 const MESSAGES_STORAGE_KEY = 'chat_messages'
+
+// ===== MCP 키워드 매핑 함수 =====
+const getMCPSourceFromKeywords = (userInput: string): MCPSourceType | null => {
+  const text = userInput.toLowerCase();
+  
+  // 키워드 패턴별로 MCP 소스 매핑
+  const keywordMappings = [
+    {
+      keywords: ['앱 개발', '어떤앱', '앱스토어', '모바일 앱', '아이폰 앱', '안드로이드 앱', '앱 아이디어'],
+      source: 'appstore' as MCPSourceType
+    },
+    {
+      keywords: ['컨텐츠 뭐', '유튜브', '영상', '동영상', '콘텐츠 제작', '크리에이터'],
+      source: 'youtube' as MCPSourceType  
+    },
+    {
+      keywords: ['창업 아이템', '아마존', '쇼핑몰', '온라인 판매', '이커머스', '상품 추천'],
+      source: 'amazon' as MCPSourceType
+    },
+    {
+      keywords: ['컨텐츠 제작해줘', '인스타그램', '인스타', '포스팅', '게시글', 'sns'],
+      source: 'instagram_hashtag' as MCPSourceType
+    },
+    {
+      keywords: ['시장조사', '네이버', '트렌드', '검색 트렌드', '키워드 분석'],
+      source: 'naver_trend' as MCPSourceType
+    },
+    {
+      keywords: ['구글 검색', '구글 트렌드', '검색량', 'google'],
+      source: 'google_search' as MCPSourceType
+    }
+  ];
+
+  // 매핑된 키워드 찾기
+  for (const mapping of keywordMappings) {
+    if (mapping.keywords.some(keyword => text.includes(keyword))) {
+      return mapping.source;
+    }
+  }
+
+  return null;
+};
 
 // const exampleQuestions = [
 //   {
@@ -1359,6 +1403,9 @@ export default function ChatRoomPage() {
   const [isGenerating, setIsGenerating] = useState(false) // 답변 생성 중 상태
   const [isStopped, setIsStopped] = useState(false) // 사용자가 정지시켰는지 여부
 
+  // ===== MCP 로딩 관련 상태 추가 =====
+  const [mcpLoading, setMcpLoading] = useState<MCPSourceType | null>(null)
+
   // ===== PHQ-9 관련 함수 =====
   const handlePHQ9Response = useCallback(async (responseValue: number) => {
     if (!userId || !conversationId || phq9Processing) return
@@ -1477,6 +1524,7 @@ export default function ChatRoomPage() {
     setIsSubmitting(false)
     setIsLoading(false)
     setIsStopped(true) // 정지 플래그 설정
+    setMcpLoading(null) // MCP 로딩도 중지
     
     // 타이핑 중인 메시지를 그 상태로 완료 처리 (현재까지 타이핑된 텍스트 유지)
     setMessages(prev => {
@@ -1684,6 +1732,10 @@ export default function ChatRoomPage() {
     // 인스타그램 포스팅 버튼 숨기기
     closePostingModal()
 
+    // 🔥 MCP 키워드 분석 추가
+    const detectedMCPSource = getMCPSourceFromKeywords(inputToSend)
+    console.log("[DEBUG] 감지된 MCP 소스:", detectedMCPSource, "입력:", inputToSend)
+
     // 사용자 메시지 먼저 표시
     const userMessage: ExtendedMessage = {
       sender: "user",
@@ -1699,14 +1751,28 @@ export default function ChatRoomPage() {
 
     if (!messageOverride) setUserInput("")
 
-    // "답변 중입니다..." 메시지 추가
-    const loadingMessage: ExtendedMessage = {
-      sender: "agent",
-      text: "",
-      isTyping: true,
-      isComplete: false,
+    // 🔥 MCP 로딩 또는 기본 로딩 메시지 추가
+    if (detectedMCPSource) {
+      setMcpLoading(detectedMCPSource)
+      // MCP 로딩 메시지 추가
+      const mcpLoadingMessage: ExtendedMessage = {
+        sender: "agent",
+        text: "",
+        isTyping: false,
+        isComplete: false,
+        mcpSourceType: detectedMCPSource
+      }
+      setMessages((prev) => [...prev, mcpLoadingMessage])
+    } else {
+      // 기본 "답변 중입니다..." 메시지 추가
+      const loadingMessage: ExtendedMessage = {
+        sender: "agent",
+        text: "",
+        isTyping: true,
+        isComplete: false,
+      }
+      setMessages((prev) => [...prev, loadingMessage])
     }
-    setMessages((prev) => [...prev, loadingMessage])
 
     // AbortController 생성
     const controller = new AbortController()
@@ -1771,7 +1837,7 @@ export default function ChatRoomPage() {
         // "답변 중입니다..." 메시지를 사업기획서 알림으로 교체
         setMessages((prev) => {
           const updated = [...prev]
-          const idx = updated.findIndex((m) => m.isTyping)
+          const idx = updated.findIndex((m) => m.isTyping || m.mcpSourceType)
           if (idx !== -1) {
             updated[idx] = { 
               sender: "agent", 
@@ -1792,10 +1858,10 @@ export default function ChatRoomPage() {
           return updated
         })
       } else {
-        // "답변 중입니다..." 메시지를 실제 응답으로 교체
+        // 로딩 메시지를 실제 응답으로 교체
         setMessages((prev) => {
           const updated = [...prev]
-          const idx = updated.findIndex((m) => m.isTyping)
+          const idx = updated.findIndex((m) => m.isTyping || m.mcpSourceType)
           if (idx !== -1) {
             updated[idx] = { sender: "agent", text: result.data.answer, isTyping: false, isComplete: false }
           } else {
@@ -1818,7 +1884,7 @@ export default function ChatRoomPage() {
 
       // 로딩 메시지 제거
       setMessages((prev) =>
-        prev.filter((msg) => !(msg.sender === "agent" && msg.isTyping))
+        prev.filter((msg) => !(msg.sender === "agent" && (msg.isTyping || msg.mcpSourceType)))
       )
 
       // 입력 복원
@@ -1828,6 +1894,7 @@ export default function ChatRoomPage() {
       setIsLoading(false)
       setIsGenerating(false) // 답변 생성 완료
       setIsStopped(false)
+      setMcpLoading(null) // MCP 로딩 상태 초기화
 
     }
   }, [userId, conversationId, initialConversationId, userInput, agentType, currentProjectId, isSubmitting, fetchChatHistory, saveGeneratedContent, closePostingModal, isStopped])
@@ -2218,7 +2285,7 @@ export default function ChatRoomPage() {
   useEffect(() => {
     // 모든 메시지가 완료되었고, 타이핑 중인 메시지가 없으면 생성 상태 해제
     const hasTypingMessage = messages.some(msg => 
-      msg.sender === "agent" && (msg.isTyping || !msg.isComplete)
+      msg.sender === "agent" && (msg.isTyping || !msg.isComplete || msg.mcpSourceType)
     )
     
     if (!hasTypingMessage && isGenerating && !isSubmitting) {
@@ -2226,6 +2293,7 @@ export default function ChatRoomPage() {
       setTimeout(() => {
         setIsGenerating(false)
         setIsLoading(false)
+        setMcpLoading(null)
       }, 200)
     }
   }, [messages, isGenerating, isSubmitting])
@@ -2337,8 +2405,14 @@ export default function ChatRoomPage() {
                         </div>
                         <div className="inline-block overflow-wrap-break-word p-0.5">
                           <div className="bg-white text-gray-800 px-4 py-3 rounded-2xl whitespace-pre-wrap leading-relaxed">
-                            {/* 로딩 중일 때 */}
-                            {msg.isTyping ? (
+                            {/* MCP 로딩 중일 때 */}
+                            {msg.mcpSourceType ? (
+                              <MCPChatLoading 
+                                sourceType={msg.mcpSourceType}
+                                message="실시간 데이터를 분석하고 있습니다..."
+                              />
+                            ) : msg.isTyping ? (
+                              /* 기본 로딩 중일 때 */
                               <TypingAnimation />
                             ) : (
                               /* 타이핑 애니메이션 또는 완성된 텍스트 */
@@ -2491,7 +2565,7 @@ export default function ChatRoomPage() {
                       </div>
 
                       {/* 피드백 버튼들 */}
-                      {msg.isComplete && !msg.isTyping && (
+                      {msg.isComplete && !msg.isTyping && !msg.mcpSourceType && (
                         <div className="flex items-center space-x-2 pl-[52px]">
                           <button
                             className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 transition-colors"
@@ -2510,7 +2584,7 @@ export default function ChatRoomPage() {
                         </div>
                       )}
                       {/* 사업 기획서 보기 버튼 - 메시지별로 표시 */}
-                      {msg.isComplete && !msg.isTyping && msg.showBusinessPlanButton && draftContent && (
+                      {msg.isComplete && !msg.isTyping && !msg.mcpSourceType && msg.showBusinessPlanButton && draftContent && (
                         <div className="flex justify-center pl-[52px] mt-3">
                           <Button
                             onClick={() => {
@@ -2532,17 +2606,6 @@ export default function ChatRoomPage() {
               <div ref={messagesEndRef} />
             </div>
           </div>
-{/* 
-          {draftContent && (
-            <div className="mt-4 flex justify-center">
-              <Button
-                onClick={() => setShowDraftPreview(true)}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                사업 기획서 보기
-              </Button>
-            </div>
-          )} */}
 
           {/* 하단 입력창 */}
           <div className="w-full max-w-3xl mx-auto bg-white p-6">
